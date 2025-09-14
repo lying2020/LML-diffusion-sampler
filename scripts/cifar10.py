@@ -2,9 +2,9 @@ import sys
 import time
 import torch
 import os
-
 import json
 import argparse
+
 sys.path.append(os.getcwd())
 from diffusers import DDPMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistepScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
@@ -16,12 +16,12 @@ def main():
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--num_inference_steps', type=int, default=20)
-    parser.add_argument('--sampler_type', type = str,default='dpm_lm', choices=[ 'pndm', 'ddim', 'dpm++', 'dpm','dpm_lm', 'unipc'])
+    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
+                        choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc'])
     parser.add_argument('--save_dir', type=str, default='./output/cifar10')
-    parser.add_argument('--model_id', type=str,
-                        default='./model/ddpm_ema_cifar10')
+    parser.add_argument('--model_id', type=str, default='./model/ddpm_ema_cifar10')
     parser.add_argument('--lamb', type=float, default=0.0008)
-    parser.add_argument('--kappa', type=float, default=0.0)
+    parser.add_argument('--kappa', type=float, default=1.0e-8)
     parser.add_argument('--dtype', type=str, default='fp32')
     parser.add_argument('--device', type=str, default='cuda')
 
