@@ -16,11 +16,11 @@ def main():
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--num_inference_steps', type=int, default=20)
-    parser.add_argument('--sampler_type', type = str,default='lag', choices=[ 'pndm', 'ddim', 'dpm++', 'dpm','dpm_lm', 'unipc'])
-    parser.add_argument('--save_dir', type=str, default='/xxx/xxx')
+    parser.add_argument('--sampler_type', type = str,default='dpm_lm', choices=[ 'pndm', 'ddim', 'dpm++', 'dpm','dpm_lm', 'unipc'])
+    parser.add_argument('--save_dir', type=str, default='./output/cifar10')
     parser.add_argument('--model_id', type=str,
-                        default='/xxx/xxx/ddpm_ema_cifar10')
-    parser.add_argument('--lamb', type=float, default=1.0)
+                        default='./model/ddpm_ema_cifar10')
+    parser.add_argument('--lamb', type=float, default=0.0008)
     parser.add_argument('--kappa', type=float, default=0.0)
     parser.add_argument('--dtype', type=str, default='fp32')
     parser.add_argument('--device', type=str, default='cuda')
@@ -37,6 +37,7 @@ def main():
     elif args.dtype in ['bf16']:
         dtype = torch.bfloat16
 
+    project_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
     start_index = args.start_index
     device = args.device
     batch_size = args.batch_size
@@ -45,15 +46,15 @@ def main():
     num_inference_steps = args.num_inference_steps
     lamb = args.lamb
     kappa = args.kappa
-    model_id = args.model_id
+    model_id = os.path.join(project_dir, args.model_id)
 
-    save_dir = args.save_dir
+    save_dir = os.path.join(project_dir, args.save_dir, sampler_type)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
 
     with torch.no_grad():
         # load pipeline
-        pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=dtype)
+        pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=False)
         pipe.unet.to(device)
 
         # load scheduler
@@ -84,7 +85,7 @@ def main():
             print('prepare to sample')
             start_time = time.time()
             torch.manual_seed(seed)
-            
+
             # sampling process
             images = pipe(batch_size=batch_size, num_inference_steps=num_inference_steps).images
 
@@ -101,4 +102,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
