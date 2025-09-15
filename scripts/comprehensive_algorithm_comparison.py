@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Comprehensive Algorithm Comparison
+Comprehensive Algorithm Comparison - Final Version
 
 This script performs a comprehensive comparison of different diffusion sampling algorithms
-including Hessian-Free optimized methods, LML, DDIM, and other baselines using 100+ samples.
+including Hessian-Free-Fast, baseline algorithms, and explicit Hessian methods.
+Results are saved to output/test/ directory.
 """
 
 import sys
@@ -29,15 +30,17 @@ from diffusers import DDPMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistep
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 
-import project as project
-
 class ComprehensiveAlgorithmComparator:
     """Comprehensive comparator for different diffusion sampling algorithms"""
 
-    def __init__(self, model_id: str, device: str = 'cuda'):
+    def __init__(self, model_id: str, device: str = 'cuda', output_dir: str = 'output/test'):
         self.model_id = model_id
         self.device = device
+        self.output_dir = output_dir
         self.results = {}
+
+        # Create output directory
+        os.makedirs(self.output_dir, exist_ok=True)
 
         # Load model
         print("Loading model...")
@@ -64,6 +67,63 @@ class ComprehensiveAlgorithmComparator:
                 return 0.1
         else:
             return 0.001
+
+    def explicit_hessian_correct(self, prev_noise, noise_pred, lamb, kappa, model, x, t):
+        """Explicit Hessian calculation and correction"""
+        if prev_noise is not None:
+            noise_pred_ema = kappa * prev_noise + (1 - kappa) * noise_pred
+        else:
+            noise_pred_ema = noise_pred
+
+        # Enable gradients for Hessian computation
+        x_grad = x.clone().detach().requires_grad_(True)
+
+        with torch.enable_grad():
+            # First prediction
+            score_pred1 = model(x_grad, t)
+            if hasattr(score_pred1, 'sample'):
+                score_pred1 = score_pred1.sample
+
+            # Compute first-order derivatives
+            log_prob1 = -0.5 * torch.sum(score_pred1 ** 2, dim=(1, 2, 3))
+            log_prob1 = log_prob1.sum()
+
+            # Compute gradient
+            grad1 = torch.autograd.grad(log_prob1, x_grad, create_graph=True)[0]
+
+            # Compute Hessian using second-order derivatives
+            hessian = []
+            for i in range(grad1.numel()):
+                grad_i = grad1.view(-1)[i]
+                hessian_i = torch.autograd.grad(grad_i, x_grad, retain_graph=True)[0]
+                hessian.append(hessian_i.view(-1))
+
+            hessian_matrix = torch.stack(hessian, dim=1)
+
+            # Compute condition number and rank
+            try:
+                eigenvals = torch.linalg.eigvals(hessian_matrix)
+                eigenvals_real = eigenvals.real
+                condition_number = torch.max(eigenvals_real) / (torch.min(eigenvals_real) + 1e-8)
+                rank = torch.sum(eigenvals_real > 1e-6)
+            except:
+                condition_number = torch.tensor(1.0)
+                rank = torch.tensor(hessian_matrix.shape[0])
+
+            # Apply Hessian correction
+            try:
+                hessian_inv = torch.linalg.inv(hessian_matrix + lamb * torch.eye(hessian_matrix.shape[0], device=hessian_matrix.device))
+                corrected_noise = torch.matmul(hessian_inv, noise_pred_ema.view(-1)).view(noise_pred_ema.shape)
+            except:
+                # Fallback to simple correction
+                corrected_noise = noise_pred_ema / (1.0 + lamb)
+
+            # Normalize
+            norm = torch.sqrt((noise_pred_ema * noise_pred_ema).sum(dim=(1, 2, 3), keepdim=True))
+            norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
+            corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
+
+            return corrected_noise, condition_number.item(), rank.item()
 
     def advanced_hessian_free_correct(self, prev_noise, noise_pred, lamb, kappa, model, x, t, max_iter=10):
         """Advanced Hessian-Free correction with adaptive damping"""
@@ -139,7 +199,7 @@ class ComprehensiveAlgorithmComparator:
             return x_cg, residuals, condition_numbers, adaptive_lambdas
 
         # Solve using adaptive CG
-        corrected_noise, residuals, condition_numbers, adaptive_lambdas = adaptive_conjugate_gradient(noise_pred)
+        corrected_noise, residuals, condition_numbers, adaptive_lambdas = adaptive_conjugate_gradient(noise_pred_ema)
 
         # Apply adaptive regularization
         if adaptive_lambdas:
@@ -149,7 +209,7 @@ class ComprehensiveAlgorithmComparator:
             corrected_noise = corrected_noise / (1.0 + lamb)
 
         # Normalize
-        norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
+        norm = torch.sqrt((noise_pred_ema * noise_pred_ema).sum(dim=(1, 2, 3), keepdim=True))
         norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
         corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
 
@@ -268,6 +328,10 @@ class ComprehensiveAlgorithmComparator:
             self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(self.pipe.scheduler.config)
             self.pipe.scheduler.config.solver_order = 3
             self.pipe.scheduler.config.algorithm_type = "dpmsolver"
+        elif algorithm_config['type'] == 'dpm++':
+            self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(self.pipe.scheduler.config)
+            self.pipe.scheduler.config.solver_order = 3
+            self.pipe.scheduler.config.algorithm_type = "dpmsolver++"
         elif algorithm_config['type'] == 'lml':
             self.pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(self.pipe.scheduler.config)
             self.pipe.scheduler.config.solver_order = 3
@@ -280,6 +344,24 @@ class ComprehensiveAlgorithmComparator:
             self.pipe.scheduler.lamb = algorithm_config.get('lamb', 0.0008)
             self.pipe.scheduler.lm = True
             self.pipe.scheduler.kappa = algorithm_config.get('kappa', 1e-8)
+        elif algorithm_config['type'] == 'explicit_hessian':
+            self.pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(self.pipe.scheduler.config)
+            self.pipe.scheduler.config.solver_order = 3
+            self.pipe.scheduler.config.algorithm_type = "dpmsolver"
+            self.pipe.scheduler.lamb = algorithm_config.get('lamb', 0.001)
+            self.pipe.scheduler.lm = True
+            self.pipe.scheduler.kappa = algorithm_config.get('kappa', 5e-8)
+
+            # Override lm_correct for explicit Hessian
+            def explicit_hessian_lm_correct(prev_noise, noise_pred, lamb, kappa):
+                corrected, condition_number, rank = self.explicit_hessian_correct(
+                    prev_noise, noise_pred, lamb, kappa,
+                    self.pipe.unet, self.pipe.scheduler.prev_sample,
+                    self.pipe.scheduler.timestep
+                )
+                return corrected
+
+            self.pipe.scheduler.lm_correct = explicit_hessian_lm_correct
         elif algorithm_config['type'] == 'hessian_free':
             self.pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(self.pipe.scheduler.config)
             self.pipe.scheduler.config.solver_order = 3
@@ -289,8 +371,6 @@ class ComprehensiveAlgorithmComparator:
             self.pipe.scheduler.kappa = algorithm_config.get('kappa', 5e-8)
 
             # Override lm_correct for Hessian-Free
-            original_lm_correct = getattr(self.pipe.scheduler, 'lm_correct', None)
-
             def hessian_free_lm_correct(prev_noise, noise_pred, lamb, kappa):
                 corrected, residuals, condition_numbers, adaptive_lambdas = self.advanced_hessian_free_correct(
                     prev_noise, noise_pred, lamb, kappa,
@@ -402,7 +482,8 @@ class ComprehensiveAlgorithmComparator:
         print(f"  - Model: {self.model_id}")
         print(f"  - Device: {self.device}")
         print(f"  - Test samples: {test_num}")
-        print(f"  - Algorithms: 8 different methods")
+        print(f"  - Output directory: {self.output_dir}")
+        print(f"  - Algorithms: 9 different methods")
         print("="*80)
 
         # Define algorithm configurations
@@ -411,63 +492,77 @@ class ComprehensiveAlgorithmComparator:
             {
                 'name': 'DDIM',
                 'type': 'ddim',
-                'num_steps': 20
-            },
-            {
-                'name': 'PNDM',
-                'type': 'pndm',
-                'num_steps': 20
-            },
-            {
-                'name': 'UniPC',
-                'type': 'unipc',
-                'num_steps': 20
+                'num_steps': 20,
+                'description': 'Denoising Diffusion Implicit Models - Deterministic sampling with fast inference',
+                'optimization': 'Time optimization through deterministic reverse process',
+                'use_case': 'Fast inference, deterministic results, research applications'
             },
             {
                 'name': 'DPM-Solver',
                 'type': 'dpm',
-                'num_steps': 20
+                'num_steps': 20,
+                'description': 'DPM-Solver - High-order solver for diffusion ODEs',
+                'optimization': 'Time optimization through high-order numerical methods',
+                'use_case': 'High-quality generation, research applications'
+            },
+            {
+                'name': 'DPM++',
+                'type': 'dpm++',
+                'num_steps': 20,
+                'description': 'DPM-Solver++ - Improved version with better stability',
+                'optimization': 'Time optimization with improved numerical stability',
+                'use_case': 'Production systems, stable high-quality generation'
+            },
+            {
+                'name': 'PNDM',
+                'type': 'pndm',
+                'num_steps': 20,
+                'description': 'Pseudo Numerical methods for Diffusion Models',
+                'optimization': 'Time optimization through pseudo-numerical methods',
+                'use_case': 'Fast inference, computational efficiency'
+            },
+            {
+                'name': 'UniPC',
+                'type': 'unipc',
+                'num_steps': 20,
+                'description': 'Unified Predictor-Corrector framework',
+                'optimization': 'Time optimization through unified predictor-corrector approach',
+                'use_case': 'Flexible sampling, research applications'
             },
 
             # LML algorithms
             {
-                'name': 'LML-Original',
+                'name': 'DPM-LM',
                 'type': 'lml',
                 'lamb': 0.0008,
                 'kappa': 1e-8,
-                'num_steps': 20
-            },
-            {
-                'name': 'LML-Improved',
-                'type': 'lml',
-                'lamb': 0.001,
-                'kappa': 5e-8,
-                'num_steps': 20
-            },
-            {
-                'name': 'DDIM-LM',
-                'type': 'ddim_lm',
-                'lamb': 0.001,
-                'kappa': 5e-8,
-                'num_steps': 20
+                'num_steps': 20,
+                'description': 'DPM-Solver with Levenberg-Marquardt Langevin correction',
+                'optimization': 'Quality optimization through second-order geometry',
+                'use_case': 'High-quality generation, research applications'
             },
 
-            # Hessian-Free algorithms
+            # Hessian methods
+            {
+                'name': 'Explicit-Hessian',
+                'type': 'explicit_hessian',
+                'lamb': 0.001,
+                'kappa': 5e-8,
+                'num_steps': 20,
+                'description': 'Explicit Hessian calculation with second-order correction',
+                'optimization': 'Quality optimization through explicit second-order derivatives',
+                'use_case': 'Research applications, theoretical analysis'
+            },
             {
                 'name': 'Hessian-Free-Basic',
                 'type': 'hessian_free',
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 10,
-                'num_steps': 20
-            },
-            {
-                'name': 'Hessian-Free-Advanced',
-                'type': 'hessian_free',
-                'lamb': 0.001,
-                'kappa': 5e-8,
-                'max_iter': 20,
-                'num_steps': 20
+                'num_steps': 20,
+                'description': 'Hessian-Free method with conjugate gradient',
+                'optimization': 'Quality optimization without explicit Hessian computation',
+                'use_case': 'Large-scale applications, memory efficiency'
             },
             {
                 'name': 'Hessian-Free-Fast',
@@ -475,7 +570,10 @@ class ComprehensiveAlgorithmComparator:
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 5,
-                'num_steps': 10
+                'num_steps': 10,
+                'description': 'Fast Hessian-Free method with reduced iterations',
+                'optimization': 'Time and quality optimization through efficient Hessian-Free approach',
+                'use_case': 'Real-time applications, production systems'
             }
         ]
 
@@ -517,12 +615,12 @@ class ComprehensiveAlgorithmComparator:
 
         # Performance Summary
         print(f"\n📊 PERFORMANCE SUMMARY")
-        print(f"{'='*100}")
-        print(f"{'Algorithm':<20} {'Time(s)':<10} {'Quality':<12} {'FID':<10} {'Efficiency':<12} {'Stability':<12}")
-        print("-" * 100)
+        print(f"{'='*120}")
+        print(f"{'Algorithm':<20} {'Time(s)':<10} {'Quality':<12} {'FID':<10} {'Efficiency':<12} {'Stability':<12} {'Memory(MB)':<12}")
+        print("-" * 120)
 
         for algorithm, result in successful_results.items():
-            print(f"{algorithm:<20} {result['avg_time_per_image']:<10.3f} {result.get('avg_variance', 0):<12.4f} {result['fid_score']:<10.2f} {result['efficiency']:<12.2f} {result['time_stability']:<12.3f}")
+            print(f"{algorithm:<20} {result['avg_time_per_image']:<10.3f} {result.get('avg_variance', 0):<12.4f} {result['fid_score']:<10.2f} {result['efficiency']:<12.2f} {result['time_stability']:<12.3f} {result['avg_memory_usage']:<12.1f}")
 
         # Speed Analysis
         print(f"\n⚡ SPEED ANALYSIS")
@@ -579,9 +677,9 @@ class ComprehensiveAlgorithmComparator:
         print(f"{'='*60}")
 
         # Group by algorithm type
-        baseline_algorithms = [k for k in successful_results.keys() if k in ['DDIM', 'PNDM', 'UniPC', 'DPM-Solver']]
-        lml_algorithms = [k for k in successful_results.keys() if 'LML' in k or 'DDIM-LM' in k]
-        hessian_free_algorithms = [k for k in successful_results.keys() if 'Hessian-Free' in k]
+        baseline_algorithms = [k for k in successful_results.keys() if k in ['DDIM', 'DPM-Solver', 'DPM++', 'PNDM', 'UniPC']]
+        lml_algorithms = [k for k in successful_results.keys() if 'DPM-LM' in k]
+        hessian_algorithms = [k for k in successful_results.keys() if 'Hessian' in k or 'Explicit' in k]
 
         if baseline_algorithms:
             avg_baseline_time = np.mean([successful_results[k]['avg_time_per_image'] for k in baseline_algorithms])
@@ -597,35 +695,12 @@ class ComprehensiveAlgorithmComparator:
             print(f"  Avg Time: {avg_lml_time:.3f}s")
             print(f"  Avg Quality: {avg_lml_quality:.4f}")
 
-        if hessian_free_algorithms:
-            avg_hf_time = np.mean([successful_results[k]['avg_time_per_image'] for k in hessian_free_algorithms])
-            avg_hf_quality = np.mean([successful_results[k].get('avg_variance', 0) for k in hessian_free_algorithms])
-            print(f"Hessian-Free Algorithms (n={len(hessian_free_algorithms)}):")
+        if hessian_algorithms:
+            avg_hf_time = np.mean([successful_results[k]['avg_time_per_image'] for k in hessian_algorithms])
+            avg_hf_quality = np.mean([successful_results[k].get('avg_variance', 0) for k in hessian_algorithms])
+            print(f"Hessian Algorithms (n={len(hessian_algorithms)}):")
             print(f"  Avg Time: {avg_hf_time:.3f}s")
             print(f"  Avg Quality: {avg_hf_quality:.4f}")
-
-        # Statistical significance test
-        print(f"\n📊 STATISTICAL SIGNIFICANCE")
-        print(f"{'='*60}")
-
-        if len(successful_results) >= 2:
-            algorithms = list(successful_results.keys())
-            times = [successful_results[k]['avg_time_per_image'] for k in algorithms]
-            qualities = [successful_results[k].get('avg_variance', 0) for k in algorithms]
-
-            # Time variance
-            time_variance = np.var(times)
-            print(f"Time Variance: {time_variance:.6f}")
-
-            # Quality variance
-            quality_variance = np.var(qualities)
-            print(f"Quality Variance: {quality_variance:.6f}")
-
-            # Coefficient of variation
-            time_cv = np.std(times) / np.mean(times)
-            quality_cv = np.std(qualities) / np.mean(qualities)
-            print(f"Time Coefficient of Variation: {time_cv:.3f}")
-            print(f"Quality Coefficient of Variation: {quality_cv:.3f}")
 
         # Final Recommendations
         print(f"\n🎯 FINAL RECOMMENDATIONS")
@@ -645,8 +720,8 @@ class ComprehensiveAlgorithmComparator:
         print(f"  - Research applications: {most_stable_algorithm}")
 
         # Technology recommendations
-        if hessian_free_algorithms and lml_algorithms:
-            best_hf = max(hessian_free_algorithms, key=lambda k: successful_results[k]['efficiency'])
+        if hessian_algorithms and lml_algorithms:
+            best_hf = max(hessian_algorithms, key=lambda k: successful_results[k]['efficiency'])
             best_lml = max(lml_algorithms, key=lambda k: successful_results[k]['efficiency'])
 
             hf_efficiency = successful_results[best_hf]['efficiency']
@@ -660,11 +735,11 @@ class ComprehensiveAlgorithmComparator:
     def save_comprehensive_results(self):
         """Save comprehensive results to file"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"comprehensive_algorithm_comparison_{timestamp}.json"
+        filename = os.path.join(self.output_dir, f"comprehensive_algorithm_comparison_{timestamp}.json")
 
         # Convert numpy arrays to lists for JSON serialization
         serializable_results = {}
-        for algorithm, result in self.results.items():
+        for method, result in self.results.items():
             if 'error' not in result:
                 serializable_result = {}
                 for key, value in result.items():
@@ -674,9 +749,9 @@ class ComprehensiveAlgorithmComparator:
                         serializable_result[key] = float(value)
                     else:
                         serializable_result[key] = value
-                serializable_results[algorithm] = serializable_result
+                serializable_results[method] = serializable_result
             else:
-                serializable_results[algorithm] = result
+                serializable_results[method] = result
 
         with open(filename, 'w') as f:
             json.dump(serializable_results, f, indent=2)
@@ -684,21 +759,25 @@ class ComprehensiveAlgorithmComparator:
         print(f"\n💾 Comprehensive comparison results saved to: {filename}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Comprehensive Algorithm Comparison")
+    parser = argparse.ArgumentParser(description="Comprehensive Algorithm Comparison - Final Version")
     parser.add_argument('--model_id', type=str, default='./model/ddpm_ema_cifar10',
                         help='Path to the model')
     parser.add_argument('--test_num', type=int, default=100,
                         help='Number of test images to generate')
     parser.add_argument('--device', type=str, default='cuda',
                         help='Device to use')
+    parser.add_argument('--output_dir', type=str, default='output/test',
+                        help='Output directory for results')
 
     args = parser.parse_args()
 
     # Get absolute path
-    model_id = os.path.join(project.model_dir, args.model_id)
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    model_id = os.path.join(project_dir, args.model_id)
+    output_dir = os.path.join(project_dir, args.output_dir)
 
     # Run comprehensive comparison
-    comparator = ComprehensiveAlgorithmComparator(model_id, args.device)
+    comparator = ComprehensiveAlgorithmComparator(model_id, args.device, output_dir)
     comparator.run_comprehensive_comparison(args.test_num)
 
 if __name__ == '__main__':
