@@ -20,6 +20,8 @@ import argparse
 from scipy.sparse.linalg import cg as scipy_cg
 from scipy.linalg import svd
 
+import project as project
+
 sys.path.append(os.getcwd())
 from diffusers import DDPMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistepScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
@@ -370,8 +372,7 @@ def main():
     args = parser.parse_args()
 
     # Get absolute path
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_id = os.path.join(project_dir, args.model_id)
+    model_id = os.path.join(project.model_dir, args.model_id)
 
     run_hessian_experiments(model_id, args.test_num, args.device)
 

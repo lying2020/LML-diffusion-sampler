@@ -19,11 +19,13 @@ import numpy as np
 from typing import Dict, List, Tuple
 import json
 from datetime import datetime
+import project as project
 
 sys.path.append(os.getcwd())
 from diffusers import DDPMPipeline
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm_advanced import DPMSolverMultistepLMSchedulerAdvanced
+
 
 class ComprehensiveHessianTester:
     """Comprehensive testing suite for Hessian methods"""
@@ -293,8 +295,7 @@ def main():
     args = parser.parse_args()
 
     # Get absolute path
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_id = os.path.join(project_dir, args.model_id)
+    model_id = os.path.join(project.model_dir, args.model_id)
 
     # Run comprehensive test
     tester = ComprehensiveHessianTester(model_id, args.device)

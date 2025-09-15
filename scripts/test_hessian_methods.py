@@ -21,6 +21,8 @@ from diffusers import DDPMPipeline
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm_advanced import DPMSolverMultistepLMSchedulerAdvanced
 
+import project as project
+
 def test_hessian_methods(model_id: str, test_num: int = 10, device: str = 'cuda'):
     """Test different Hessian computation methods"""
 
@@ -164,8 +166,7 @@ def main():
     args = parser.parse_args()
 
     # Get absolute path
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_id = os.path.join(project_dir, args.model_id)
+    model_id = os.path.join(project.model_dir, args.model_id)
 
     test_hessian_methods(model_id, args.test_num, args.device)
 

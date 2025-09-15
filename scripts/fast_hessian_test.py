@@ -20,6 +20,8 @@ sys.path.append(os.getcwd())
 from diffusers import DDPMPipeline
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 
+import project as project
+
 class FastHessianTester:
     """Fast testing suite for practical Hessian methods"""
 
@@ -307,8 +309,7 @@ def main():
     args = parser.parse_args()
 
     # Get absolute path
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_id = os.path.join(project_dir, args.model_id)
+    model_id = os.path.join(project.model_dir, args.model_id)
 
     # Run fast test
     tester = FastHessianTester(model_id, args.device)

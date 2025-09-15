@@ -22,7 +22,7 @@ sys.path.append(os.getcwd())
 from diffusers import DDPMPipeline
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 
-project_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'output', 'test')
+import project as project
 
 class AdaptiveDampingTester:
     """Tester for different adaptive damping functions with numerical stability"""
@@ -443,7 +443,7 @@ class AdaptiveDampingTester:
     def save_damping_results(self, damping_results: Dict, test_results: Dict):
         """Save damping test results"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(project_dir, f"adaptive_damping_test_{timestamp}.json")
+        filename = os.path.join(project.output_test_dir, f"adaptive_damping_test_{timestamp}.json")
 
         results = {
             'damping_functions': damping_results,
@@ -468,8 +468,7 @@ def main():
     args = parser.parse_args()
 
     # Get absolute path
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_id = os.path.join(project_dir, args.model_id)
+    model_id = os.path.join(project.model_dir, args.model_id)
 
     # Run damping test
     tester = AdaptiveDampingTester(model_id, args.device)

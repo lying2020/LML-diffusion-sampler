@@ -24,6 +24,8 @@ from scipy.sparse.linalg import eigsh
 sys.path.append(os.getcwd())
 from diffusers import DDPMPipeline
 
+import project as project
+
 class HessianAnalyzer:
     """Comprehensive Hessian matrix analyzer"""
 
@@ -370,8 +372,7 @@ def main():
     args = parser.parse_args()
 
     # Get absolute path
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_id = os.path.join(project_dir, args.model_id)
+    model_id = os.path.join(project.model_dir, args.model_id)
 
     run_hessian_analysis(model_id, args.test_samples, args.device)
 

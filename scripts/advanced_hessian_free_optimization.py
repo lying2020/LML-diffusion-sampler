@@ -25,8 +25,7 @@ import math
 sys.path.append(os.getcwd())
 from diffusers import DDPMPipeline
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
-
-project_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'output', 'test')
+import project as project
 
 class AdvancedHessianFreeOptimizer:
     """Advanced Hessian-Free optimizer with adaptive damping and condition number constraints"""
@@ -585,7 +584,7 @@ class AdvancedHessianFreeOptimizer:
     def save_advanced_results(self):
         """Save advanced results to file"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(project_dir, f"advanced_hessian_free_optimization_{timestamp}.json")
+        filename = os.path.join(project.output_test_dir, f"advanced_hessian_free_optimization_{timestamp}.json")
 
         # Convert numpy arrays to lists for JSON serialization
         serializable_results = {}
@@ -620,8 +619,7 @@ def main():
     args = parser.parse_args()
 
     # Get absolute path
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_id = os.path.join(project_dir, args.model_id)
+    model_id = os.path.join(project.model_dir, args.model_id)
 
     # Run advanced optimization test
     optimizer = AdvancedHessianFreeOptimizer(model_id, args.device)

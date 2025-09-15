@@ -10,6 +10,8 @@ from diffusers import DDPMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistep
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 
+import project as project
+
 def main():
     parser = argparse.ArgumentParser(description="sampling script for CIFAR-10.")
     parser.add_argument('--test_num', type=int, default=1)
@@ -37,7 +39,6 @@ def main():
     elif args.dtype in ['bf16']:
         dtype = torch.bfloat16
 
-    project_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
     start_index = args.start_index
     device = args.device
     batch_size = args.batch_size
@@ -46,9 +47,9 @@ def main():
     num_inference_steps = args.num_inference_steps
     lamb = args.lamb
     kappa = args.kappa
-    model_id = os.path.join(project_dir, args.model_id)
+    model_id = os.path.join(project.model_dir, args.model_id)
 
-    save_dir = os.path.join(project_dir, args.save_dir, sampler_type)
+    save_dir = os.path.join(project.output_dir, args.save_dir, sampler_type)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
 

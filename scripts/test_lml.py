@@ -16,6 +16,8 @@ import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
 
+import project as project
+
 def run_command(cmd, description):
     """Run a command and return success status"""
     print(f"\n{'='*60}")
@@ -116,7 +118,6 @@ def main():
 
     # Get script directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_dir = os.path.dirname(script_dir)
 
     print("🚀 LML Diffusion Sampler Test")
     print("="*50)
@@ -128,7 +129,7 @@ def main():
     print("="*50)
 
     # Create dummy real images for comparison
-    real_dir = os.path.join(project_dir, 'data', 'cifar10_real')
+    real_dir = os.path.join(project.data_dir, 'cifar10_real')
     if not os.path.exists(real_dir):
         create_dummy_images(real_dir, 1000)
 
@@ -155,7 +156,7 @@ def main():
 
         if run_command(generation_cmd, f"Generate images with {sampler}"):
             # Evaluate generated images
-            generated_dir = os.path.join(project_dir, args.output_dir, sampler)
+            generated_dir = os.path.join(project.output_dir, args.output_dir, sampler)
 
             if os.path.exists(generated_dir):
                 metrics = evaluate_images(generated_dir, real_dir)
