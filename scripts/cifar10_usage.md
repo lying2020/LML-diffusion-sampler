@@ -162,6 +162,6 @@ python scripts/cifar10.py --sampler_type ddim --test_num 1 --verbose
 
 ---
 
-**版本**: 统一版本 v1.0  
-**更新日期**: 2025年9月15日  
+**版本**: 统一版本 v1.0
+**更新日期**: 2025年9月15日
 **兼容性**: 完全向后兼容

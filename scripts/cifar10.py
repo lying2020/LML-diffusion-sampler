@@ -3,7 +3,7 @@
 Unified CIFAR-10 Sampling Script
 
 This script provides a unified interface for CIFAR-10 image generation using various
-diffusion sampling algorithms. It combines the functionality of cifar10.py and 
+diffusion sampling algorithms. It combines the functionality of cifar10.py and
 cifar10_updated.py with enhanced features and flexible configuration.
 """
 
@@ -22,6 +22,57 @@ from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 
 import project as project
 
+
+"""
+Examples:
+  # Basic usage with default settings
+  python cifar10.py --sampler_type dpm_lm --test_num 10
+
+  # Generate with specific output directory
+  python cifar10.py --sampler_type ddim --test_num 5 --save_dir ./output/test/cifar10
+
+  # Use different LML parameters
+  python cifar10.py --sampler_type dpm_lm --lamb 0.001 --kappa 1e-7 --test_num 20
+
+  # Generate with different data type
+  python cifar10.py --sampler_type dpm++ --dtype fp16 --test_num 10
+"""
+
+def parse_args():
+    """Parse command line arguments"""
+
+    parser = argparse.ArgumentParser(description="CIFAR-10 sampling script with enhanced features")
+
+    # Basic parameters
+    parser.add_argument('--test_num', type=int, default=1)
+    parser.add_argument('--start_index', type=int, default=0)
+    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--num_inference_steps', type=int, default=20)
+
+    # Sampler selection
+    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
+                        choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc'])
+
+    # Output configuration
+    parser.add_argument('--save_dir', type=str, default='cifar10')
+    parser.add_argument('--model_id', type=str, default='ddpm_ema_cifar10')
+
+    # LML parameters
+    parser.add_argument('--lamb', type=float, default=0.0008)
+    parser.add_argument('--kappa', type=float, default=1.0e-8)
+
+    # Technical parameters
+    parser.add_argument('--dtype', type=str, default='fp32', choices=['fp32', 'fp64', 'fp16', 'bf16'])
+    parser.add_argument('--device', type=str, default='cuda')
+
+    # Additional options
+    parser.add_argument('--save_log', action='store_true')
+    parser.add_argument('--verbose', action='store_true')
+
+    args = parser.parse_args()
+
+    return args
+
 def get_sampler_description(sampler_type):
     """Get description for different sampler types"""
     descriptions = {
@@ -36,21 +87,21 @@ def get_sampler_description(sampler_type):
 
 def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     """Setup the appropriate scheduler based on sampler type"""
-    
+
     if sampler_type == 'pndm':
         pipe.scheduler = PNDMScheduler.from_config(pipe.scheduler.config)
         print(f"  Using PNDM scheduler")
-        
+
     elif sampler_type == 'ddim':
         pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
         print(f"  Using DDIM scheduler")
-        
+
     elif sampler_type == 'dpm++':
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         pipe.scheduler.config.solver_order = 3
         pipe.scheduler.config.algorithm_type = "dpmsolver++"
         print(f"  Using DPM-Solver++ scheduler")
-        
+
     elif sampler_type == 'dpm_lm':
         pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
         pipe.scheduler.config.solver_order = 3
@@ -59,27 +110,27 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         pipe.scheduler.lm = True
         pipe.scheduler.kappa = kappa
         print(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
-        
+
     elif sampler_type == 'dpm':
         pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
         pipe.scheduler.config.solver_order = 3
         pipe.scheduler.config.algorithm_type = "dpmsolver"
         pipe.scheduler.lm = False
         print(f"  Using DPM-Solver scheduler")
-        
+
     elif sampler_type == 'unipc':
         pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
         print(f"  Using UniPC scheduler")
-        
+
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
 def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index, save_dir, sampler_type):
     """Generate images using the specified pipeline"""
-    
+
     total_time = 0
     generation_times = []
-    
+
     print(f"\n{'='*60}")
     print(f"Starting image generation")
     print(f"{'='*60}")
@@ -89,7 +140,7 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
     print(f"Total images: {test_num}")
     print(f"Save directory: {save_dir}")
     print(f"{'='*60}")
-    
+
     for seed in range(start_index, start_index + test_num):
         print(f"\nGenerating batch {seed - start_index + 1}/{test_num} (seed={seed})")
         batch_start_time = time.time()
@@ -104,18 +155,18 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
             filename = f"cifar10_{sampler_type}_inference{num_inference_steps}_seed{seed}_{i}.png"
             filepath = os.path.join(save_dir, filename)
             image.save(filepath)
-            
+
         batch_time = time.time() - batch_start_time
         generation_times.append(batch_time)
         total_time += batch_time
-        
+
         print(f"  ✓ Generated {len(images)} images in {batch_time:.3f}s")
         print(f"  ✓ Saved to: {save_dir}")
-    
+
     # Print summary
     avg_time = total_time / test_num
     avg_time_per_image = avg_time / batch_size
-    
+
     print(f"\n{'='*60}")
     print(f"GENERATION SUMMARY")
     print(f"{'='*60}")
@@ -125,7 +176,7 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
     print(f"Total images generated: {test_num * batch_size}")
     print(f"Images per second: {test_num * batch_size / total_time:.2f}")
     print(f"{'='*60}")
-    
+
     return {
         'total_time': total_time,
         'avg_time_per_batch': avg_time,
@@ -137,7 +188,7 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
 
 def save_generation_log(save_dir, sampler_type, generation_stats, args):
     """Save generation log to JSON file"""
-    
+
     log_data = {
         'timestamp': datetime.now().isoformat(),
         'sampler_type': sampler_type,
@@ -154,76 +205,17 @@ def save_generation_log(save_dir, sampler_type, generation_stats, args):
         },
         'generation_stats': generation_stats
     }
-    
+
     log_filename = f"generation_log_{sampler_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     log_path = os.path.join(save_dir, log_filename)
-    
+
     with open(log_path, 'w') as f:
         json.dump(log_data, f, indent=2)
-    
+
     print(f"  ✓ Generation log saved to: {log_path}")
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Unified CIFAR-10 sampling script with enhanced features",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Basic usage with default settings
-  python cifar10.py --sampler_type dpm_lm --test_num 10
-
-  # Generate with specific output directory
-  python cifar10.py --sampler_type ddim --test_num 5 --save_dir ./output/test/cifar10
-
-  # Use different LML parameters
-  python cifar10.py --sampler_type dpm_lm --lamb 0.001 --kappa 1e-7 --test_num 20
-
-  # Generate with different data type
-  python cifar10.py --sampler_type dpm++ --dtype fp16 --test_num 10
-        """
-    )
-    
-    # Basic parameters
-    parser.add_argument('--test_num', type=int, default=1,
-                        help='Number of test batches to generate (default: 1)')
-    parser.add_argument('--start_index', type=int, default=0,
-                        help='Starting seed index (default: 0)')
-    parser.add_argument('--batch_size', type=int, default=4,
-                        help='Number of images per batch (default: 4)')
-    parser.add_argument('--num_inference_steps', type=int, default=20,
-                        help='Number of denoising steps (default: 20)')
-    
-    # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
-                        choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc'],
-                        help='Type of sampler to use (default: dpm_lm)')
-    
-    # Output configuration
-    parser.add_argument('--save_dir', type=str, default='./output/test/cifar10',
-                        help='Directory to save generated images (default: ./output/test/cifar10)')
-    parser.add_argument('--model_id', type=str, default='ddpm_ema_cifar10',
-                        help='Model directory name (default: ddpm_ema_cifar10)')
-    
-    # LML parameters
-    parser.add_argument('--lamb', type=float, default=0.0008,
-                        help='Lambda parameter for LML correction (default: 0.0008)')
-    parser.add_argument('--kappa', type=float, default=1.0e-8,
-                        help='Kappa parameter for EMA smoothing (default: 1.0e-8)')
-    
-    # Technical parameters
-    parser.add_argument('--dtype', type=str, default='fp32',
-                        choices=['fp32', 'fp64', 'fp16', 'bf16'],
-                        help='Data type for computation (default: fp32)')
-    parser.add_argument('--device', type=str, default='cuda',
-                        help='Device to use for computation (default: cuda)')
-    
-    # Additional options
-    parser.add_argument('--save_log', action='store_true',
-                        help='Save generation log to JSON file')
-    parser.add_argument('--verbose', action='store_true',
-                        help='Enable verbose output')
-
-    args = parser.parse_args()
+    args = parse_args()
 
     # Convert dtype string to torch dtype
     dtype_map = {
@@ -236,16 +228,11 @@ Examples:
 
     # Setup paths - fix the path handling
     model_id = os.path.join(project.model_dir, args.model_id)
-    
+
     # Handle save_dir path properly
-    if args.save_dir.startswith('./output/'):
-        save_dir = os.path.join(project.output_dir, args.save_dir[9:], args.sampler_type)  # Remove './output/' prefix
-    else:
-        save_dir = os.path.join(project.output_dir, args.save_dir, args.sampler_type)
-    
-    # Create output directory
+    save_dir = os.path.join(project.output_dir, args.save_dir, args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
-    
+
     print("🚀 CIFAR-10 Unified Sampling Script")
     print("="*60)
     print(f"Model: {model_id}")
@@ -268,7 +255,7 @@ Examples:
 
         # Generate images
         generation_stats = generate_images(
-            pipe, args.batch_size, args.num_inference_steps, 
+            pipe, args.batch_size, args.num_inference_steps,
             args.test_num, args.start_index, save_dir, args.sampler_type
         )
 
