@@ -29,10 +29,7 @@
 ## 文件结构
 
 ```
-├── test_gradient_descent.py              # 原始2D版本
 ├── gradient_descent_2d_visualization.py     # 优化2D版本（英文）
-├── test_gradient_descent_3d.py           # 3D版本（有Arrow3D问题）
-├── test_gradient_descent_3d_enhanced.py  # 增强3D版本
 ├── gradient_descent_3d_visualization.py     # 修复版3D版本（推荐使用）
 └── OPTIMIZATION_VISUALIZATION_README.md  # 本说明文件
 ```
