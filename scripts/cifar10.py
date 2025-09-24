@@ -16,9 +16,11 @@ import argparse
 from datetime import datetime
 
 sys.path.append(os.getcwd())
-from diffusers import DDPMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistepScheduler, DPMSolverMultistepScheduler
+from diffusers import DDPMPipeline, DDIMScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
+from scheduler.scheduling_unipc_multistep_lm import UniPCMultistepSchedulerLM
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
+from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
 
 import project as project
 
@@ -89,7 +91,7 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     """Setup the appropriate scheduler based on sampler type"""
 
     if sampler_type == 'pndm':
-        pipe.scheduler = PNDMScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = PNDMSchedulerLM.from_config(pipe.scheduler.config)
         print(f"  Using PNDM scheduler")
 
     elif sampler_type == 'ddim':
@@ -119,7 +121,7 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         print(f"  Using DPM-Solver scheduler")
 
     elif sampler_type == 'unipc':
-        pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = UniPCMultistepSchedulerLM.from_config(pipe.scheduler.config)
         print(f"  Using UniPC scheduler")
 
     else:
