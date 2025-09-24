@@ -45,7 +45,7 @@ def main():
     sd_pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float32, safety_checker=None)
     sd_pipe = sd_pipe.to(device)
     print("sd model loaded")
-    
+
 
     if sampler_type in ['dpm_lm']:
         sd_pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(sd_pipe.scheduler.config)

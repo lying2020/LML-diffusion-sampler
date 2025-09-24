@@ -13,6 +13,7 @@ import torch
 import os
 import json
 import argparse
+import glob
 from datetime import datetime
 
 sys.path.append(os.getcwd())
@@ -46,14 +47,15 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CIFAR-10 sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=64)
+    parser.add_argument('--test_num', type=int, default=500)
     parser.add_argument('--start_index', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=128)
+    parser.add_argument('--batch_size', type=int, default=200)
     parser.add_argument('--num_inference_steps', type=int, default=20)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='unipc',
+    parser.add_argument('--sampler_type', type=str, default='pndm',
                         choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc'])
+    parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='cifar10')
@@ -68,7 +70,7 @@ def parse_args():
     parser.add_argument('--device', type=str, default='cuda')
 
     # Additional options
-    parser.add_argument('--save_log', action='store_true')
+    parser.add_argument('--save_log', action='store_true', default=True)
     parser.add_argument('--verbose', action='store_true')
 
     args = parser.parse_args()
@@ -127,7 +129,7 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
-def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index, save_dir, sampler_type):
+def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index, save_dir, sampler_type, use_generator=None):
     """Generate images using the specified pipeline"""
 
     total_time = 0
@@ -147,10 +149,13 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
         print(f"\nGenerating batch {seed - start_index + 1}/{test_num} (seed={seed})")
         batch_start_time = time.time()
         torch.manual_seed(seed)
-
+        if use_generator:
+            generator = torch.Generator().manual_seed(seed)
+        else:
+            generator = None
         # Generate images
         with torch.no_grad():
-            images = pipe(batch_size=batch_size, num_inference_steps=num_inference_steps).images
+            images = pipe(batch_size=batch_size, num_inference_steps=num_inference_steps, generator=generator).images
 
         # Save images
         for i, image in enumerate(images):
@@ -216,8 +221,163 @@ def save_generation_log(save_dir, sampler_type, generation_stats, args):
 
     print(f"  ✓ Generation log saved to: {log_path}")
 
-def main():
-    args = parse_args()
+def count_generated_images(save_dir):
+    """Count the number of generated images in the save directory"""
+    try:
+        png_files = glob.glob(os.path.join(save_dir, "*.png"))
+        return len(png_files)
+    except Exception as e:
+        print(f"  ⚠️  Warning: Could not count images in {save_dir}: {e}")
+        return 0
+
+def run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps):
+    """Run a single experiment with enhanced logging"""
+
+    print("")
+    print("="*50)
+    print(f"实验 {experiment_num}/{total_experiments}")
+    print(f"Sampler: {sampler_type}")
+    print(f"Steps: {num_inference_steps}")
+    print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*50)
+
+    # 记录实验开始时间
+    exp_start_time = time.time()
+
+    try:
+        # Convert dtype string to torch dtype
+        dtype_map = {
+            'fp32': torch.float32,
+            'fp64': torch.float64,
+            'fp16': torch.float16,
+            'bf16': torch.bfloat16
+        }
+        dtype = dtype_map[args.dtype]
+
+        # Setup paths - fix the path handling
+        model_id = os.path.join(project.model_dir, args.model_id)
+
+        # Handle save_dir path properly
+        save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(num_inference_steps), sampler_type)
+        os.makedirs(save_dir, exist_ok=True)
+
+        print(f"🚀 CIFAR-10 Unified Sampling Script")
+        print("="*60)
+        print(f"Model: {model_id}")
+        print(f"Device: {args.device}")
+        print(f"Data type: {args.dtype}")
+        print(f"Sampler: {sampler_type}")
+        print(f"Output: {save_dir}")
+        print("="*60)
+
+        # Load pipeline
+        print("\n📦 Loading model...")
+        pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=False)
+        pipe.unet.to(args.device)
+        print("  ✓ Model loaded successfully")
+
+        # Setup scheduler
+        print(f"\n⚙️ Setting up scheduler...")
+        setup_scheduler(pipe, sampler_type, args.lamb, args.kappa)
+
+        # Generate images
+        generation_stats = generate_images(
+            pipe, args.batch_size, num_inference_steps,
+            args.test_num, args.start_index, save_dir, sampler_type, args.use_generator
+        )
+
+        # Save generation log if requested
+        if args.save_log:
+            print(f"\n📝 Saving generation log...")
+            save_generation_log(save_dir, sampler_type, generation_stats, args)
+
+        # 计算实验耗时
+        exp_end_time = time.time()
+        exp_duration = exp_end_time - exp_start_time
+
+        # 统计生成的图片数量
+        image_count = count_generated_images(save_dir)
+
+        print(f"\n✅ 实验完成! 耗时: {exp_duration:.1f}秒")
+        print(f"生成图片数量: {image_count}")
+        print(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        return {
+            'success': True,
+            'duration': exp_duration,
+            'image_count': image_count,
+            'generation_stats': generation_stats,
+            'save_dir': save_dir
+        }
+
+    except Exception as e:
+        exp_end_time = time.time()
+        exp_duration = exp_end_time - exp_start_time
+
+        print(f"\n❌ 实验失败! 耗时: {exp_duration:.1f}秒")
+        print(f"错误信息: {str(e)}")
+        print(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        return {
+            'success': False,
+            'duration': exp_duration,
+            'error': str(e),
+            'sampler_type': sampler_type,
+            'num_inference_steps': num_inference_steps
+        }
+
+def generate_experiment_summary(experiment_results, start_time, end_time, args):
+    """Generate comprehensive experiment summary report"""
+
+    summary_file = os.path.join(project.output_dir, args.save_dir, "experiment_summary.txt")
+    os.makedirs(os.path.dirname(summary_file), exist_ok=True)
+
+    successful_experiments = [r for r in experiment_results if r['success']]
+    failed_experiments = [r for r in experiment_results if not r['success']]
+
+    total_images = sum(r.get('image_count', 0) for r in successful_experiments)
+    total_duration = sum(r.get('duration', 0) for r in experiment_results)
+
+    with open(summary_file, 'w', encoding='utf-8') as f:
+        f.write("CIFAR-10 实验总结报告\n")
+        f.write("="*50 + "\n\n")
+        f.write(f"运行时间: {start_time} 到 {end_time}\n")
+        f.write(f"总实验数: {len(experiment_results)}\n")
+        f.write(f"成功实验: {len(successful_experiments)}\n")
+        f.write(f"失败实验: {len(failed_experiments)}\n")
+        f.write(f"总生成图片: {total_images}\n")
+        f.write(f"总耗时: {total_duration:.1f}秒\n\n")
+
+        f.write("参数配置:\n")
+        f.write(f"- Batch Size: {args.batch_size}\n")
+        f.write(f"- Test Num: {args.test_num}\n")
+        f.write(f"- Device: {args.device}\n")
+        f.write(f"- Data Type: {args.dtype}\n")
+        f.write(f"- Lambda: {args.lamb}\n")
+        f.write(f"- Kappa: {args.kappa}\n\n")
+
+        f.write("各实验详情:\n")
+        for result in experiment_results:
+            if result['success']:
+                f.write(f"- {result.get('sampler_type', 'unknown')} ({result.get('num_inference_steps', 'unknown')} steps): {result.get('image_count', 0)} 张图片, 耗时 {result.get('duration', 0):.1f}秒\n")
+            else:
+                f.write(f"- {result.get('sampler_type', 'unknown')} ({result.get('num_inference_steps', 'unknown')} steps): 失败 - {result.get('error', 'Unknown error')}\n")
+
+    print(f"\n📊 实验总结报告已保存到: {summary_file}")
+
+    # 保存失败实验日志
+    if failed_experiments:
+        failed_log_file = os.path.join(project.output_dir, args.save_dir, "failed_experiments.log")
+        with open(failed_log_file, 'w', encoding='utf-8') as f:
+            for result in failed_experiments:
+                f.write(f"{result.get('sampler_type', 'unknown')},{result.get('num_inference_steps', 'unknown')},{result.get('error', 'Unknown error')}\n")
+        print(f"⚠️  有 {len(failed_experiments)} 个实验失败，详情请查看: {failed_log_file}")
+    else:
+        print("🎉 所有实验都成功完成!")
+
+def main(args):
+    """Main function for single experiment"""
+    print(args)
 
     # Convert dtype string to torch dtype
     dtype_map = {
@@ -232,10 +392,10 @@ def main():
     model_id = os.path.join(project.model_dir, args.model_id)
 
     # Handle save_dir path properly
-    save_dir = os.path.join(project.output_dir, args.save_dir, args.sampler_type)
+    save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
-    print("🚀 CIFAR-10 Unified Sampling Script")
+    print("�� CIFAR-10 Unified Sampling Script")
     print("="*60)
     print(f"Model: {model_id}")
     print(f"Device: {args.device}")
@@ -257,7 +417,7 @@ def main():
     # Generate images
     generation_stats = generate_images(
         pipe, args.batch_size, args.num_inference_steps,
-        args.test_num, args.start_index, save_dir, args.sampler_type
+        args.test_num, args.start_index, save_dir, args.sampler_type, args.use_generator
     )
 
     # Save generation log if requested
@@ -271,4 +431,59 @@ def main():
     print(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
 
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+
+    # 检查是否运行批量实验
+    if hasattr(args, 'run_batch') and args.run_batch:
+        # 批量实验模式
+        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc"]
+        INFERENCE_STEPS = [5, 6]
+
+        print("="*50)
+        print("CIFAR-10 实验批量运行开始")
+        print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("="*50)
+
+        total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
+        experiment_results = []
+        start_time = datetime.now()
+
+        experiment_num = 0
+        for i in range(len(INFERENCE_STEPS)):
+            for j in range(len(SAMPLER_TYPES)):
+                experiment_num += 1
+                num_inference_steps = INFERENCE_STEPS[i]
+                sampler_type = SAMPLER_TYPES[j]
+
+                # 更新args
+                args.num_inference_steps = num_inference_steps
+                args.sampler_type = sampler_type
+
+                result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
+                experiment_results.append(result)
+
+        end_time = datetime.now()
+
+        print("\n" + "="*50)
+        print("CIFAR-10 实验批量运行完成")
+        print(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"总实验数: {total_experiments}")
+        print("="*50)
+
+        # 生成实验总结报告
+        print("\n生成实验总结报告...")
+        generate_experiment_summary(experiment_results, start_time, end_time, args)
+
+        print(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
+    else:
+        # 单个实验模式（保持原有逻辑）
+        SAMPLER_TYPES=["pndm", "ddim", "dpm++", "dpm", "unipc"]
+        # INFERENCE_STEPS=[5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
+        INFERENCE_STEPS=[5, 6]
+
+        for i in range(len(INFERENCE_STEPS)):
+            for j in range(len(SAMPLER_TYPES)):
+                args.num_inference_steps = INFERENCE_STEPS[i]
+                args.sampler_type = SAMPLER_TYPES[j]
+                main(args)
