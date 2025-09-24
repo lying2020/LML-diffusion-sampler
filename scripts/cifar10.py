@@ -44,13 +44,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CIFAR-10 sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=1)
+    parser.add_argument('--test_num', type=int, default=64)
     parser.add_argument('--start_index', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--num_inference_steps', type=int, default=20)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
+    parser.add_argument('--sampler_type', type=str, default='pndm',
                         choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc'])
 
     # Output configuration

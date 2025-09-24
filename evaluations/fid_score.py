@@ -49,7 +49,7 @@ except ImportError:
     def tqdm(x):
         return x
 
-from inception import InceptionV3
+from pytorch_fid.inception import InceptionV3
 
 IMAGE_EXTENSIONS = {'bmp', 'jpg', 'jpeg', 'pgm', 'png', 'ppm',
                         'tif', 'tiff', 'webp'}
@@ -413,5 +413,5 @@ def cal_fid():
 if __name__ == '__main__':
     print("Alibaba")
     main()
-    
+
     #cal_fid()
