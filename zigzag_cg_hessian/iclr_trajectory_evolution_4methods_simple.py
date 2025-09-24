@@ -22,7 +22,12 @@ import matplotlib
 matplotlib.use('Agg')
 
 # Import schedulers
-from diffusers import DDPMPipeline, DDIMScheduler, PNDMScheduler
+from diffusers import DDPMPipeline, DDIMScheduler, DPMSolverMultistepScheduler
+from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
+from scheduler.scheduling_unipc_multistep_lm import UniPCMultistepSchedulerLM
+from scheduler.scheduling_ddim_lm import DDIMLMScheduler
+from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
+
 import project as project
 
 # Set matplotlib parameters for ICLR paper format
@@ -49,7 +54,7 @@ class ICLRTrajectoryEvolution4MethodsSimple:
         self.n_samples = n_samples
         self.num_inference_steps = num_inference_steps
         self.num_trajectories = num_trajectories
-        self.methods = ['ddim', 'pndm']
+        self.methods = ['ddim', 'pndm', "dpm", "unipc"]
 
         print(f"🔧 ICLR 4-Method Trajectory Evolution Configuration (Simplified):")
         print(f"   - CIFAR-10 samples for PCA: {self.n_samples}")
@@ -69,10 +74,19 @@ class ICLRTrajectoryEvolution4MethodsSimple:
         if method_name == 'ddim':
             pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
         elif method_name == 'pndm':
-            pipe.scheduler = PNDMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler = PNDMSchedulerLM.from_config(pipe.scheduler.config)
+        elif method_name == 'dpm':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver"
+            pipe.scheduler.lm = False
+            print(f"  Using DPM-Solver scheduler")
+        elif method_name == 'unipc':
+            pipe.scheduler = UniPCMultistepSchedulerLM.from_config(pipe.scheduler.config)
+            print(f"  Using UniPC scheduler")
+            pipe.scheduler.set_timesteps(self.num_inference_steps)
+            print(f"✓ {method_name.upper()} pipeline loaded successfully")
 
-        pipe.scheduler.set_timesteps(self.num_inference_steps)
-        print(f"✓ {method_name.upper()} pipeline loaded successfully")
         return pipe
 
     def generate_trajectories(self, pipe, method_name, seed=42):
@@ -174,11 +188,15 @@ class ICLRTrajectoryEvolution4MethodsSimple:
         method_colors = {
             'ddim': '#E74C3C',      # Red
             'pndm': '#9B59B6',      # Purple
+            'dpm': '#27AE60',      # Green
+            'unipc': '#E67E22',    # Orange
         }
 
         method_names = {
             'ddim': 'DDIM',
             'pndm': 'PNDM',
+            'dpm': 'DPM',
+            'unipc': 'UniPC',
         }
 
         start_color = '#27AE60'  # Green
@@ -186,22 +204,16 @@ class ICLRTrajectoryEvolution4MethodsSimple:
 
         # Select 4 different trajectories to show
         trajectory_indices = [0, 1, 2, 3]  # Show first 4 trajectories
-        trajectory_labels = ['DDIM-1', 'DDIM-2', 'PNDM-1', 'PNDM-2']
+        trajectory_labels = ['DDIM', 'PNDM', 'DPM', 'UniPC']
 
         for i, traj_idx in enumerate(trajectory_indices):
             ax = axes[i]
 
             # Select trajectory based on index
-            if i < 2:  # First two are DDIM
-                method = 'ddim'
-                traj = trajectories[method][traj_idx]
-                method_color = method_colors[method]
-                method_name = method_names[method]
-            else:  # Last two are PNDM
-                method = 'pndm'
-                traj = trajectories[method][traj_idx - 2]
-                method_color = method_colors[method]
-                method_name = method_names[method]
+            method = self.methods[i]
+            traj = trajectories[method][traj_idx]
+            method_color = method_colors[method]
+            method_name = method_names[method]
 
             xt_pca = pca_model.transform(traj['xt'])
 

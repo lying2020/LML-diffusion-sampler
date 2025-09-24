@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-ICLR Paper Format: DDPM vs Hessian-Free Trajectory Evolution Visualization
+ICLR Paper Format: Multi-Method Trajectory Evolution Visualization
+Support for ["pndm", "ddim", "dpm++", "dpm", "unipc"] methods
 Optimized for single-column paper format with thicker lines and larger fonts
 """
 
@@ -21,9 +22,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import matplotlib
 matplotlib.use('Agg')
 
-# Import schedulers
-from diffusers import DDPMPipeline, DDPMScheduler
-from scheduler.scheduling_dpmsolver_multistep_lm_advanced import DPMSolverMultistepLMSchedulerAdvanced
+# Import schedulers - 参考cifar10.py的导入方式
+from diffusers import DDPMPipeline, DDIMScheduler, DPMSolverMultistepScheduler
+from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
+from scheduler.scheduling_unipc_multistep_lm import UniPCMultistepSchedulerLM
+from scheduler.scheduling_ddim_lm import DDIMLMScheduler
+from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
 import project as project
 
 # Set matplotlib parameters for ICLR paper format
@@ -43,42 +47,60 @@ plt.rcParams.update({
     'grid.alpha': 0.3
 })
 
-class ICLRTrajectoryVisualizer:
-    """ICLR paper format trajectory visualizer for DDPM vs Hessian-Free"""
+class ICLRMultiMethodTrajectoryVisualizer:
+    """ICLR paper format trajectory visualizer for multiple sampling methods"""
 
     def __init__(self, n_samples=5000, num_inference_steps=25, num_trajectories=100):
         self.n_samples = n_samples
         self.num_inference_steps = num_inference_steps
         self.num_trajectories = num_trajectories
 
+        # 支持的方法列表
+        self.supported_methods = ["pndm", "ddim", "dpm++", "dpm", "unipc"]
+
+        # 为每个方法定义颜色
+        self.method_colors = {
+            'pndm': '#E74C3C',      # Red
+            'ddim': '#3498DB',      # Blue
+            'dpm++': '#9B59B6',     # Purple
+            'dpm': '#E67E22',       # Orange
+            'unipc': '#2ECC71'      # Green
+        }
+
         print(f"🔧 ICLR Paper Format Configuration:")
         print(f"   - CIFAR-10 samples for PCA: {self.n_samples}")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
         print(f"   - Number of trajectories per method: {self.num_trajectories}")
+        print(f"   - Supported methods: {', '.join(self.supported_methods)}")
         print(f"   - Total sampling steps: {self.num_trajectories * self.num_inference_steps}")
 
     def load_pipeline(self, method_name):
-        """Load pipeline for different sampling methods"""
+        """Load pipeline for different sampling methods - 参考cifar10.py的方式"""
         model_id = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
 
         print(f"\n🔧 Loading {method_name} pipeline...")
         pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=torch.float32, use_safetensors=False)
         pipe.unet.to('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # Setup scheduler based on method
-        if method_name == 'DDPM':
-            pipe.scheduler = DDPMScheduler.from_config(pipe.scheduler.config)
-            pipe.scheduler.set_timesteps(self.num_inference_steps)
-        elif method_name == 'Hessian_Free':
-            pipe.scheduler = DPMSolverMultistepLMSchedulerAdvanced.from_config(pipe.scheduler.config)
+        # Setup scheduler based on method - 参考cifar10.py的scheduler设置
+        if method_name == 'pndm':
+            pipe.scheduler = PNDMSchedulerLM.from_config(pipe.scheduler.config)
+        elif method_name == 'ddim':
+            pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+        elif method_name == 'dpm++':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver++"
+            pipe.scheduler.lm = False
+        elif method_name == 'dpm':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
             pipe.scheduler.config.solver_order = 3
             pipe.scheduler.config.algorithm_type = "dpmsolver"
-            pipe.scheduler.lamb = 0.0008
-            pipe.scheduler.lm = True
-            pipe.scheduler.kappa = 1e-8
-            pipe.scheduler.hessian_method = 'hessian_free'
-            pipe.scheduler.set_model(pipe.unet)
-            pipe.scheduler.set_timesteps(self.num_inference_steps)
+            pipe.scheduler.lm = False
+        elif method_name == 'unipc':
+            pipe.scheduler = UniPCMultistepSchedulerLM.from_config(pipe.scheduler.config)
+        else:
+            raise ValueError(f"Unsupported method: {method_name}")
 
         print(f"✓ {method_name} pipeline loaded successfully")
         return pipe
@@ -121,6 +143,7 @@ class ICLRTrajectoryVisualizer:
         # Get scheduler
         scheduler = pipe.scheduler
 
+        scheduler.set_timesteps(self.num_inference_steps)
         for j, t in enumerate(scheduler.timesteps):
             # Store current state (detach to avoid grad issues)
             xt_flat = latents.detach().view(1, -1).cpu().numpy().flatten()
@@ -139,7 +162,7 @@ class ICLRTrajectoryVisualizer:
             score = -noise_pred_flat
             trajectory_data['score'].append(score)
 
-            # DDPM/Hessian-Free step
+            # Sampling step
             latents = scheduler.step(noise_pred, t, latents).prev_sample
 
         # Convert to numpy arrays
@@ -169,43 +192,28 @@ class ICLRTrajectoryVisualizer:
         print(f"✓ PCA completed. Explained variance: {pca_model.explained_variance_ratio_}")
         return pca_model
 
-    def plot_iclr_trajectory_comparison(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
-        """Plot ICLR paper format trajectory comparison - 4 subplots in one row"""
+    def plot_iclr_trajectory_evolution(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+        """Plot ICLR paper format trajectory evolution - 5 methods in one row"""
         os.makedirs(save_dir, exist_ok=True)
 
-        # Project trajectories to PCA space
-        ddpm_traj = trajectories['DDPM'][0]  # Use first trajectory for visualization
-        hessian_traj = trajectories['Hessian_Free'][0]
-
-        ddpm_pca = pca_model.transform(ddpm_traj['xt'])
-        hessian_pca = pca_model.transform(hessian_traj['xt'])
-
-        # Create figure with 4 subplots in one row - optimized for ICLR paper format
-        fig, axes = plt.subplots(1, 4, figsize=(16, 4))  # Single row, 4 columns
-        fig.suptitle('Trajectory Evolution: DDPM vs Hessian-Free Methods',
+        # Create figure with 5 subplots in one row - optimized for ICLR paper format
+        fig, axes = plt.subplots(1, 5, figsize=(20, 4))  # Single row, 5 columns
+        fig.suptitle('Trajectory Evolution: Multi-Method Comparison',
                      fontsize=18, fontweight='bold', y=0.95)
 
-        # Define colors for ICLR paper format
-        ddpm_color = '#E74C3C'  # Red
-        hessian_color = '#3498DB'  # Blue
+        # Define colors
         start_color = '#27AE60'  # Green
-        end_color = '#E67E22'  # Orange
+        end_color = '#E67E22'    # Orange
 
-        # Plot 1: DDPM Trajectory Evolution
-        ax1 = axes[0]
-        self._plot_single_trajectory_iclr(ax1, ddpm_pca, 'DDPM', ddpm_color, start_color, end_color)
+        # Plot each method
+        for i, method in enumerate(self.supported_methods):
+            if method in trajectories and len(trajectories[method]) > 0:
+                ax = axes[i]
+                trajectory_pca = pca_model.transform(trajectories[method][0]['xt'])
+                method_color = self.method_colors[method]
 
-        # Plot 2: Hessian-Free Trajectory Evolution
-        ax2 = axes[1]
-        self._plot_single_trajectory_iclr(ax2, hessian_pca, 'Hessian-Free', hessian_color, start_color, end_color)
-
-        # Plot 3: Side-by-side comparison
-        ax3 = axes[2]
-        self._plot_comparison_trajectories_iclr(ax3, ddpm_pca, hessian_pca, ddpm_color, hessian_color, start_color, end_color)
-
-        # Plot 4: Step-by-step evolution
-        ax4 = axes[3]
-        self._plot_step_evolution_iclr(ax4, ddpm_pca, hessian_pca, ddpm_color, hessian_color)
+                self._plot_single_trajectory_iclr(ax, trajectory_pca, method.upper(),
+                                                method_color, start_color, end_color)
 
         # Adjust layout for ICLR paper format
         plt.tight_layout(rect=[0, 0, 1, 0.92])  # Leave space for main title
@@ -216,7 +224,36 @@ class ICLRTrajectoryVisualizer:
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"\n✓ ICLR format trajectory evolution plot saved to: {save_path}")
 
-        plt.show()
+        plt.close()
+
+    def plot_iclr_convergence_analysis(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+        """Plot ICLR paper format convergence analysis - 5 methods in one row"""
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Create figure with 5 subplots in one row
+        fig, axes = plt.subplots(1, 5, figsize=(20, 4))
+        fig.suptitle('Convergence Analysis: Multi-Method Comparison',
+                     fontsize=18, fontweight='bold', y=0.95)
+
+        # Plot each method
+        for i, method in enumerate(self.supported_methods):
+            if method in trajectories and len(trajectories[method]) > 0:
+                ax = axes[i]
+                trajectory_pca = pca_model.transform(trajectories[method][0]['xt'])
+                method_color = self.method_colors[method]
+
+                self._plot_convergence_single_method(ax, trajectory_pca, method.upper(), method_color)
+
+        # Adjust layout for ICLR paper format
+        plt.tight_layout(rect=[0, 0, 1, 0.92])
+
+        # Save the plot with high DPI for ICLR paper
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        save_path = os.path.join(save_dir, f'iclr_convergence_analysis_{timestamp}.png')
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        print(f"\n✓ ICLR format convergence analysis plot saved to: {save_path}")
+
+        plt.close()
 
     def _plot_single_trajectory_iclr(self, ax, trajectory_pca, method_name, method_color, start_color, end_color):
         """Plot single trajectory evolution optimized for ICLR paper format"""
@@ -253,50 +290,24 @@ class ICLRTrajectoryVisualizer:
         # Make axes labels bold
         ax.tick_params(axis='both', which='major', labelsize=10, width=1.5)
 
-    def _plot_comparison_trajectories_iclr(self, ax, ddpm_pca, hessian_pca, ddpm_color, hessian_color, start_color, end_color):
-        """Plot side-by-side trajectory comparison optimized for ICLR paper format"""
-        # DDPM trajectory with thick line
-        ax.plot(ddpm_pca[:, 0], ddpm_pca[:, 1], color=ddpm_color, linewidth=4, alpha=0.9, label='DDPM Path')
-        ax.scatter(ddpm_pca[0, 0], ddpm_pca[0, 1], c=start_color, s=150, marker='o', zorder=5)
-        ax.scatter(ddpm_pca[-1, 0], ddpm_pca[-1, 1], c=end_color, s=150, marker='s', zorder=5)
-
-        # Hessian-Free trajectory with thick line
-        ax.plot(hessian_pca[:, 0], hessian_pca[:, 1], color=hessian_color, linewidth=4, alpha=0.9, label='Hessian-Free Path')
-        ax.scatter(hessian_pca[0, 0], hessian_pca[0, 1], c=start_color, s=150, marker='o', zorder=5)
-        ax.scatter(hessian_pca[-1, 0], hessian_pca[-1, 1], c=end_color, s=150, marker='s', zorder=5)
-
-        ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
-        ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
-        ax.set_title('Trajectory Comparison\n(Red: DDPM, Blue: Hessian-Free)', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10, loc='upper right')
-        ax.grid(True, alpha=0.3, linewidth=1.0)
-        ax.axis('equal')
-
-        # Make axes labels bold
-        ax.tick_params(axis='both', which='major', labelsize=10, width=1.5)
-
-    def _plot_step_evolution_iclr(self, ax, ddpm_pca, hessian_pca, ddpm_color, hessian_color):
-        """Plot step-by-step evolution showing convergence optimized for ICLR paper format"""
-        n_steps = len(ddpm_pca)
+    def _plot_convergence_single_method(self, ax, trajectory_pca, method_name, method_color):
+        """Plot convergence analysis for single method optimized for ICLR paper format"""
+        n_steps = len(trajectory_pca)
 
         # Calculate distance from end point for each step
-        ddpm_distances = []
-        hessian_distances = []
-
+        distances = []
         for i in range(n_steps):
-            ddpm_dist = np.linalg.norm(ddpm_pca[i] - ddpm_pca[-1])
-            hessian_dist = np.linalg.norm(hessian_pca[i] - hessian_pca[-1])
-            ddpm_distances.append(ddpm_dist)
-            hessian_distances.append(hessian_dist)
+            dist = np.linalg.norm(trajectory_pca[i] - trajectory_pca[-1])
+            distances.append(dist)
 
-        # Plot convergence curves with thick lines
+        # Plot convergence curve with thick line
         steps = range(n_steps)
-        ax.plot(steps, ddpm_distances, color=ddpm_color, linewidth=4, alpha=0.9, label='DDPM Convergence')
-        ax.plot(steps, hessian_distances, color=hessian_color, linewidth=4, alpha=0.9, label='Hessian-Free Convergence')
+        ax.plot(steps, distances, color=method_color, linewidth=4, alpha=0.9,
+                label=f'{method_name} Convergence')
 
         ax.set_xlabel('Sampling Step', fontsize=12, fontweight='bold')
         ax.set_ylabel('Distance to Final Point', fontsize=12, fontweight='bold')
-        ax.set_title('Convergence Analysis\n(Distance to End Point)', fontsize=14, fontweight='bold')
+        ax.set_title(f'{method_name}\nConvergence Analysis', fontsize=14, fontweight='bold')
         ax.legend(fontsize=10, loc='upper right')
         ax.grid(True, alpha=0.3, linewidth=1.0)
         ax.set_yscale('log')
@@ -304,25 +315,110 @@ class ICLRTrajectoryVisualizer:
         # Make axes labels bold
         ax.tick_params(axis='both', which='major', labelsize=10, width=1.5)
 
-def main():
-    """Main function to run ICLR paper format trajectory visualization"""
+    def plot_iclr_comprehensive_comparison(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+        """Plot comprehensive comparison with all methods in one figure"""
+        os.makedirs(save_dir, exist_ok=True)
 
-    print("🚀 ICLR Paper Format: DDPM vs Hessian-Free Trajectory Visualization")
+        # Create figure with 2x3 subplots
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle('Comprehensive Multi-Method Analysis', fontsize=20, fontweight='bold', y=0.95)
+
+        # Plot 1: All methods trajectory comparison (top-left, spans 2 columns)
+        ax1 = axes[0, 0]
+        ax1 = plt.subplot2grid((2, 3), (0, 0), colspan=2)
+        self._plot_all_methods_comparison(ax1, trajectories, pca_model)
+
+        # Plot 2: Convergence comparison (top-right)
+        ax2 = axes[0, 2]
+        self._plot_convergence_comparison(ax2, trajectories, pca_model)
+
+        # Plot 3-7: Individual method trajectories (bottom row)
+        for i, method in enumerate(self.supported_methods[:3]):
+            if method in trajectories and len(trajectories[method]) > 0:
+                ax = axes[1, i]
+                trajectory_pca = pca_model.transform(trajectories[method][0]['xt'])
+                method_color = self.method_colors[method]
+
+                self._plot_single_trajectory_iclr(ax, trajectory_pca, method.upper(),
+                                                method_color, '#27AE60', '#E67E22')
+
+        # Adjust layout
+        plt.tight_layout(rect=[0, 0, 1, 0.92])
+
+        # Save the plot
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        save_path = os.path.join(save_dir, f'iclr_comprehensive_comparison_{timestamp}.png')
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        print(f"\n✓ ICLR format comprehensive comparison plot saved to: {save_path}")
+
+        plt.close()
+
+    def _plot_all_methods_comparison(self, ax, trajectories, pca_model):
+        """Plot all methods in one subplot for comparison"""
+        for method in self.supported_methods:
+            if method in trajectories and len(trajectories[method]) > 0:
+                trajectory_pca = pca_model.transform(trajectories[method][0]['xt'])
+                method_color = self.method_colors[method]
+
+                ax.plot(trajectory_pca[:, 0], trajectory_pca[:, 1],
+                       color=method_color, linewidth=3, alpha=0.8, label=method.upper())
+
+                # Mark start and end points
+                ax.scatter(trajectory_pca[0, 0], trajectory_pca[0, 1],
+                          c=method_color, s=100, marker='o', alpha=0.8)
+                ax.scatter(trajectory_pca[-1, 0], trajectory_pca[-1, 1],
+                          c=method_color, s=100, marker='s', alpha=0.8)
+
+        ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+        ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+        ax.set_title('All Methods Trajectory Comparison', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10, loc='upper right')
+        ax.grid(True, alpha=0.3, linewidth=1.0)
+        ax.axis('equal')
+
+    def _plot_convergence_comparison(self, ax, trajectories, pca_model):
+        """Plot convergence comparison for all methods"""
+        for method in self.supported_methods:
+            if method in trajectories and len(trajectories[method]) > 0:
+                trajectory_pca = pca_model.transform(trajectories[method][0]['xt'])
+                method_color = self.method_colors[method]
+
+                n_steps = len(trajectory_pca)
+                distances = []
+                for i in range(n_steps):
+                    dist = np.linalg.norm(trajectory_pca[i] - trajectory_pca[-1])
+                    distances.append(dist)
+
+                steps = range(n_steps)
+                ax.plot(steps, distances, color=method_color, linewidth=3, alpha=0.8,
+                       label=method.upper())
+
+        ax.set_xlabel('Sampling Step', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Distance to Final Point', fontsize=12, fontweight='bold')
+        ax.set_title('Convergence Comparison', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10, loc='upper right')
+        ax.grid(True, alpha=0.3, linewidth=1.0)
+        ax.set_yscale('log')
+
+def main():
+    """Main function to run ICLR paper format multi-method trajectory visualization"""
+
+    print("🚀 ICLR Paper Format: Multi-Method Trajectory Visualization")
     print("="*70)
+    print("Support for PNDM, DDIM, DPM++, DPM, UniPC methods")
     print("Optimized for single-column paper format with thicker lines and larger fonts")
     print("="*70)
 
     # Initialize visualizer
-    visualizer = ICLRTrajectoryVisualizer(n_samples=5000, num_inference_steps=25, num_trajectories=100)
+    visualizer = ICLRMultiMethodTrajectoryVisualizer(n_samples=5000, num_inference_steps=25, num_trajectories=100)
 
     try:
-        # Generate trajectories for both methods
-        methods = ['DDPM', 'Hessian_Free']
+        # Generate trajectories for all methods
         all_trajectories = {}
 
-        for method in methods:
+        for method in visualizer.supported_methods:
             print(f"\n{'='*60}")
-            print(f"Processing Method: {method}")
+            print(f"Processing Method: {method.upper()}")
             print(f"{'='*60}")
 
             # Load pipeline
@@ -342,13 +438,21 @@ def main():
         print(f"{'='*60}")
         pca_model = visualizer.create_pca_from_trajectories(all_trajectories)
 
-        # Create ICLR paper format trajectory comparison plots
+        # Create ICLR paper format visualizations
         print(f"\n{'='*60}")
-        print("Creating ICLR Paper Format Trajectory Visualization...")
+        print("Creating ICLR Paper Format Visualizations...")
         print(f"{'='*60}")
-        visualizer.plot_iclr_trajectory_comparison(all_trajectories, pca_model)
 
-        print(f"\n✅ ICLR paper format trajectory visualization completed successfully!")
+        # 1. Trajectory Evolution (5 methods in one row)
+        visualizer.plot_iclr_trajectory_evolution(all_trajectories, pca_model)
+
+        # 2. Convergence Analysis (5 methods in one row)
+        visualizer.plot_iclr_convergence_analysis(all_trajectories, pca_model)
+
+        # 3. Comprehensive Comparison (2x3 layout)
+        visualizer.plot_iclr_comprehensive_comparison(all_trajectories, pca_model)
+
+        print(f"\n✅ ICLR paper format multi-method visualization completed successfully!")
 
     except Exception as e:
         print(f"\n❌ Error during visualization: {e}")

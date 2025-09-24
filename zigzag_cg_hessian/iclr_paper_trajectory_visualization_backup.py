@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ICLR Paper Format: DDIM vs Hessian-Free Extreme Eigenvalues Visualization
-Using largest and smallest eigenvalues for PCA2 dimensionality reduction
+ICLR Paper Format: DDPM vs Hessian-Free Trajectory Evolution Visualization
+Optimized for single-column paper format with thicker lines and larger fonts
 """
 
 import numpy as np
@@ -22,7 +22,7 @@ import matplotlib
 matplotlib.use('Agg')
 
 # Import schedulers
-from diffusers import DDPMPipeline, DDPMScheduler, DDIMScheduler
+from diffusers import DDPMPipeline, DDPMScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm_advanced import DPMSolverMultistepLMSchedulerAdvanced
 import project as project
 
@@ -43,32 +43,31 @@ plt.rcParams.update({
     'grid.alpha': 0.3
 })
 
-class ICLRExtremeEigenvaluesVisualizer:
-    """ICLR paper format visualizer for DDIM vs Hessian-Free using extreme eigenvalues"""
-    
+class ICLRTrajectoryVisualizer:
+    """ICLR paper format trajectory visualizer for DDPM vs Hessian-Free"""
+
     def __init__(self, n_samples=5000, num_inference_steps=25, num_trajectories=100):
         self.n_samples = n_samples
         self.num_inference_steps = num_inference_steps
         self.num_trajectories = num_trajectories
-        
-        print(f"🔧 ICLR Extreme Eigenvalues Configuration:")
+
+        print(f"🔧 ICLR Paper Format Configuration:")
         print(f"   - CIFAR-10 samples for PCA: {self.n_samples}")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
         print(f"   - Number of trajectories per method: {self.num_trajectories}")
         print(f"   - Total sampling steps: {self.num_trajectories * self.num_inference_steps}")
-        print(f"   - PCA method: Largest and Smallest eigenvalues")
-        
+
     def load_pipeline(self, method_name):
         """Load pipeline for different sampling methods"""
         model_id = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
-        
+
         print(f"\n🔧 Loading {method_name} pipeline...")
         pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=torch.float32, use_safetensors=False)
         pipe.unet.to('cuda' if torch.cuda.is_available() else 'cpu')
-        
+
         # Setup scheduler based on method
-        if method_name == 'DDIM':
-            pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+        if method_name == 'DDPM':
+            pipe.scheduler = DDPMScheduler.from_config(pipe.scheduler.config)
             pipe.scheduler.set_timesteps(self.num_inference_steps)
         elif method_name == 'Hessian_Free':
             pipe.scheduler = DPMSolverMultistepLMSchedulerAdvanced.from_config(pipe.scheduler.config)
@@ -80,37 +79,37 @@ class ICLRExtremeEigenvaluesVisualizer:
             pipe.scheduler.hessian_method = 'hessian_free'
             pipe.scheduler.set_model(pipe.unet)
             pipe.scheduler.set_timesteps(self.num_inference_steps)
-        
+
         print(f"✓ {method_name} pipeline loaded successfully")
         return pipe
-    
+
     def generate_trajectories(self, pipe, method_name, seed=42):
         """Generate multiple trajectories for statistical analysis"""
         print(f"\n🚀 Generating {self.num_trajectories} trajectories using {method_name}...")
-        
+
         trajectories = []
         torch.manual_seed(seed)
-        
+
         for i in range(self.num_trajectories):
             if i % 20 == 0:
                 print(f"  Generating trajectory {i+1}/{self.num_trajectories}")
-            
+
             # Generate single trajectory
             trajectory_data = self._generate_single_trajectory(pipe, method_name, seed + i)
             trajectories.append(trajectory_data)
-        
+
         print(f"✓ Generated {len(trajectories)} trajectories")
         return trajectories
-    
+
     def _generate_single_trajectory(self, pipe, method_name, seed):
         """Generate a single trajectory and collect intermediate states"""
         torch.manual_seed(seed)
-        
+
         # Initialize random noise
         device = pipe.unet.device
         shape = (1, pipe.unet.config.in_channels, 32, 32)
         latents = torch.randn(shape, device=device)
-        
+
         # Store trajectory data
         trajectory_data = {
             'xt': [],  # State vectors
@@ -118,267 +117,239 @@ class ICLRExtremeEigenvaluesVisualizer:
             'timesteps': [],
             'noise_pred': []
         }
-        
+
         # Get scheduler
         scheduler = pipe.scheduler
-        
+
         for j, t in enumerate(scheduler.timesteps):
             # Store current state (detach to avoid grad issues)
             xt_flat = latents.detach().view(1, -1).cpu().numpy().flatten()
             trajectory_data['xt'].append(xt_flat)
             trajectory_data['timesteps'].append(t.item())
-            
+
             # Predict noise
             with torch.no_grad():
                 noise_pred = pipe.unet(latents, t).sample
-            
+
             # Store noise prediction
             noise_pred_flat = noise_pred.detach().view(1, -1).cpu().numpy().flatten()
             trajectory_data['noise_pred'].append(noise_pred_flat)
-            
+
             # Compute score/drift vector
             score = -noise_pred_flat
             trajectory_data['score'].append(score)
-            
-            # DDIM/Hessian-Free step
+
+            # DDPM/Hessian-Free step
             latents = scheduler.step(noise_pred, t, latents).prev_sample
-        
+
         # Convert to numpy arrays
         for key in ['xt', 'score', 'timesteps', 'noise_pred']:
             trajectory_data[key] = np.array(trajectory_data[key])
-        
+
         return trajectory_data
-    
-    def create_extreme_eigenvalues_pca(self, trajectories):
-        """Create PCA model using largest and smallest eigenvalues"""
-        print(f"\n📊 Creating PCA model with extreme eigenvalues...")
-        
+
+    def create_pca_from_trajectories(self, trajectories):
+        """Create PCA model from trajectory data to ensure dimension compatibility"""
+        print(f"\n📊 Creating PCA model from trajectory data...")
+
         # Collect all trajectory data
         all_trajectory_data = []
         for method, traj_list in trajectories.items():
             for traj in traj_list:
                 all_trajectory_data.append(traj['xt'])
-        
+
         # Stack all trajectories
         all_data = np.vstack(all_trajectory_data)
         print(f"  Total trajectory data shape: {all_data.shape}")
-        
-        # Perform full PCA to get all eigenvalues
-        print(f"  Computing full PCA to extract eigenvalues...")
-        pca_full = PCA(n_components=min(all_data.shape[0], all_data.shape[1]), svd_solver='full')
-        pca_full.fit(all_data)
-        
-        # Get eigenvalues (explained variance)
-        eigenvalues = pca_full.explained_variance_
-        print(f"  Total eigenvalues computed: {len(eigenvalues)}")
-        print(f"  Largest eigenvalue: {eigenvalues[0]:.6f}")
-        print(f"  Smallest eigenvalue: {eigenvalues[-1]:.6f}")
-        print(f"  Eigenvalue ratio (largest/smallest): {eigenvalues[0]/eigenvalues[-1]:.2f}")
-        
-        # Create custom PCA with largest and smallest eigenvalues
-        print(f"  Creating custom PCA with extreme eigenvalues...")
-        
-        # Get the principal components corresponding to largest and smallest eigenvalues
-        largest_pc = pca_full.components_[0]  # First principal component (largest eigenvalue)
-        smallest_pc = pca_full.components_[-1]  # Last principal component (smallest eigenvalue)
-        
-        # Create custom PCA model
-        class ExtremeEigenvaluesPCA:
-            def __init__(self, largest_pc, smallest_pc, largest_eigenvalue, smallest_eigenvalue):
-                self.components_ = np.vstack([largest_pc, smallest_pc])
-                self.explained_variance_ = np.array([largest_eigenvalue, smallest_eigenvalue])
-                self.explained_variance_ratio_ = self.explained_variance_ / np.sum(pca_full.explained_variance_)
-                self.mean_ = pca_full.mean_
-                
-            def transform(self, X):
-                # Center the data
-                X_centered = X - self.mean_
-                # Project onto extreme eigenvectors
-                return X_centered @ self.components_.T
-        
-        pca_model = ExtremeEigenvaluesPCA(
-            largest_pc, smallest_pc, 
-            eigenvalues[0], eigenvalues[-1]
-        )
-        
-        print(f"✓ Extreme eigenvalues PCA completed.")
-        print(f"  Largest eigenvalue ratio: {pca_model.explained_variance_ratio_[0]:.4f}")
-        print(f"  Smallest eigenvalue ratio: {pca_model.explained_variance_ratio_[1]:.4f}")
-        
-        return pca_model, eigenvalues
-    
-    def plot_iclr_extreme_eigenvalues_comparison(self, trajectories, pca_model, eigenvalues, save_dir='./zigzag_cg_hessian'):
-        """Plot ICLR paper format extreme eigenvalues comparison - 4 subplots in one row"""
+
+        # Perform PCA
+        pca_model = PCA(n_components=2, svd_solver='randomized')
+        pca_model.fit(all_data)
+
+        print(f"✓ PCA completed. Explained variance: {pca_model.explained_variance_ratio_}")
+        return pca_model
+
+    def plot_iclr_trajectory_comparison(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+        """Plot ICLR paper format trajectory comparison - 4 subplots in one row"""
         os.makedirs(save_dir, exist_ok=True)
-        
+
         # Project trajectories to PCA space
-        ddpm_traj = trajectories['DDIM'][0]  # Use first trajectory for visualization
+        ddpm_traj = trajectories['DDPM'][0]  # Use first trajectory for visualization
         hessian_traj = trajectories['Hessian_Free'][0]
-        
+
         ddpm_pca = pca_model.transform(ddpm_traj['xt'])
         hessian_pca = pca_model.transform(hessian_traj['xt'])
-        
+
         # Create figure with 4 subplots in one row - optimized for ICLR paper format
         fig, axes = plt.subplots(1, 4, figsize=(16, 4))  # Single row, 4 columns
-        fig.suptitle('DDIM vs Hessian-Free: Extreme Eigenvalues Analysis\n(Largest vs Smallest Eigenvalues)', 
+        fig.suptitle('Trajectory Evolution: DDPM vs Hessian-Free Methods',
                      fontsize=18, fontweight='bold', y=0.95)
-        
+
         # Define colors for ICLR paper format
         ddpm_color = '#E74C3C'  # Red
         hessian_color = '#3498DB'  # Blue
         start_color = '#27AE60'  # Green
         end_color = '#E67E22'  # Orange
-        
-        # Plot 1: DDIM Trajectory Evolution (Extreme Eigenvalues)
+
+        # Plot 1: DDPM Trajectory Evolution
         ax1 = axes[0]
-        self._plot_single_trajectory_iclr_extreme(ax1, ddpm_pca, 'DDIM', ddpm_color, start_color, end_color, pca_model)
-        
-        # Plot 2: Hessian-Free Trajectory Evolution (Extreme Eigenvalues)
+        self._plot_single_trajectory_iclr(ax1, ddpm_pca, 'DDPM', ddpm_color, start_color, end_color)
+
+        # Plot 2: Hessian-Free Trajectory Evolution
         ax2 = axes[1]
-        self._plot_single_trajectory_iclr_extreme(ax2, hessian_pca, 'Hessian-Free', hessian_color, start_color, end_color, pca_model)
-        
-        # Plot 3: Side-by-side comparison (Extreme Eigenvalues)
+        self._plot_single_trajectory_iclr(ax2, hessian_pca, 'Hessian-Free', hessian_color, start_color, end_color)
+
+        # Plot 3: Side-by-side comparison
         ax3 = axes[2]
-        self._plot_comparison_trajectories_iclr_extreme(ax3, ddpm_pca, hessian_pca, ddpm_color, hessian_color, start_color, end_color, pca_model)
-        
-        # Plot 4: Eigenvalue spectrum
+        self._plot_comparison_trajectories_iclr(ax3, ddpm_pca, hessian_pca, ddpm_color, hessian_color, start_color, end_color)
+
+        # Plot 4: Step-by-step evolution
         ax4 = axes[3]
-        self._plot_eigenvalue_spectrum(ax4, eigenvalues)
-        
+        self._plot_step_evolution_iclr(ax4, ddpm_pca, hessian_pca, ddpm_color, hessian_color)
+
         # Adjust layout for ICLR paper format
         plt.tight_layout(rect=[0, 0, 1, 0.92])  # Leave space for main title
-        
+
         # Save the plot with high DPI for ICLR paper
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'iclr_extreme_eigenvalues_{timestamp}.png')
+        save_path = os.path.join(save_dir, f'iclr_trajectory_evolution_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
-        print(f"\n✓ ICLR format extreme eigenvalues plot saved to: {save_path}")
-        
+        print(f"\n✓ ICLR format trajectory evolution plot saved to: {save_path}")
+
         plt.show()
-    
-    def _plot_single_trajectory_iclr_extreme(self, ax, trajectory_pca, method_name, method_color, start_color, end_color, pca_model):
-        """Plot single trajectory evolution optimized for ICLR paper format with extreme eigenvalues"""
+
+    def _plot_single_trajectory_iclr(self, ax, trajectory_pca, method_name, method_color, start_color, end_color):
+        """Plot single trajectory evolution optimized for ICLR paper format"""
         # Create color gradient from start to end
         n_points = len(trajectory_pca)
         colors = plt.cm.viridis(np.linspace(0, 1, n_points))
-        
+
         # Plot trajectory with thick lines
         for i in range(n_points - 1):
-            ax.plot([trajectory_pca[i, 0], trajectory_pca[i+1, 0]], 
-                   [trajectory_pca[i, 1], trajectory_pca[i+1, 1]], 
+            ax.plot([trajectory_pca[i, 0], trajectory_pca[i+1, 0]],
+                   [trajectory_pca[i, 1], trajectory_pca[i+1, 1]],
                    color=colors[i], linewidth=4, alpha=0.9)
-        
+
         # Mark start and end points with larger markers
-        ax.scatter(trajectory_pca[0, 0], trajectory_pca[0, 1], 
-                  c=start_color, s=200, marker='o', label='Start', zorder=5, 
+        ax.scatter(trajectory_pca[0, 0], trajectory_pca[0, 1],
+                  c=start_color, s=200, marker='o', label='Start', zorder=5,
                   edgecolors='black', linewidth=2)
-        ax.scatter(trajectory_pca[-1, 0], trajectory_pca[-1, 1], 
-                  c=end_color, s=200, marker='s', label='End', zorder=5, 
+        ax.scatter(trajectory_pca[-1, 0], trajectory_pca[-1, 1],
+                  c=end_color, s=200, marker='s', label='End', zorder=5,
                   edgecolors='black', linewidth=2)
-        
+
         # Add step markers with larger size
         for i in range(0, n_points, max(1, n_points//8)):
-            ax.scatter(trajectory_pca[i, 0], trajectory_pca[i, 1], 
+            ax.scatter(trajectory_pca[i, 0], trajectory_pca[i, 1],
                       c=colors[i], s=80, marker='o', alpha=0.8, zorder=3)
-        
-        ax.set_xlabel('Largest Eigenvalue PC', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Smallest Eigenvalue PC', fontsize=12, fontweight='bold')
-        ax.set_title(f'{method_name}\nExtreme Eigenvalues', fontsize=14, fontweight='bold')
+
+        ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+        ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+        ax.set_title(f'{method_name}\nTrajectory Evolution', fontsize=14, fontweight='bold')
         ax.legend(fontsize=10, loc='upper right')
         ax.grid(True, alpha=0.3, linewidth=1.0)
         ax.axis('equal')
-        
+
         # Make axes labels bold
         ax.tick_params(axis='both', which='major', labelsize=10, width=1.5)
-    
-    def _plot_comparison_trajectories_iclr_extreme(self, ax, ddpm_pca, hessian_pca, ddpm_color, hessian_color, start_color, end_color, pca_model):
-        """Plot side-by-side trajectory comparison optimized for ICLR paper format with extreme eigenvalues"""
+
+    def _plot_comparison_trajectories_iclr(self, ax, ddpm_pca, hessian_pca, ddpm_color, hessian_color, start_color, end_color):
+        """Plot side-by-side trajectory comparison optimized for ICLR paper format"""
         # DDPM trajectory with thick line
         ax.plot(ddpm_pca[:, 0], ddpm_pca[:, 1], color=ddpm_color, linewidth=4, alpha=0.9, label='DDPM Path')
         ax.scatter(ddpm_pca[0, 0], ddpm_pca[0, 1], c=start_color, s=150, marker='o', zorder=5)
         ax.scatter(ddpm_pca[-1, 0], ddpm_pca[-1, 1], c=end_color, s=150, marker='s', zorder=5)
-        
+
         # Hessian-Free trajectory with thick line
         ax.plot(hessian_pca[:, 0], hessian_pca[:, 1], color=hessian_color, linewidth=4, alpha=0.9, label='Hessian-Free Path')
         ax.scatter(hessian_pca[0, 0], hessian_pca[0, 1], c=start_color, s=150, marker='o', zorder=5)
         ax.scatter(hessian_pca[-1, 0], hessian_pca[-1, 1], c=end_color, s=150, marker='s', zorder=5)
-        
-        ax.set_xlabel('Largest Eigenvalue PC', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Smallest Eigenvalue PC', fontsize=12, fontweight='bold')
-        ax.set_title('Extreme Eigenvalues\nComparison', fontsize=14, fontweight='bold')
+
+        ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+        ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+        ax.set_title('Trajectory Comparison\n(Red: DDPM, Blue: Hessian-Free)', fontsize=14, fontweight='bold')
         ax.legend(fontsize=10, loc='upper right')
         ax.grid(True, alpha=0.3, linewidth=1.0)
         ax.axis('equal')
-        
+
         # Make axes labels bold
         ax.tick_params(axis='both', which='major', labelsize=10, width=1.5)
-    
-    def _plot_eigenvalue_spectrum(self, ax, eigenvalues):
-        """Plot eigenvalue spectrum highlighting largest and smallest eigenvalues"""
-        # Plot eigenvalue spectrum
-        ax.semilogy(range(len(eigenvalues)), eigenvalues, 'b-', linewidth=2, alpha=0.7, label='Eigenvalue Spectrum')
-        
-        # Highlight largest eigenvalue
-        ax.scatter(0, eigenvalues[0], c='red', s=100, marker='o', zorder=5, label='Largest Eigenvalue')
-        
-        # Highlight smallest eigenvalue
-        ax.scatter(len(eigenvalues)-1, eigenvalues[-1], c='green', s=100, marker='s', zorder=5, label='Smallest Eigenvalue')
-        
-        ax.set_xlabel('Eigenvalue Index', fontsize=12, fontweight='bold')
-        ax.set_ylabel('Eigenvalue Magnitude', fontsize=12, fontweight='bold')
-        ax.set_title('Eigenvalue Spectrum\n(Log Scale)', fontsize=14, fontweight='bold')
+
+    def _plot_step_evolution_iclr(self, ax, ddpm_pca, hessian_pca, ddpm_color, hessian_color):
+        """Plot step-by-step evolution showing convergence optimized for ICLR paper format"""
+        n_steps = len(ddpm_pca)
+
+        # Calculate distance from end point for each step
+        ddpm_distances = []
+        hessian_distances = []
+
+        for i in range(n_steps):
+            ddpm_dist = np.linalg.norm(ddpm_pca[i] - ddpm_pca[-1])
+            hessian_dist = np.linalg.norm(hessian_pca[i] - hessian_pca[-1])
+            ddpm_distances.append(ddpm_dist)
+            hessian_distances.append(hessian_dist)
+
+        # Plot convergence curves with thick lines
+        steps = range(n_steps)
+        ax.plot(steps, ddpm_distances, color=ddpm_color, linewidth=4, alpha=0.9, label='DDPM Convergence')
+        ax.plot(steps, hessian_distances, color=hessian_color, linewidth=4, alpha=0.9, label='Hessian-Free Convergence')
+
+        ax.set_xlabel('Sampling Step', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Distance to Final Point', fontsize=12, fontweight='bold')
+        ax.set_title('Convergence Analysis\n(Distance to End Point)', fontsize=14, fontweight='bold')
         ax.legend(fontsize=10, loc='upper right')
         ax.grid(True, alpha=0.3, linewidth=1.0)
-        
+        ax.set_yscale('log')
+
         # Make axes labels bold
         ax.tick_params(axis='both', which='major', labelsize=10, width=1.5)
 
 def main():
-    """Main function to run ICLR paper format extreme eigenvalues visualization"""
-    
-    print("🚀 ICLR Paper Format: DDIM vs Hessian-Free Extreme Eigenvalues Visualization")
-    print("="*80)
-    print("Using largest and smallest eigenvalues for PCA2 dimensionality reduction")
-    print("="*80)
-    
+    """Main function to run ICLR paper format trajectory visualization"""
+
+    print("🚀 ICLR Paper Format: DDPM vs Hessian-Free Trajectory Visualization")
+    print("="*70)
+    print("Optimized for single-column paper format with thicker lines and larger fonts")
+    print("="*70)
+
     # Initialize visualizer
-    visualizer = ICLRExtremeEigenvaluesVisualizer(n_samples=5000, num_inference_steps=25, num_trajectories=100)
-    
+    visualizer = ICLRTrajectoryVisualizer(n_samples=5000, num_inference_steps=25, num_trajectories=100)
+
     try:
         # Generate trajectories for both methods
-        methods = ['DDIM', 'Hessian_Free']
+        methods = ['DDPM', 'Hessian_Free']
         all_trajectories = {}
-        
+
         for method in methods:
             print(f"\n{'='*60}")
             print(f"Processing Method: {method}")
             print(f"{'='*60}")
-            
+
             # Load pipeline
             pipe = visualizer.load_pipeline(method)
-            
+
             # Generate trajectories
             trajectories = visualizer.generate_trajectories(pipe, method, seed=42)
             all_trajectories[method] = trajectories
-            
+
             # Clean up GPU memory
             del pipe
             torch.cuda.empty_cache() if torch.cuda.is_available() else None
-        
-        # Create extreme eigenvalues PCA model from all trajectory data
+
+        # Create PCA model from all trajectory data
         print(f"\n{'='*60}")
-        print("Creating extreme eigenvalues PCA model...")
+        print("Creating PCA model from all trajectory data...")
         print(f"{'='*60}")
-        pca_model, eigenvalues = visualizer.create_extreme_eigenvalues_pca(all_trajectories)
-        
-        # Create ICLR paper format extreme eigenvalues comparison plots
+        pca_model = visualizer.create_pca_from_trajectories(all_trajectories)
+
+        # Create ICLR paper format trajectory comparison plots
         print(f"\n{'='*60}")
-        print("Creating ICLR Paper Format Extreme Eigenvalues Visualization...")
+        print("Creating ICLR Paper Format Trajectory Visualization...")
         print(f"{'='*60}")
-        visualizer.plot_iclr_extreme_eigenvalues_comparison(all_trajectories, pca_model, eigenvalues)
-        
-        print(f"\n✅ ICLR paper format extreme eigenvalues visualization completed successfully!")
-        
+        visualizer.plot_iclr_trajectory_comparison(all_trajectories, pca_model)
+
+        print(f"\n✅ ICLR paper format trajectory visualization completed successfully!")
+
     except Exception as e:
         print(f"\n❌ Error during visualization: {e}")
         import traceback
