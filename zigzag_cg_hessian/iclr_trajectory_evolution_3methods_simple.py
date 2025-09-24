@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ICLR Paper Format: 4-Method Trajectory Evolution Visualization (Simplified)
-DDIM, PNDM, DPM, DDPM with different trajectories to show 1x4 layout
+ICLR Paper Format: 3-Method Trajectory Evolution Visualization (Simplified)
+DDIM, PNDM, DPM with different trajectories to show 1x3 layout
 """
 
 import numpy as np
@@ -22,7 +22,7 @@ import matplotlib
 matplotlib.use('Agg')
 
 # Import schedulers
-from diffusers import DDPMPipeline, DDIMScheduler, DPMSolverMultistepScheduler, DDPMScheduler
+from diffusers import DDPMPipeline, DDIMScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
@@ -46,20 +46,20 @@ plt.rcParams.update({
     'grid.alpha': 0.3
 })
 
-class ICLRTrajectoryEvolution4MethodsSimple:
-    """ICLR paper format trajectory evolution for 4 methods (simplified)"""
+class ICLRTrajectoryEvolution3MethodsSimple:
+    """ICLR paper format trajectory evolution for 3 methods (simplified)"""
 
     def __init__(self, n_samples=5000, num_inference_steps=25, num_trajectories=50):
         self.n_samples = n_samples
         self.num_inference_steps = num_inference_steps
         self.num_trajectories = num_trajectories
-        self.methods = ['ddim', 'pndm', "dpm", "ddpm"]  # 用 DDPM 替代 UniPC
+        self.methods = ['ddim', 'pndm', "dpm"]
 
-        print(f"🔧 ICLR 4-Method Trajectory Evolution Configuration (Simplified):")
+        print(f"🔧 ICLR 3-Method Trajectory Evolution Configuration (Simplified):")
         print(f"   - CIFAR-10 samples for PCA: {self.n_samples}")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
         print(f"   - Number of trajectories per method: {self.num_trajectories}")
-        print(f"   - Methods: {', '.join(self.methods)} (showing 4 different trajectories)")
+        print(f"   - Methods: {', '.join(self.methods)} (showing 3 different trajectories)")
 
     def load_pipeline(self, method_name):
         """Load pipeline for different sampling methods"""
@@ -80,10 +80,6 @@ class ICLRTrajectoryEvolution4MethodsSimple:
             pipe.scheduler.config.algorithm_type = "dpmsolver"
             pipe.scheduler.lm = False
             print(f"  Using DPM-Solver scheduler")
-        elif method_name == 'ddpm':
-            # 使用标准的 DDPM 调度器
-            pipe.scheduler = DDPMScheduler.from_config(pipe.scheduler.config)
-            print(f"  Using DDPM scheduler")
 
         # Set timesteps for ALL schedulers
         pipe.scheduler.set_timesteps(self.num_inference_steps)
@@ -177,12 +173,12 @@ class ICLRTrajectoryEvolution4MethodsSimple:
         print(f"✓ PCA completed. Explained variance: {pca_model.explained_variance_ratio_}")
         return pca_model
 
-    def plot_iclr_trajectory_evolution_4methods(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
-        """Plot ICLR paper format trajectory evolution for 4 methods - 1x4 layout"""
+    def plot_iclr_trajectory_evolution_3methods(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+        """Plot ICLR paper format trajectory evolution for 3 methods - 1x3 layout"""
         os.makedirs(save_dir, exist_ok=True)
 
-        # Create figure with 4 subplots in one row - optimized for ICLR paper format
-        fig, axes = plt.subplots(1, 4, figsize=(16, 4))  # Single row, 4 columns
+        # Create figure with 3 subplots in one row - optimized for ICLR paper format
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))  # Single row, 3 columns
         fig.suptitle('Trajectory Evolution: Different Sampling Methods\n(Noise → Image - 25 Steps)',
                      fontsize=18, fontweight='bold', y=0.95)
 
@@ -191,22 +187,20 @@ class ICLRTrajectoryEvolution4MethodsSimple:
             'ddim': '#E74C3C',      # Red
             'pndm': '#9B59B6',      # Purple
             'dpm': '#27AE60',      # Green
-            'ddpm': '#E67E22',     # Orange (替代 UniPC)
         }
 
         method_names = {
             'ddim': 'DDIM',
             'pndm': 'PNDM',
             'dpm': 'DPM',
-            'ddpm': 'DDPM',
         }
 
         start_color = '#27AE60'  # Green
         end_color = '#E67E22'    # Orange
 
-        # Select 4 different trajectories to show
-        trajectory_indices = [0, 1, 2, 3]  # Show first 4 trajectories
-        trajectory_labels = ['DDIM', 'PNDM', 'DPM', 'DDPM']
+        # Select 3 different trajectories to show
+        trajectory_indices = [0, 1, 2]  # Show first 3 trajectories
+        trajectory_labels = ['DDIM', 'PNDM', 'DPM']
 
         for i, traj_idx in enumerate(trajectory_indices):
             ax = axes[i]
@@ -261,21 +255,21 @@ class ICLRTrajectoryEvolution4MethodsSimple:
 
         # Save the plot with high DPI for ICLR paper
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'iclr_trajectory_evolution_4methods_{timestamp}.png')
+        save_path = os.path.join(save_dir, f'iclr_trajectory_evolution_3methods_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
-        print(f"\n✓ ICLR format 4-method trajectory evolution plot saved to: {save_path}")
+        print(f"\n✓ ICLR format 3-method trajectory evolution plot saved to: {save_path}")
 
         plt.close()
 
-    def generate_4methods_report(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
-        """Generate 4-method trajectory evolution report"""
+    def generate_3methods_report(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+        """Generate 3-method trajectory evolution report"""
         os.makedirs(save_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        report_path = os.path.join(save_dir, f'iclr_4methods_trajectory_{timestamp}.txt')
+        report_path = os.path.join(save_dir, f'iclr_3methods_trajectory_{timestamp}.txt')
 
         with open(report_path, 'w') as f:
-            f.write("ICLR 4-Method Trajectory Evolution Analysis (Simplified)\n")
+            f.write("ICLR 3-Method Trajectory Evolution Analysis (Simplified)\n")
             f.write("="*70 + "\n\n")
 
             f.write("EXPERIMENTAL CONFIGURATION:\n")
@@ -284,7 +278,7 @@ class ICLRTrajectoryEvolution4MethodsSimple:
             f.write(f"Inference steps per trajectory: {self.num_inference_steps}\n")
             f.write(f"Number of trajectories per method: {self.num_trajectories}\n")
             f.write(f"Total sampling steps: {self.num_trajectories * self.num_inference_steps}\n")
-            f.write(f"Methods: {', '.join(self.methods)} (showing 4 different trajectories)\n\n")
+            f.write(f"Methods: {', '.join(self.methods)} (showing 3 different trajectories)\n\n")
 
             f.write("PCA ANALYSIS:\n")
             f.write("-" * 15 + "\n")
@@ -317,11 +311,11 @@ class ICLRTrajectoryEvolution4MethodsSimple:
                 f.write(f"  - Min trajectory length: {np.min(traj_lengths):.2f}\n")
                 f.write(f"  - Max trajectory length: {np.max(traj_lengths):.2f}\n")
 
-        print(f"\n✓ 4-method trajectory evolution report saved to: {report_path}")
+        print(f"\n✓ 3-method trajectory evolution report saved to: {report_path}")
 
         # Print summary to console
         print(f"\n" + "="*80)
-        print("ICLR 4-METHOD TRAJECTORY EVOLUTION SUMMARY")
+        print("ICLR 3-METHOD TRAJECTORY EVOLUTION SUMMARY")
         print("="*80)
 
         print(f"\nPCA ANALYSIS:")
@@ -336,15 +330,15 @@ class ICLRTrajectoryEvolution4MethodsSimple:
             print(f"  - Steps per trajectory: {len(traj_list[0]['xt'])}")
 
 def main():
-    """Main function to run ICLR 4-method trajectory evolution"""
+    """Main function to run ICLR 3-method trajectory evolution"""
 
-    print("🚀 ICLR 4-Method Trajectory Evolution Visualization (Simplified)")
+    print("🚀 ICLR 3-Method Trajectory Evolution Visualization (Simplified)")
     print("="*70)
-    print("DDIM, PNDM, DPM, DDPM with different trajectories to show 1x4 layout")
+    print("DDIM, PNDM, DPM with different trajectories to show 1x3 layout")
     print("="*70)
 
     # Initialize visualizer
-    visualizer = ICLRTrajectoryEvolution4MethodsSimple(n_samples=5000, num_inference_steps=25, num_trajectories=50)
+    visualizer = ICLRTrajectoryEvolution3MethodsSimple(n_samples=5000, num_inference_steps=25, num_trajectories=50)
 
     try:
         # Generate trajectories for all methods
@@ -374,14 +368,14 @@ def main():
 
         # Create ICLR paper format trajectory evolution plots
         print(f"\n{'='*60}")
-        print("Creating ICLR Paper Format 4-Method Trajectory Evolution...")
+        print("Creating ICLR Paper Format 3-Method Trajectory Evolution...")
         print(f"{'='*60}")
-        visualizer.plot_iclr_trajectory_evolution_4methods(all_trajectories, pca_model)
+        visualizer.plot_iclr_trajectory_evolution_3methods(all_trajectories, pca_model)
 
         # Generate report
-        visualizer.generate_4methods_report(all_trajectories, pca_model)
+        visualizer.generate_3methods_report(all_trajectories, pca_model)
 
-        print(f"\n✅ ICLR 4-method trajectory evolution completed successfully!")
+        print(f"\n✅ ICLR 3-method trajectory evolution completed successfully!")
 
     except Exception as e:
         print(f"\n❌ Error during visualization: {e}")
