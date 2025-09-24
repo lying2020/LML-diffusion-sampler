@@ -1,0 +1,65 @@
+DDIM vs Hessian-Free: Anisotropy Analysis Report
+======================================================================
+
+EXPERIMENTAL CONFIGURATION:
+------------------------------
+CIFAR-10 samples for PCA: 5000
+Inference steps per trajectory: 25
+Number of trajectories per method: 100
+Total sampling steps: 2500
+Total data points analyzed: 5000
+PCA method: Max and Median eigenvalues (anisotropy analysis)
+
+EIGENVALUES ANALYSIS:
+--------------------
+Total eigenvalues computed: 3072
+Max eigenvalue: 61.199570
+Median eigenvalue: 0.000005
+Min eigenvalue: 0.000000
+Anisotropy ratio (max/median): 12847412.00
+Anisotropy ratio (max/min): 60126400512.00
+
+ANISOTROPY STATISTICS:
+-------------------------
+
+DDIM Results:
+  - Trajectories: 100
+  - Total steps: 2500
+  - Average angle: 6.2°
+  - Angle std: 32.1°
+  - Zigzag score: 0.043
+  - Orthogonal steps: 2/2498
+  - Average anisotropy: 25364.873
+  - Anisotropy std: 147123.891
+  - Min anisotropy: 5.956
+  - Max anisotropy: 3983013.750
+  - Max eigenvalue ratio: 0.0247
+  - Median eigenvalue ratio: 0.0000
+
+Hessian_Free Results:
+  - Trajectories: 100
+  - Total steps: 2500
+  - Average angle: 7.0°
+  - Angle std: 33.3°
+  - Zigzag score: 0.049
+  - Orthogonal steps: 0/2498
+  - Average anisotropy: 19190.957
+  - Anisotropy std: 162620.047
+  - Min anisotropy: 0.237
+  - Max anisotropy: 4981384.500
+  - Max eigenvalue ratio: 0.0247
+  - Median eigenvalue ratio: 0.0000
+
+ANISOTROPY COMPARISON:
+-------------------------
+Anisotropy Improvement: 24.3%
+Zigzag Score Improvement: -13.0%
+Average Angle Improvement: -12.3%
+
+ANISOTROPY INSIGHTS:
+--------------------
+Using max and median eigenvalues reveals:
+- The transition from isotropic to anisotropic during sampling
+- How different methods handle this transition
+- The relationship between anisotropy and zigzag patterns
+- Hessian-Free's ability to maintain more isotropic behavior

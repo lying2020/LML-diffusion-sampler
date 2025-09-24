@@ -1,0 +1,64 @@
+DDIM vs Hessian-Free: Extreme Eigenvalues PCA Analysis Report
+======================================================================
+
+EXPERIMENTAL CONFIGURATION:
+------------------------------
+CIFAR-10 samples for PCA: 5000
+Inference steps per trajectory: 25
+Number of trajectories per method: 100
+Total sampling steps: 2500
+Total data points analyzed: 5000
+PCA method: Extreme eigenvalues (largest and smallest)
+
+EIGENVALUES ANALYSIS:
+--------------------
+Total eigenvalues computed: 3072
+Largest eigenvalue: 61.199570
+Smallest eigenvalue: 0.000000
+Eigenvalue ratio (largest/smallest): 60126400512.00
+Condition number: 60126400512.00
+
+SAMPLE STATISTICS:
+--------------------
+
+DDIM Results:
+  - Trajectories: 100
+  - Total steps: 2500
+  - Average angle: 6.2°
+  - Angle std: 32.4°
+  - Min angle: 0.0°
+  - Max angle: 179.9°
+  - Zigzag score: 0.043
+  - Orthogonal steps: 2/2498
+  - Avg step length: 1.306
+  - Step length std: 2.368
+  - Largest eigenvalue ratio: 0.0247
+  - Smallest eigenvalue ratio: 0.0000
+
+Hessian_Free Results:
+  - Trajectories: 100
+  - Total steps: 2500
+  - Average angle: 6.8°
+  - Angle std: 33.9°
+  - Min angle: 0.0°
+  - Max angle: 179.9°
+  - Zigzag score: 0.049
+  - Orthogonal steps: 0/2498
+  - Avg step length: 1.354
+  - Step length std: 2.590
+  - Largest eigenvalue ratio: 0.0247
+  - Smallest eigenvalue ratio: 0.0000
+
+COMPARISON SUMMARY:
+--------------------
+Zigzag Score Improvement: -13.0%
+Average Angle Improvement: -9.0%
+Orthogonal Steps Reduction: 100.0%
+
+EXTREME EIGENVALUES INSIGHTS:
+------------------------------
+Using largest and smallest eigenvalues reveals:
+- The most significant direction of variation (largest eigenvalue)
+- The least significant direction of variation (smallest eigenvalue)
+- Extreme directions that may highlight zigzag patterns
+- Condition number indicates numerical stability

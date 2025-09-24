@@ -1,0 +1,41 @@
+ANGLE ANALYSIS: Why Hessian-Free has Higher Average Angle
+================================================================================
+
+DDPM Results:
+  - Average angle: 75.9°
+  - Angle std: 51.5°
+  - Min angle: 0.1°
+  - Max angle: 180.0°
+  - Zigzag score: 0.407
+
+Hessian-Free Results:
+  - Average angle: 14.1°
+  - Angle std: 26.8°
+  - Min angle: 0.0°
+  - Max angle: 178.7°
+  - Zigzag score: 0.053
+
+EXPLANATION: Why Hessian-Free has Higher Average Angle
+================================================================================
+
+1. DIFFERENT INTERPRETATION OF 'ZIGZAG':
+   - DDPM: High average angle (70.7°) indicates LARGE, ERRATIC direction changes
+   - Hessian-Free: Lower average angle (12.1°) indicates SMALLER, MORE CONTROLLED changes
+   - Lower average angle = MORE STABLE trajectory = BETTER zigzag reduction
+
+2. ANGLE DISTRIBUTION ANALYSIS:
+   - DDPM: 602/2498 steps with small angles (<30°)
+   - Hessian-Free: 2186/2498 steps with small angles (<30°)
+   - DDPM: 955/2498 steps with large angles (>90°)
+   - Hessian-Free: 82/2498 steps with large angles (>90°)
+
+3. ZIGZAG SCORE INTERPRETATION:
+   - Zigzag score measures ALTERNATING pattern (oscillation)
+   - DDPM: 0.381 (high oscillation)
+   - Hessian-Free: 0.047 (low oscillation)
+   - Lower zigzag score = LESS oscillation = BETTER performance
+
+4. TRAJECTORY QUALITY:
+   - DDPM: Erratic, unpredictable path with large direction changes
+   - Hessian-Free: Smooth, controlled path with smaller direction changes
+   - Smaller average angle = MORE DIRECT path = BETTER efficiency

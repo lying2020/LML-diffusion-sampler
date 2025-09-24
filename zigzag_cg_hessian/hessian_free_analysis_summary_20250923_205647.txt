@@ -1,0 +1,27 @@
+HESSIAN-FREE METHOD ZIGZAG ANALYSIS SUMMARY
+================================================================================
+
+Method               Avg Angle    Zigzag Score    Orthogonal   Explained Var  
+--------------------------------------------------------------------------------
+DDIM                 10.7         0.069           1.6%         0.049          
+DDPM                 70.7         0.381           17.8%        0.015          
+Original_LML         10.9         0.050           2.2%         0.050          
+Hessian_Free         12.1         0.047           2.3%         0.049          
+
+================================================================================
+HESSIAN-FREE METHOD ANALYSIS:
+================================================================================
+• Hessian-Free Method Performance:
+  - Average angle: 12.1°
+  - Zigzag score: 0.047
+  - Orthogonal steps: 29/1248 (2.3%)
+  - Explained variance: 0.049
+
+• Comparison with other methods:
+  - vs DDIM: +32.6% zigzag improvement
+  - vs DDPM: +87.8% zigzag improvement
+  - vs Original_LML: +6.5% zigzag improvement
+
+• Overall best performance:
+  - Best zigzag reduction: Hessian_Free (score: 0.047)
+  - Most orthogonal steps: DDPM (222/1248 steps)
