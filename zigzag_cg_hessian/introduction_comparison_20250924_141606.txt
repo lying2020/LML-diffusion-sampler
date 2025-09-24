@@ -1,0 +1,40 @@
+Introduction Comparison: DDIM vs PNDM
+======================================================================
+
+EXPERIMENTAL CONFIGURATION:
+------------------------------
+CIFAR-10 samples for PCA: 5000
+Inference steps per trajectory: 20
+Number of trajectories per method: 50
+Total sampling steps: 1000
+Methods: ddim, pndm
+
+ZIGZAG ANALYSIS:
+--------------------
+
+DDIM Results:
+  - Trajectories: 50
+  - Total steps: 1000
+  - Average angle: 0.0°
+  - Angle std: 0.0°
+  - Zigzag score: 0.000
+  - Orthogonal steps: 0/998
+  - Avg step length: 2399.166
+  - Step length std: 2.626
+
+PNDM Results:
+  - Trajectories: 50
+  - Total steps: 1450
+  - Average angle: 0.8°
+  - Angle std: 2.3°
+  - Zigzag score: 0.000
+  - Orthogonal steps: 0/1448
+  - Avg step length: 2395.917
+  - Step length std: 2757.779
+
+COMPARISON SUMMARY:
+--------------------
+Best zigzag score: DDIM (0.000)
+Worst zigzag score: DDIM (0.000)
+Best average angle: DDIM (0.0°)
+Worst average angle: PNDM (0.8°)
