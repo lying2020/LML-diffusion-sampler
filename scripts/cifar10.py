@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--num_inference_steps', type=int, default=20)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='pndm',
+    parser.add_argument('--sampler_type', type=str, default='unipc',
                         choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc'])
 
     # Output configuration
@@ -242,39 +242,31 @@ def main():
     print(f"Output: {save_dir}")
     print("="*60)
 
-    try:
-        # Load pipeline
-        print("\n📦 Loading model...")
-        pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=False)
-        pipe.unet.to(args.device)
-        print("  ✓ Model loaded successfully")
+    # Load pipeline
+    print("\n📦 Loading model...")
+    pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=False)
+    pipe.unet.to(args.device)
+    print("  ✓ Model loaded successfully")
 
-        # Setup scheduler
-        print(f"\n⚙️ Setting up scheduler...")
-        setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
+    # Setup scheduler
+    print(f"\n⚙️ Setting up scheduler...")
+    setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
 
-        # Generate images
-        generation_stats = generate_images(
-            pipe, args.batch_size, args.num_inference_steps,
-            args.test_num, args.start_index, save_dir, args.sampler_type
-        )
+    # Generate images
+    generation_stats = generate_images(
+        pipe, args.batch_size, args.num_inference_steps,
+        args.test_num, args.start_index, save_dir, args.sampler_type
+    )
 
-        # Save generation log if requested
-        if args.save_log:
-            print(f"\n📝 Saving generation log...")
-            save_generation_log(save_dir, args.sampler_type, generation_stats, args)
+    # Save generation log if requested
+    if args.save_log:
+        print(f"\n📝 Saving generation log...")
+        save_generation_log(save_dir, args.sampler_type, generation_stats, args)
 
-        print(f"\n✅ Generation completed successfully!")
-        print(f"   Generated {generation_stats['total_images']} images")
-        print(f"   Total time: {generation_stats['total_time']:.2f}s")
-        print(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
-
-    except Exception as e:
-        print(f"\n❌ Error during generation: {e}")
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
-        sys.exit(1)
+    print(f"\n✅ Generation completed successfully!")
+    print(f"   Generated {generation_stats['total_images']} images")
+    print(f"   Total time: {generation_stats['total_time']:.2f}s")
+    print(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
 
 if __name__ == '__main__':
     main()
