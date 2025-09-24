@@ -72,6 +72,7 @@ def parse_args():
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
     parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--run_batch', action='store_true', default=True)
 
     args = parser.parse_args()
 
@@ -437,7 +438,7 @@ if __name__ == '__main__':
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
         SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc"]
-        INFERENCE_STEPS = [5, 6]
+        INFERENCE_STEPS = [5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
 
         print("="*50)
         print("CIFAR-10 实验批量运行开始")
