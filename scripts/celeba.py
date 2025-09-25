@@ -753,7 +753,7 @@ def run_single_sampler(args):
 
         # Setup paths
     model_id = celeba_model_id
-    save_dir = os.path.join(project.output_dir, args.save_dir, args.sampler_type)
+    save_dir = os.path.join(project.output_dir, args.save_dir,  "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
     try:
@@ -799,7 +799,7 @@ def main(args):
 
     # Setup paths
     model_id = celeba_model_id
-    save_dir = os.path.join(project.output_dir, args.save_dir, args.sampler_type)
+    save_dir = os.path.join(project.output_dir, args.save_dir,  "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
     project.info("🚀 CelebA-HQ Unified Sampling Script")
