@@ -26,6 +26,7 @@ sys.path.append(os.getcwd())
 from diffusers import LDMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistepScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
+from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepHessianFreeScheduler
 
 import project as project
 
@@ -38,14 +39,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=100)
+    parser.add_argument('--test_num', type=int, default=20)
     parser.add_argument('--start_index', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--num_inference_steps', type=int, default=20)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--num_inference_steps', type=int, default=10)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='unipc',
-                        choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc'])
+    parser.add_argument('--sampler_type', type=str, default='hessian_free',
+                        choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'])
 
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='celeba')
@@ -88,7 +89,8 @@ def get_sampler_description(sampler_type):
         'dpm++': 'DPM-Solver++ - Improved version with better stability',
         'dpm_lm': 'DPM-Solver with Levenberg-Marquardt Langevin correction',
         'pndm': 'Pseudo Numerical methods for Diffusion Models',
-        'unipc': 'Unified Predictor-Corrector framework'
+        'unipc': 'Unified Predictor-Corrector framework',
+        'hessian_free': 'DPM-Solver with Hessian-Free HVP correction using CG'
     }
     return descriptions.get(sampler_type, 'Unknown sampler type')
 
@@ -135,6 +137,16 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     elif sampler_type == 'unipc':
         pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
         project.info(f"  Using UniPC scheduler")
+
+    elif sampler_type == 'hessian_free':
+        pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler.config.solver_order = 3
+        pipe.scheduler.config.algorithm_type = "dpmsolver++"
+        pipe.scheduler.lamb = lamb
+        pipe.scheduler.lm = True
+        pipe.scheduler.kappa = kappa
+        pipe.scheduler.hessian_method = 'hessian_free'
+        project.info(f"  Using DPM-Solver++ with Hessian-Free HVP correction (λ={lamb}, κ={kappa})")
 
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
@@ -348,7 +360,7 @@ def generate_comparison_table(results_dict):
     """Generate comparison table in the format shown in the image"""
 
     # Define the methods in order
-    methods = ['DDIM [75]', 'PNDM [50]', 'DPM [51]', 'DPM++ [52]', 'UniPC [91]', 'LML(Ours)']
+    methods = ['DDIM [75]', 'PNDM [50]', 'DPM [51]', 'DPM++ [52]', 'UniPC [91]', 'LML(Ours)', 'HVP(Ours)']
 
     # Map sampler types to method names
     sampler_to_method = {
@@ -357,8 +369,9 @@ def generate_comparison_table(results_dict):
         'dpm': 'DPM [51]',
         'dpm++': 'DPM++ [52]',
         'unipc': 'UniPC [91]',
-        'dpm_lm': 'LML(Ours)',
-        'ddim_lm': 'LML(Ours)'
+        'dpm_lm': 'LML',
+        'ddim_lm': 'LML',
+        'hessian_free': 'HVP(Ours)'
     }
 
     # Create table data
@@ -689,7 +702,7 @@ def generate_experiment_summary(experiment_results, start_time, end_time, args):
 def compare_all_samplers(args):
     """Compare all available samplers and generate comparison table"""
 
-    samplers = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm']
+    samplers = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
     results_dict = {}
 
     project.info("🔄 Running comprehensive comparison of all samplers...")
@@ -844,7 +857,7 @@ if __name__ == '__main__':
     # 检查是否运行批量实验
     if args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc"]
+        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
         # INFERENCE_STEPS = [5, 7, 9, 12, 15, 20, 50]
         # INFERENCE_STEPS = [5, 6]
 
