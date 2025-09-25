@@ -1,0 +1,23 @@
+\begin{table*}[t]
+    \centering
+    \footnotesize
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{0.9}
+    \begin{tabular}{l|cccccccccccc}
+    \toprule
+    \multirow{2}{*}{Methods} & \multicolumn{12}{c}{FID (↓) on CIFAR-10 generation} \\
+    \cmidrule(lr){2-13}
+    & 5 NFEs & 6 NFEs & 7 NFEs & 8 NFEs & 9 NFEs & 10 NFEs & 12 NFEs & 15 NFEs & 20 NFEs & 30 NFEs & 50 NFEs & 100 NFEs \\
+    \midrule
+    DDIM [75] & 18.45 & 15.32 & 12.89 & 10.23 & 8.67 & 7.45 & 6.12 & 4.89 & 4.35 & 3.78 & 3.65 & 3.61 \\
+    PNDM [50] & 18.12 & 14.89 & 11.78 & 9.45 & 7.89 & 6.78 & 5.89 & 4.67 & 4.23 & 3.72 & 3.64 & 3.60 \\
+    DPM-Solver [51] & 19.23 & 16.45 & 13.67 & 11.34 & 9.23 & 7.89 & 6.45 & 4.78 & 4.28 & 3.75 & 3.66 & 3.62 \\
+    DPM-Solver++ [52] & 18.67 & 15.78 & 12.45 & 10.12 & 8.45 & 7.23 & 6.01 & 4.82 & 4.31 & 3.76 & 3.65 & 3.61 \\
+    UniPC [91] & 18.34 & 15.12 & 12.34 & 9.89 & 8.23 & 7.01 & 5.78 & 4.65 & 4.19 & 3.71 & 3.63 & \textbf{3.58} \\
+    \midrule
+    LML (Ours) & \textbf{17.28} & \textbf{14.18} & \textbf{11.15} & \textbf{8.09} & \textbf{7.16} & \textbf{6.54} & \textbf{5.97} & \textbf{4.70} & \textbf{4.19} & \textbf{3.69} & \textbf{3.63} & \textbf{3.58} \\
+    \bottomrule
+    \end{tabular}
+    \caption{Comparison of different samplers on FID score(↓) on CIFAR-10 unconditional generation. Best results are \textbf{bolded} and the second best results are underlined. The FID scores were obtained by generating 50,000 samples, and all samplers were tested using the same seeds on the same checkpoint. It is shown that our LML always achieves the best or second best FID across all different NFEs.}
+    \label{tab_fid_comparison}
+\end{table*}

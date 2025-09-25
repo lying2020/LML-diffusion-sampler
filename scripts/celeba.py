@@ -845,35 +845,35 @@ if __name__ == '__main__':
     if args.run_batch:
         # 批量实验模式
         SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc"]
-        INFERENCE_STEPS = [5, 7, 9, 12, 15, 20, 50]
+        # INFERENCE_STEPS = [5, 7, 9, 12, 15, 20, 50]
         # INFERENCE_STEPS = [5, 6]
 
         project.log_experiment_start("CelebA-HQ 批量实验", {
             'samplers': SAMPLER_TYPES,
-            'steps': INFERENCE_STEPS,
+            'steps': args.num_inference_steps,
             'batch_size': args.batch_size,
             'test_num': args.test_num
         })
 
-        total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
+        total_experiments = len(SAMPLER_TYPES)
         experiment_results = []
         start_time = datetime.now()
 
         experiment_num = 0
-        for i in range(len(INFERENCE_STEPS)):
-            for j in range(len(SAMPLER_TYPES)):
-                experiment_num += 1
-                num_inference_steps = INFERENCE_STEPS[i]
-                sampler_type = SAMPLER_TYPES[j]
 
-                # 更新args
-                args.num_inference_steps = num_inference_steps
-                args.sampler_type = sampler_type
+        for j in range(len(SAMPLER_TYPES)):
+            experiment_num += 1
+            num_inference_steps = args.num_inference_steps
+            sampler_type = SAMPLER_TYPES[j]
 
-                project.progress(experiment_num, total_experiments, f"Running {sampler_type} with {num_inference_steps} steps")
+            # 更新args
+            args.num_inference_steps = num_inference_steps
+            args.sampler_type = sampler_type
 
-                result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
-                experiment_results.append(result)
+            project.progress(experiment_num, total_experiments, f"Running {sampler_type} with {num_inference_steps} steps")
+
+            result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
+            experiment_results.append(result)
 
         end_time = datetime.now()
 

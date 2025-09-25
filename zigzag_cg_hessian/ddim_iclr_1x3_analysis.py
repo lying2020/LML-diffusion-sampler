@@ -310,14 +310,39 @@ class DDIMICLRAnalysis:
         ax2.axhline(y=1.0, color='red', linestyle='--', linewidth=2, alpha=0.7, label='Theoretical (1.0)')
         ax2.set_xlabel('Step', fontsize=12, fontweight='bold')
 
-        # 设置x轴刻度
-        if len(sampled_steps) > 10:
-            interval = len(sampled_steps) // 5
-            ax2.set_xticks(sampled_steps[::interval])
-            ax2.set_xticklabels([str(int(x)) for x in sampled_steps[::interval]])
+        # 设置x轴刻度 - 显示整十或整百的刻度
+        if len(steps) > 100:
+            # 对于大范围，使用整百刻度
+            max_step = steps[-1]
+            if max_step >= 1000:
+                tick_interval = 200
+            elif max_step >= 500:
+                tick_interval = 100
+            else:
+                tick_interval = 50
+            
+            # 生成整百/整十刻度
+            tick_steps = np.arange(0, max_step + 1, tick_interval)
+            # 确保包含最后一个点
+            if tick_steps[-1] < max_step:
+                tick_steps = np.append(tick_steps, max_step)
+            
+            ax2.set_xticks(tick_steps)
+            ax2.set_xticklabels([str(int(x)) for x in tick_steps])
+        elif len(steps) > 10:
+            # 对于中等范围，使用整十刻度
+            max_step = steps[-1]
+            tick_interval = max(10, max_step // 10)
+            tick_steps = np.arange(0, max_step + 1, tick_interval)
+            if tick_steps[-1] < max_step:
+                tick_steps = np.append(tick_steps, max_step)
+            
+            ax2.set_xticks(tick_steps)
+            ax2.set_xticklabels([str(int(x)) for x in tick_steps])
         else:
-            ax2.set_xticks(sampled_steps)
-            ax2.set_xticklabels([str(int(x)) for x in sampled_steps])
+            # 对于小范围，显示所有刻度
+            ax2.set_xticks(steps)
+            ax2.set_xticklabels([str(int(x)) for x in steps])
 
         ax2.set_ylabel('PC2/PC1 Ratio', fontsize=12, fontweight='bold')
         ax2.set_title('PC2/PC1 Ratio per Step\n(Deviation from Theoretical)', fontsize=14, fontweight='bold')
@@ -350,12 +375,32 @@ class DDIMICLRAnalysis:
             ax3.scatter(score_pca_proj[j, 0], score_pca_proj[j, 1],
                       c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
 
+        # 自适应调整x轴显示范围，让图例占满坐标轴的至少2/3
+        x_data = score_pca_proj[:, 0]
+        y_data = score_pca_proj[:, 1]
+        
+        # 计算数据范围
+        x_range = np.max(x_data) - np.min(x_data)
+        y_range = np.max(y_data) - np.min(y_data)
+        
+        # 计算中心点
+        x_center = (np.max(x_data) + np.min(x_data)) / 2
+        y_center = (np.max(y_data) + np.min(y_data)) / 2
+        
+        # 计算显示范围，确保图例占满坐标轴的至少2/3
+        display_ratio = 0.67  # 至少2/3
+        x_display_range = x_range / display_ratio
+        y_display_range = y_range / display_ratio
+        
+        # 设置坐标轴范围
+        ax3.set_xlim(x_center - x_display_range/2, x_center + x_display_range/2)
+        ax3.set_ylim(y_center - y_display_range/2, y_center + y_display_range/2)
+        
         ax3.set_xlabel('PC1', fontsize=12, fontweight='bold')
         ax3.set_ylabel('PC2', fontsize=12, fontweight='bold')
         ax3.set_title('Score Space PCA2 Analysis\n(Gradient Evolution)', fontsize=14, fontweight='bold')
         ax3.legend(fontsize=10, loc='upper right')
         ax3.grid(True, alpha=0.3)
-        ax3.axis('equal')
 
         # Adjust layout
         plt.tight_layout(rect=[0, 0, 1, 0.92])

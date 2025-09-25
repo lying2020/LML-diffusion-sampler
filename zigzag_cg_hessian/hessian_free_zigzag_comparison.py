@@ -23,7 +23,7 @@ matplotlib.use('Agg')
 
 # Import schedulers
 from diffusers import DDPMPipeline, DDIMScheduler, DDPMScheduler
-from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepLMSchedulerAdvanced
+from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepHessianFreeScheduler
 import project as project
 
 class HessianFreeAnalyzer:
@@ -66,7 +66,7 @@ class HessianFreeAnalyzer:
         elif method_name == 'DDPM':
             pipe.scheduler = DDPMScheduler.from_config(pipe.scheduler.config)
         elif method_name == 'Hessian_Free':
-            pipe.scheduler = DPMSolverMultistepLMSchedulerAdvanced.from_config(pipe.scheduler.config)
+            pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
             pipe.scheduler.config.solver_order = 3
             pipe.scheduler.config.algorithm_type = "dpmsolver"
             pipe.scheduler.lamb = 0.0008
@@ -75,7 +75,7 @@ class HessianFreeAnalyzer:
             pipe.scheduler.hessian_method = 'hessian_free'
             pipe.scheduler.set_model(pipe.unet)
         elif method_name == 'Original_LML':
-            pipe.scheduler = DPMSolverMultistepLMSchedulerAdvanced.from_config(pipe.scheduler.config)
+            pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
             pipe.scheduler.config.solver_order = 3
             pipe.scheduler.config.algorithm_type = "dpmsolver"
             pipe.scheduler.lamb = 0.0008

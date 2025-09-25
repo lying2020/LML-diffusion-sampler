@@ -236,7 +236,7 @@ from scheduler.scheduling_dpmsolver_multistep_lm import (
     betas_for_alpha_bar, DPMSolverMultistepLMScheduler
 )
 
-class DPMSolverMultistepLMSchedulerAdvanced(DPMSolverMultistepLMScheduler):
+class DPMSolverMultistepHessianFreeScheduler(DPMSolverMultistepLMScheduler):
     """
     Advanced DPM-Solver with multiple Hessian computation methods
     """

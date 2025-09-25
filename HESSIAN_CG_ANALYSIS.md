@@ -35,11 +35,11 @@ def lm_correct_original(noise_pred, noise_pred_ema, lamb):
     # 使用简化的 Hessian 近似
     norm_squared = (noise_pred * noise_pred).sum(dim=(1, 2, 3))
     inner_product = torch.sum(noise_pred * noise_pred_ema, dim=(1, 2, 3))
-    
+
     # 近似 Hessian 逆：H⁻¹ ≈ (I + λI)⁻¹
     part1 = noise_pred
     part2 = noise_pred_ema * inner_product / (lamb + norm_squared_ema)
-    
+
     corrected_noise = part1 - part2
     return corrected_noise
 ```
@@ -53,9 +53,9 @@ def lm_correct_explicit_hessian(noise_pred, noise_pred_ema, lamb, model, x, t, d
         score_pred = model(x_grad, t)
         log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
         log_prob = log_prob.sum()
-    
+
     grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
-    
+
     # 2. 使用有限差分近似 Hessian
     hessian_diag = torch.zeros_like(x)
     for i in range(channels):
@@ -64,11 +64,11 @@ def lm_correct_explicit_hessian(noise_pred, noise_pred_ema, lamb, model, x, t, d
                 # 扰动单个元素
                 x_pert = x.clone()
                 x_pert[:, i, j, k] += eps
-                
+
                 # 计算扰动后的梯度
                 grad_pert = compute_gradient(x_pert, model, t)
                 hessian_diag[:, i, j, k] = (grad_pert[:, i, j, k] - grad[:, i, j, k]) / eps
-    
+
     # 3. 应用对角 Hessian 近似
     hessian_inv_diag = 1.0 / (hessian_diag + lamb)
     corrected_noise = noise_pred * hessian_inv_diag
@@ -82,53 +82,53 @@ def lm_correct_hessian_free(noise_pred, noise_pred_ema, lamb, model, x, t, devic
         """使用 Pearlmutter 方法计算 Hv"""
         v_grad = v.clone().detach().requires_grad_(True)
         x_grad = x.clone().detach().requires_grad_(True)
-        
+
         with torch.enable_grad():
             score_pred = model(x_grad, t)
             log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
             log_prob = log_prob.sum()
-        
+
         # 计算梯度
         grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
-        
+
         # 计算 Hv = ∇(∇f · v)
         grad_dot_v = torch.sum(grad * v_grad)
         hv = torch.autograd.grad(grad_dot_v, x_grad, retain_graph=True)[0]
         return hv
-    
+
     def conjugate_gradient_solve(b, max_iter=20, tol=1e-4):
         """使用共轭梯度求解 Hx = b"""
         x_cg = torch.zeros_like(b)
         r = b.clone()  # 残差
         p = r.clone()  # 搜索方向
-        
+
         r_norm_sq = torch.sum(r ** 2)
         r_norm_0 = torch.sqrt(r_norm_sq)
-        
+
         for i in range(max_iter):
             Hp = hessian_vector_product(p)  # 计算 Hp
             p_Hp = torch.sum(p * Hp)
-            
+
             if p_Hp <= 0:  # 检查正定性
                 break
-            
+
             # CG 步骤
             alpha = r_norm_sq / p_Hp
             x_cg = x_cg + alpha * p
             r = r - alpha * Hp
-            
+
             r_norm_sq_new = torch.sum(r ** 2)
             r_norm = torch.sqrt(r_norm_sq_new)
-            
+
             if r_norm < tol * r_norm_0:  # 收敛检查
                 break
-            
+
             beta = r_norm_sq_new / r_norm_sq
             p = r + beta * p
             r_norm_sq = r_norm_sq_new
-        
+
         return x_cg
-    
+
     # 求解 H⁻¹ * noise_pred
     corrected_noise = conjugate_gradient_solve(noise_pred)
     corrected_noise = corrected_noise / (1.0 + lamb)  # 正则化
@@ -145,13 +145,13 @@ Pearlmutter 方法是一种高效计算 Hessian-向量乘积的技术：
 def hessian_vector_product(v):
     # 1. 计算一阶梯度
     grad = ∇f(x)
-    
+
     # 2. 计算梯度与向量的内积
     grad_dot_v = grad · v
-    
+
     # 3. 计算二阶梯度
     hv = ∇(grad_dot_v) = ∇(∇f · v)
-    
+
     return hv
 ```
 
@@ -169,16 +169,16 @@ def conjugate_gradient(b, max_iter, tol):
     x = 0
     r = b  # 初始残差
     p = r  # 初始搜索方向
-    
+
     for i in range(max_iter):
         Hp = hessian_vector_product(p)
         alpha = (r·r) / (p·Hp)  # 步长
         x = x + alpha * p       # 更新解
         r = r - alpha * Hp      # 更新残差
-        
+
         if ||r|| < tol:         # 收敛检查
             break
-            
+
         beta = (r_new·r_new) / (r_old·r_old)
         p = r + beta * p        # 更新搜索方向
 ```
@@ -220,11 +220,11 @@ def adaptive_damping_function(condition_number, method='adaptive'):
 ### 5.1 在扩散采样中的集成
 
 ```python
-class DPMSolverMultistepLMSchedulerAdvanced:
+class DPMSolverMultistepHessianFreeScheduler:
     def step(self, model_output, timestep, sample, **kwargs):
         # 1. 标准 DPM 步骤
         prev_sample = self.dpm_solver_step(model_output, timestep, sample)
-        
+
         # 2. LML 修正
         if self.lm:
             corrected_output = lm_correct_advanced(
@@ -239,7 +239,7 @@ class DPMSolverMultistepLMSchedulerAdvanced:
                 device=self.device
             )
             return corrected_output
-        
+
         return prev_sample
 ```
 
