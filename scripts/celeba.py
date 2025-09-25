@@ -35,10 +35,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=10)
+    parser.add_argument('--test_num', type=int, default=200)
     parser.add_argument('--start_index', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--num_inference_steps', type=int, default=10)
+    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--num_inference_steps', type=int, default=20)
 
     # Sampler selection
     parser.add_argument('--sampler_type', type=str, default='unipc',
