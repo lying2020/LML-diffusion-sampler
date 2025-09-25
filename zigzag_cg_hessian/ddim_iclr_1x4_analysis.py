@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-DDIM ICLR 1x3 Analysis: XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2
-专门针对DDIM方法的1×3 ICLR格式分析
+DDIM ICLR 1x4 Analysis: XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2, Score Angle Analysis
+专门针对DDIM方法的1×4 ICLR格式分析
 """
 
 import numpy as np
@@ -42,7 +42,7 @@ plt.rcParams.update({
 })
 
 class DDIMICLRAnalysis:
-    """DDIM ICLR 1x3 Analysis"""
+    """DDIM ICLR 1x4 Analysis"""
 
     def __init__(self, n_samples=5000, num_inference_steps=25, num_trajectories=50):
         self.n_samples = n_samples
@@ -50,7 +50,7 @@ class DDIMICLRAnalysis:
         self.num_trajectories = num_trajectories
         self.method = 'ddim'
 
-        print(f"🔧 DDIM ICLR 1x3 Analysis Configuration:")
+        print(f"🔧 DDIM ICLR 1x4 Analysis Configuration:")
         print(f"   - CIFAR-10 samples for PCA: {self.n_samples}")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
         print(f"   - Number of trajectories: {self.num_trajectories}")
@@ -192,6 +192,44 @@ class DDIMICLRAnalysis:
 
         return np.array(step_ratios)
 
+
+    def calculate_score_angles(self, trajectories):
+        """Calculate angles between consecutive score vectors"""
+        print(f"\n📊 Calculating score vector angles...")
+        
+        all_angles = []
+        for traj in trajectories:
+            score_vectors = traj['score']  # [T, D]
+            angles = []
+            
+            for i in range(1, len(score_vectors)):
+                # 计算score_i和score_{i-1}的夹角
+                score_curr = score_vectors[i]
+                score_prev = score_vectors[i-1]
+                
+                # 计算余弦相似度
+                dot_product = np.dot(score_curr, score_prev)
+                norm_curr = np.linalg.norm(score_curr)
+                norm_prev = np.linalg.norm(score_prev)
+                
+                if norm_curr > 0 and norm_prev > 0:
+                    cos_angle = dot_product / (norm_curr * norm_prev)
+                    # 限制在[-1, 1]范围内，避免数值误差
+                    cos_angle = np.clip(cos_angle, -1.0, 1.0)
+                    angle = np.arccos(cos_angle)
+                    angles.append(angle)
+                else:
+                    angles.append(0.0)
+            
+            all_angles.append(angles)
+        
+        # 计算平均角度
+        mean_angles = np.mean(all_angles, axis=0)
+        print(f"  Score angles calculated for {len(trajectories)} trajectories")
+        print(f"  Mean angle range: {np.min(mean_angles):.4f} - {np.max(mean_angles):.4f} radians")
+        
+        return mean_angles
+
     def find_high_slope_points(self, step_ratios, num_points=3):
         """Find points with high slope changes in PC2/PC1 ratio, one from each third of the trajectory"""
         # Calculate slope (first derivative)
@@ -246,13 +284,13 @@ class DDIMICLRAnalysis:
         ax.axis("equal")
         ax.grid(True, linestyle=":")
 
-    def plot_iclr_1x3_analysis(self, trajectories, xt_pca, score_pca, step_ratios, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
-        """Plot ICLR 1x3 analysis for DDIM"""
+    def plot_iclr_1x4_analysis(self, trajectories, xt_pca, score_pca, step_ratios, score_angles, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
+        """Plot ICLR 1x4 analysis for DDIM"""
         os.makedirs(save_dir, exist_ok=True)
 
-        # Create figure with 1x3 subplots
-        fig, axes = plt.subplots(1, 3, figsize=(17, 5))
-        fig.suptitle('DDIM Analysis: XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2',
+        # Create figure with 1x4 subplots
+        fig, axes = plt.subplots(1, 4, figsize=(22, 5))
+        fig.suptitle('DDIM Analysis: XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2, Score Angle Analysis',
                      fontsize=16, fontweight='bold', y=0.95)
 
         # Define colors
@@ -309,15 +347,42 @@ class DDIMICLRAnalysis:
         ax2.plot(sampled_steps, sampled_ratios, 'o-', color=method_color, linewidth=3, markersize=6)
         ax2.axhline(y=1.0, color='red', linestyle='--', linewidth=2, alpha=0.7, label='Theoretical (1.0)')
         ax2.set_xlabel('Step', fontsize=12, fontweight='bold')
-
-        # 设置x轴刻度
-        if len(sampled_steps) > 10:
-            interval = len(sampled_steps) // 5
-            ax2.set_xticks(sampled_steps[::interval])
-            ax2.set_xticklabels([str(int(x)) for x in sampled_steps[::interval]])
+        # 设置x轴刻度 - 显示整百或整十的刻度
+        if len(steps) > 100:
+            # 对于大范围，使用整百刻度
+            max_step = steps[-1]
+            if max_step >= 1000:
+                tick_interval = 200
+            elif max_step >= 500:
+                tick_interval = 100
+            else:
+                tick_interval = 50
+            
+            # 生成整百/整十刻度
+            tick_steps = np.arange(0, max_step + 1, tick_interval)
+            # 确保包含最后一个点
+            if tick_steps[-1] < max_step:
+                tick_steps = np.append(tick_steps, max_step)
+            
+            ax2.set_xticks(tick_steps)
+            ax2.set_xticklabels([str(int(x)) for x in tick_steps])
+        elif len(steps) > 10:
+            # 对于中等范围，使用整十刻度
+            max_step = steps[-1]
+            tick_interval = max(10, max_step // 10)
+            tick_steps = np.arange(0, max_step + 1, tick_interval)
+            if tick_steps[-1] < max_step:
+                tick_steps = np.append(tick_steps, max_step)
+            
+            ax2.set_xticks(tick_steps)
+            ax2.set_xticklabels([str(int(x)) for x in tick_steps])
         else:
-            ax2.set_xticks(sampled_steps)
-            ax2.set_xticklabels([str(int(x)) for x in sampled_steps])
+            # 对于小范围，显示所有刻度
+            ax2.set_xticks(steps)
+            ax2.set_xticklabels([str(int(x)) for x in steps])
+            # 对于小范围，显示所有刻度
+            ax2.set_xticks(steps)
+            ax2.set_xticklabels([str(int(x)) for x in steps])
 
         ax2.set_ylabel('PC2/PC1 Ratio', fontsize=12, fontweight='bold')
         ax2.set_title('PC2/PC1 Ratio per Step\n(Deviation from Theoretical)', fontsize=14, fontweight='bold')
@@ -357,14 +422,68 @@ class DDIMICLRAnalysis:
         ax3.grid(True, alpha=0.3)
         ax3.axis('equal')
 
+        # Subplot 4: Score Vector Angle Analysis
+        ax4 = axes[3]
+        steps = np.arange(1, self.num_inference_steps)  # 角度从第2步开始
+        
+        # 如果步数超过40，则均匀采样40个点
+        if len(steps) > 40:
+            sample_indices = np.linspace(0, len(steps)-1, 40, dtype=int)
+            sampled_steps = steps[sample_indices]
+            sampled_angles = score_angles[sample_indices]
+        else:
+            sampled_steps = steps
+            sampled_angles = score_angles
+
+        ax4.plot(sampled_steps, sampled_angles, 'o-', color='#E74C3C', linewidth=3, markersize=6)
+        ax4.axhline(y=np.pi/2, color='red', linestyle='--', linewidth=2, alpha=0.7, label='90° (π/2)')
+        # 设置x轴刻度 - 显示整百或整十的刻度
+        if len(steps) > 100:
+            # 对于大范围，使用整百刻度
+            max_step = steps[-1]
+            if max_step >= 1000:
+                tick_interval = 200
+            elif max_step >= 500:
+                tick_interval = 100
+            else:
+                tick_interval = 50
+            
+            # 生成整百/整十刻度
+            tick_steps = np.arange(0, max_step + 1, tick_interval)
+            # 确保包含最后一个点
+            if tick_steps[-1] < max_step:
+                tick_steps = np.append(tick_steps, max_step)
+            
+            ax4.set_xticks(tick_steps)
+            ax4.set_xticklabels([str(int(x)) for x in tick_steps])
+        elif len(steps) > 10:
+            # 对于中等范围，使用整十刻度
+            max_step = steps[-1]
+            tick_interval = max(10, max_step // 10)
+            tick_steps = np.arange(0, max_step + 1, tick_interval)
+            if tick_steps[-1] < max_step:
+                tick_steps = np.append(tick_steps, max_step)
+            
+            ax4.set_xticks(tick_steps)
+            ax4.set_xticklabels([str(int(x)) for x in tick_steps])
+        else:
+            # 对于小范围，显示所有刻度
+            ax4.set_xticks(steps)
+            ax4.set_xticklabels([str(int(x)) for x in steps])
+        
+        ax4.set_ylabel('Angle (radians)', fontsize=12, fontweight='bold')
+        ax4.set_title('Score Vector Angle Analysis\n(Consecutive Score Angles)', fontsize=14, fontweight='bold')
+        ax4.legend(fontsize=10)
+        ax4.grid(True, alpha=0.3)
+
         # Adjust layout
         plt.tight_layout(rect=[0, 0, 1, 0.92])
 
         # Save the plot
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'ddim_iclr_1x3_analysis_{timestamp}.png')
+        save_path = os.path.join(save_dir, f'ddim_iclr_1x4_analysis_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
-        print(f"\n✓ DDIM ICLR 1x3 analysis plot saved to: {save_path}")
+        print(f"\n✓ DDIM ICLR 1x4 analysis plot saved to: {save_path}")
 
         plt.close()
 
@@ -402,15 +521,15 @@ class DDIMICLRAnalysis:
 
         plt.close()
 
-    def generate_analysis_report(self, xt_pca, score_pca, step_ratios, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
+    def generate_analysis_report(self, xt_pca, score_pca, step_ratios, score_angles, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Generate analysis report"""
         os.makedirs(save_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        report_path = os.path.join(save_dir, f'ddim_iclr_1x3_analysis_report_{timestamp}.txt')
+        report_path = os.path.join(save_dir, f'ddim_iclr_1x4_analysis_report_{timestamp}.txt')
 
         with open(report_path, 'w') as f:
-            f.write("DDIM ICLR 1x3 Analysis Report\n")
+            f.write("DDIM ICLR 1x4 Analysis Report\n")
             f.write("="*50 + "\n\n")
 
             f.write("EXPERIMENTAL CONFIGURATION:\n")
@@ -442,6 +561,14 @@ class DDIMICLRAnalysis:
             f.write(f"Max ratio: {np.max(step_ratios):.6f}\n")
             f.write(f"Deviation from 1.0: {np.mean(np.abs(step_ratios - 1.0)):.6f}\n\n")
 
+            f.write("SCORE VECTOR ANGLE ANALYSIS:\n")
+            f.write("-" * 30 + "\n")
+            f.write(f"Mean angle: {np.mean(score_angles):.6f} radians ({np.degrees(np.mean(score_angles)):.2f}°)\n")
+            f.write(f"Std angle: {np.std(score_angles):.6f} radians ({np.degrees(np.std(score_angles)):.2f}°)\n")
+            f.write(f"Min angle: {np.min(score_angles):.6f} radians ({np.degrees(np.min(score_angles)):.2f}°)\n")
+            f.write(f"Max angle: {np.max(score_angles):.6f} radians ({np.degrees(np.max(score_angles)):.2f}°)\n")
+            f.write(f"Deviation from 90°: {np.mean(np.abs(score_angles - np.pi/2)):.6f} radians ({np.degrees(np.mean(np.abs(score_angles - np.pi/2))):.2f}°)\n\n")
+
             # 添加高斜率点信息
             high_slope_points = self.find_high_slope_points(step_ratios, num_points=3)
             f.write("HIGH SLOPE POINTS FOR LOCAL WINDOWS:\n")
@@ -460,7 +587,7 @@ class DDIMICLRAnalysis:
 
         # Print summary to console
         print(f"\n" + "="*80)
-        print("DDIM ICLR 1x3 ANALYSIS SUMMARY")
+        print("DDIM ICLR 1x4 ANALYSIS SUMMARY")
         print("="*80)
 
         print(f"\nXT Space PCA2:")
@@ -478,6 +605,11 @@ class DDIMICLRAnalysis:
         print(f"Std: {np.std(step_ratios):.6f}")
         print(f"Deviation from 1.0: {np.mean(np.abs(step_ratios - 1.0)):.6f}")
 
+        print(f"\nScore Vector Angles:")
+        print(f"Mean: {np.mean(score_angles):.6f} radians ({np.degrees(np.mean(score_angles)):.2f}°)")
+        print(f"Std: {np.std(score_angles):.6f} radians ({np.degrees(np.std(score_angles)):.2f}°)")
+        print(f"Deviation from 90°: {np.mean(np.abs(score_angles - np.pi/2)):.6f} radians ({np.degrees(np.mean(np.abs(score_angles - np.pi/2))):.2f}°)")
+
         # 打印高斜率点信息
         high_slope_points = self.find_high_slope_points(step_ratios, num_points=3)
         print(f"\nHigh Slope Points for Local Windows:")
@@ -488,13 +620,13 @@ class DDIMICLRAnalysis:
 def main():
     """Main function to run DDIM ICLR 1x3 analysis"""
 
-    print("🚀 DDIM ICLR 1x3 Analysis")
+    print("🚀 DDIM ICLR 1x4 Analysis")
     print("="*50)
     print("XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2")
     print("="*50)
 
     # Initialize analyzer
-    analyzer = DDIMICLRAnalysis(n_samples=10000, num_inference_steps=500, num_trajectories=100)
+    analyzer = DDIMICLRAnalysis(n_samples=10000, num_inference_steps=500, num_trajectories=20)
 
     try:
         # Load pipeline
@@ -515,25 +647,29 @@ def main():
         print(f"{'='*60}")
         xt_pca, score_pca, xt_data, score_data = analyzer.create_pca_models(trajectories)
 
-        # Calculate PC2/PC1 ratio per step
-        print(f"\n{'='*60}")
         print("Calculating PC2/PC1 Ratio per Step")
-        print(f"{'='*60}")
+        print("="*60)
         step_ratios = analyzer.calculate_pc2_pc1_ratio_per_step(trajectories, xt_pca)
 
-        # Create ICLR 1x3 analysis plots
-        print(f"\n{'='*60}")
-        print("Creating ICLR 1x3 Analysis Plots")
-        print(f"{'='*60}")
-        analyzer.plot_iclr_1x3_analysis(trajectories, xt_pca, score_pca, step_ratios)
+        # Calculate score vector angles
+        print("="*60)
+        print("Calculating Score Vector Angles")
+        print("="*60)
+        score_angles = analyzer.calculate_score_angles(trajectories)
+
+        # Create ICLR 1x4 analysis plots
+        print("\n" + "="*60)
+        print("Creating ICLR 1x4 Analysis Plots")
+        print("="*60)
+        analyzer.plot_iclr_1x4_analysis(trajectories, xt_pca, score_pca, step_ratios, score_angles)
 
         # Generate analysis report
         print(f"\n{'='*60}")
         print("Generating Analysis Report")
         print(f"{'='*60}")
-        analyzer.generate_analysis_report(xt_pca, score_pca, step_ratios)
+        analyzer.generate_analysis_report(xt_pca, score_pca, step_ratios, score_angles)
 
-        print(f"\n✅ DDIM ICLR 1x3 analysis completed successfully!")
+        print(f"\n✅ DDIM ICLR 1x4 analysis completed successfully!")
 
     except Exception as e:
         print(f"\n❌ Error during analysis: {e}")
