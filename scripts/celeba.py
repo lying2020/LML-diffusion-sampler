@@ -29,6 +29,9 @@ from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 
 import project as project
 
+celeba_model_id = "/home/liying/Documents/ldm-celebahq-256/"
+# celeba_model_id = "/research/cbim/vast/cj574/data/diffusion/celeba_hq_256/ldm-celebahq-256"
+
 def parse_args():
     """Parse command line arguments"""
 
@@ -564,7 +567,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
         dtype = dtype_map[args.dtype]
 
         # Setup paths
-        model_id = "/home/liying/Documents/ldm-celebahq-256/"
+        model_id = celeba_model_id
         save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(num_inference_steps), sampler_type)
         os.makedirs(save_dir, exist_ok=True)
 
@@ -735,8 +738,8 @@ def run_single_sampler(args):
     }
     dtype = dtype_map[args.dtype]
 
-    # Setup paths
-    model_id = "/home/liying/Documents/ldm-celebahq-256/"
+        # Setup paths
+    model_id = celeba_model_id
     save_dir = os.path.join(project.output_dir, args.save_dir, args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -782,7 +785,7 @@ def main(args):
     dtype = dtype_map[args.dtype]
 
     # Setup paths
-    model_id = "/home/liying/Documents/ldm-celebahq-256/"
+    model_id = celeba_model_id
     save_dir = os.path.join(project.output_dir, args.save_dir, args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
