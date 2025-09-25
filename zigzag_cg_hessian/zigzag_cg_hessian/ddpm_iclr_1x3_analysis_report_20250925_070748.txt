@@ -1,0 +1,59 @@
+DDPM ICLR 1x3 Analysis Report
+==================================================
+
+EXPERIMENTAL CONFIGURATION:
+------------------------------
+Method: DDPM
+Trajectories: 50
+Inference steps per trajectory: 25
+Total data points: 1250
+
+XT SPACE PCA2 ANALYSIS:
+-------------------------
+PC1 explained variance: 0.023878
+PC2 explained variance: 0.014976
+Total explained variance: 0.038855
+PC1/PC2 ratio: 1.594438
+
+SCORE SPACE PCA2 ANALYSIS:
+----------------------------
+PC1 explained variance: 0.007364
+PC2 explained variance: 0.007298
+Total explained variance: 0.014662
+PC1/PC2 ratio: 1.009106
+
+PC2/PC1 RATIO PER STEP ANALYSIS:
+--------------------------------
+Mean ratio: 0.831750
+Std ratio: 0.163727
+Min ratio: 0.559344
+Max ratio: 0.991624
+Deviation from 1.0: 0.168250
+
+STEP-BY-STEP RATIOS:
+--------------------
+Step  0: 0.968534
+Step  1: 0.984264
+Step  2: 0.985501
+Step  3: 0.970391
+Step  4: 0.971204
+Step  5: 0.991624
+Step  6: 0.972105
+Step  7: 0.978322
+Step  8: 0.977584
+Step  9: 0.982476
+Step 10: 0.973758
+Step 11: 0.971318
+Step 12: 0.943596
+Step 13: 0.865303
+Step 14: 0.805058
+Step 15: 0.782752
+Step 16: 0.749212
+Step 17: 0.695090
+Step 18: 0.661735
+Step 19: 0.643433
+Step 20: 0.617463
+Step 21: 0.598218
+Step 22: 0.578675
+Step 23: 0.566801
+Step 24: 0.559344

@@ -1,0 +1,84 @@
+DDPM ICLR 1x3 Analysis Report
+==================================================
+
+EXPERIMENTAL CONFIGURATION:
+------------------------------
+Method: DDPM
+Trajectories: 500
+Inference steps per trajectory: 50
+Total data points: 25000
+
+XT SPACE PCA2 ANALYSIS:
+-------------------------
+PC1 explained variance: 0.024468
+PC2 explained variance: 0.010683
+Total explained variance: 0.035152
+PC1/PC2 ratio: 2.290379
+
+SCORE SPACE PCA2 ANALYSIS:
+----------------------------
+PC1 explained variance: 0.001361
+PC2 explained variance: 0.001350
+Total explained variance: 0.002711
+PC1/PC2 ratio: 1.008239
+
+PC2/PC1 RATIO PER STEP ANALYSIS:
+--------------------------------
+Mean ratio: 0.669519
+Std ratio: 0.270554
+Min ratio: 0.386179
+Max ratio: 0.996607
+Deviation from 1.0: 0.330481
+
+STEP-BY-STEP RATIOS:
+--------------------
+Step  0: 0.992436
+Step  1: 0.992548
+Step  2: 0.993277
+Step  3: 0.979442
+Step  4: 0.987355
+Step  5: 0.986257
+Step  6: 0.991686
+Step  7: 0.996607
+Step  8: 0.994298
+Step  9: 0.980163
+Step 10: 0.978357
+Step 11: 0.980095
+Step 12: 0.989216
+Step 13: 0.987711
+Step 14: 0.988307
+Step 15: 0.992183
+Step 16: 0.993093
+Step 17: 0.981121
+Step 18: 0.972120
+Step 19: 0.903659
+Step 20: 0.819538
+Step 21: 0.734864
+Step 22: 0.661918
+Step 23: 0.610263
+Step 24: 0.581162
+Step 25: 0.544851
+Step 26: 0.511990
+Step 27: 0.491631
+Step 28: 0.468120
+Step 29: 0.447046
+Step 30: 0.438063
+Step 31: 0.425641
+Step 32: 0.415626
+Step 33: 0.411476
+Step 34: 0.405184
+Step 35: 0.402046
+Step 36: 0.395628
+Step 37: 0.393741
+Step 38: 0.390368
+Step 39: 0.388852
+Step 40: 0.389461
+Step 41: 0.389793
+Step 42: 0.389102
+Step 43: 0.387574
+Step 44: 0.387855
+Step 45: 0.387880
+Step 46: 0.386616
+Step 47: 0.386418
+Step 48: 0.386179
+Step 49: 0.387133
