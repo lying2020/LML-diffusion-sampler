@@ -373,7 +373,7 @@ def main():
     print("="*50)
 
     # Initialize analyzer
-    analyzer = DDIMICLRAnalysis(n_samples=10000, num_inference_steps=500, num_trajectories=200)
+    analyzer = DDIMICLRAnalysis(n_samples=10000, num_inference_steps=50, num_trajectories=200)
 
     try:
         # Load pipeline
