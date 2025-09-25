@@ -411,7 +411,7 @@ def cal_fid():
 
 
 if __name__ == '__main__':
-    print("Alibaba")
+
     main()
 
     #cal_fid()

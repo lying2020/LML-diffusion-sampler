@@ -39,9 +39,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=20)
+    parser.add_argument('--test_num', type=int, default=1)
     parser.add_argument('--start_index', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--batch_size', type=int, default=2)
     parser.add_argument('--num_inference_steps', type=int, default=10)
 
     # Sampler selection
@@ -146,7 +146,9 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         pipe.scheduler.lm = True
         pipe.scheduler.kappa = kappa
         pipe.scheduler.hessian_method = 'hessian_free'
-        project.info(f"  Using DPM-Solver++ with Hessian-Free HVP correction (λ={lamb}, κ={kappa})")
+        # 设置模型用于Hessian计算
+        pipe.scheduler.set_model(pipe.unet)
+        project.info(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
 
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
@@ -472,6 +474,10 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
         torch.manual_seed(seed)
 
         # Generate images
+        # 确保hessian_free方法有正确的模型设置
+        if hasattr(pipe.scheduler, 'set_model') and pipe.scheduler.model is None:
+            pipe.scheduler.set_model(pipe.unet)
+        
         with torch.no_grad():
             images = pipe(batch_size=batch_size, num_inference_steps=num_inference_steps).images
 

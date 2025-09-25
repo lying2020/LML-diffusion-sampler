@@ -1,0 +1,8 @@
+# CIFAR-10 FID Results Table
+# Generated on: 2025年 09月 25日 星期四 15:23:26 CST
+# Real images path: data/cifar10/cifar10_images
+# Generated images path: output/cifar10
+
+Method           Step 5    Step 6    Step 7    Step 8    Step 9    Step 10   Step 12   Step 15   Step 20   Step 30   Step 50   Step 80 
+---------------  --------  --------  --------  --------  --------  --------  --------  --------  --------  --------  --------  --------
+ddim           
