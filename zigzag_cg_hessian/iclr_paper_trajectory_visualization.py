@@ -192,7 +192,7 @@ class ICLRMultiMethodTrajectoryVisualizer:
         print(f"✓ PCA completed. Explained variance: {pca_model.explained_variance_ratio_}")
         return pca_model
 
-    def plot_iclr_trajectory_evolution(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+    def plot_iclr_trajectory_evolution(self, trajectories, pca_model, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot ICLR paper format trajectory evolution - 5 methods in one row"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -226,7 +226,7 @@ class ICLRMultiMethodTrajectoryVisualizer:
 
         plt.close()
 
-    def plot_iclr_convergence_analysis(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+    def plot_iclr_convergence_analysis(self, trajectories, pca_model, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot ICLR paper format convergence analysis - 5 methods in one row"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -315,7 +315,7 @@ class ICLRMultiMethodTrajectoryVisualizer:
         # Make axes labels bold
         ax.tick_params(axis='both', which='major', labelsize=10, width=1.5)
 
-    def plot_iclr_comprehensive_comparison(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+    def plot_iclr_comprehensive_comparison(self, trajectories, pca_model, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot comprehensive comparison with all methods in one figure"""
         os.makedirs(save_dir, exist_ok=True)
 

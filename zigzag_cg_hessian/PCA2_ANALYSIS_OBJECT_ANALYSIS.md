@@ -89,7 +89,7 @@ def create_pca_from_trajectories(self, trajectories, analysis_type='xt'):
                 # 组合xt和score进行分析
                 combined = np.concatenate([traj['xt'], traj['score']], axis=1)
                 all_trajectory_data.append(combined)
-    
+
     # 执行PCA
     pca_model = PCA(n_components=2, svd_solver='randomized')
     pca_model.fit(all_data)
@@ -102,10 +102,10 @@ def analyze_both_xt_and_score(self, trajectories):
     """分别分析xt和score的PCA结果"""
     # 分析xt
     xt_pca = self.create_pca_from_trajectories(trajectories, 'xt')
-    
+
     # 分析score
     score_pca = self.create_pca_from_trajectories(trajectories, 'score')
-    
+
     # 生成对比图
     self.plot_comparison(xt_pca, score_pca, trajectories)
 ```
@@ -132,7 +132,7 @@ class ICLRTrajectoryEvolution4MethodsSimple:
     def create_pca_from_trajectories(self, trajectories, analysis_type='xt'):
         """Create PCA model from trajectory data with different analysis types"""
         print(f"\n📊 Creating PCA model from {analysis_type} data...")
-        
+
         all_trajectory_data = []
         for method, traj_list in trajectories.items():
             for traj in traj_list:
@@ -142,22 +142,22 @@ class ICLRTrajectoryEvolution4MethodsSimple:
                     all_trajectory_data.append(traj['score'])
                 elif analysis_type == 'noise_pred':
                     all_trajectory_data.append(traj['noise_pred'])
-        
+
         all_data = np.vstack(all_trajectory_data)
         pca_model = PCA(n_components=2, svd_solver='randomized')
         pca_model.fit(all_data)
-        
+
         print(f"✓ PCA completed for {analysis_type}. Explained variance: {pca_model.explained_variance_ratio_}")
         return pca_model
-    
-    def plot_comparison_analysis(self, trajectories, save_dir='./zigzag_cg_hessian'):
+
+    def plot_comparison_analysis(self, trajectories, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot comparison between xt and score analysis"""
         # 分析xt
         xt_pca = self.create_pca_from_trajectories(trajectories, 'xt')
-        
+
         # 分析score
         score_pca = self.create_pca_from_trajectories(trajectories, 'score')
-        
+
         # 生成对比图
         self.plot_xt_vs_score_comparison(trajectories, xt_pca, score_pca, save_dir)
 ```

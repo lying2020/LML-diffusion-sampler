@@ -192,7 +192,7 @@ class DDPMICLRAnalysis:
 
         return np.array(step_ratios)
 
-    def plot_iclr_1x3_analysis(self, trajectories, xt_pca, score_pca, step_ratios, save_dir='./zigzag_cg_hessian'):
+    def plot_iclr_1x3_analysis(self, trajectories, xt_pca, score_pca, step_ratios, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot ICLR 1x3 analysis for DDPM"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -304,7 +304,7 @@ class DDPMICLRAnalysis:
 
         plt.close()
 
-    def generate_analysis_report(self, xt_pca, score_pca, step_ratios, save_dir='./zigzag_cg_hessian'):
+    def generate_analysis_report(self, xt_pca, score_pca, step_ratios, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Generate analysis report"""
         os.makedirs(save_dir, exist_ok=True)
 

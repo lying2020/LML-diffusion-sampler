@@ -172,7 +172,7 @@ class XTvsScoreAnalysis:
         print(f"✓ PCA completed for {analysis_type}. Explained variance: {pca_model.explained_variance_ratio_}")
         return pca_model
 
-    def plot_xt_vs_score_comparison(self, trajectories, xt_pca, score_pca, save_dir='./zigzag_cg_hessian'):
+    def plot_xt_vs_score_comparison(self, trajectories, xt_pca, score_pca, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot comparison between xt and score analysis"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -277,7 +277,7 @@ class XTvsScoreAnalysis:
 
         plt.close()
 
-    def generate_comparison_report(self, trajectories, xt_pca, score_pca, save_dir='./zigzag_cg_hessian'):
+    def generate_comparison_report(self, trajectories, xt_pca, score_pca, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Generate comparison report between xt and score analysis"""
         os.makedirs(save_dir, exist_ok=True)
 

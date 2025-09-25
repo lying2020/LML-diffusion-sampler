@@ -173,7 +173,7 @@ class ICLRTrajectoryEvolution3MethodsSimple:
         print(f"✓ PCA completed. Explained variance: {pca_model.explained_variance_ratio_}")
         return pca_model
 
-    def plot_iclr_trajectory_evolution_3methods(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+    def plot_iclr_trajectory_evolution_3methods(self, trajectories, pca_model, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot ICLR paper format trajectory evolution for 3 methods - 1x3 layout"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -261,7 +261,7 @@ class ICLRTrajectoryEvolution3MethodsSimple:
 
         plt.close()
 
-    def generate_3methods_report(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+    def generate_3methods_report(self, trajectories, pca_model, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Generate 3-method trajectory evolution report"""
         os.makedirs(save_dir, exist_ok=True)
 

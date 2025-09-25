@@ -169,7 +169,7 @@ class ICLRTrajectoryVisualizer:
         print(f"✓ PCA completed. Explained variance: {pca_model.explained_variance_ratio_}")
         return pca_model
 
-    def plot_iclr_trajectory_comparison(self, trajectories, pca_model, save_dir='./zigzag_cg_hessian'):
+    def plot_iclr_trajectory_comparison(self, trajectories, pca_model, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot ICLR paper format trajectory comparison - 4 subplots in one row"""
         os.makedirs(save_dir, exist_ok=True)
 
