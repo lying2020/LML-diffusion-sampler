@@ -1,0 +1,26 @@
+
+\begin{table*}[t]
+    \centering
+    \footnotesize
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{0.9}
+    \begin{tabular}{l|c|cccccccccc|c}
+    \toprule
+    \multirow{2}{*}{Models} & Source & \multicolumn{11}{c}{Target} \\
+    \cmidrule(lr){2-2} \cmidrule(lr){3-13}
+       & ImageNet & Caltech101 & OxfordPets & StanfordCars & Flowers102 & Food101 & FGVCAircraft & SUN397 & DTD & EuroSAT & UCF101 & Average \\
+     \midrule
+        CoOp & 71.51 & 93.70 & 89.14 & 64.51 & 68.71 & 85.30 & 18.47 & 64.15 & 41.92 & 46.39 & 66.55 & 63.88 \\
+        CoCoOp & 71.02 & 94.43 & 90.14 & 65.32 & 71.88 & 86.06 & 22.94 & 67.36 & 45.73 & 45.37 & 68.21 & 65.74 \\
+        MaPLe & 70.72 & 93.53 & 90.49 & 65.57 & 72.23 & 86.20 & 24.74 & 67.01 & 46.49 & 48.06 & 68.69 & 66.30 \\
+        MMA & 71.00 & 93.80 & 90.30 & 66.13 & 72.07 & 86.12 & 25.33 & 68.17 & 46.57 & 49.24 & 68.32 & 66.61 \\
+         CoPrompt & 72.53 & 94.37 & 89.50 & 65.57 & 69.63 & 85.03 & 23.47 & 67.13 & 44.33 & 40.87 & 68.17 & 64.81 \\
+         SkipT & 72.77 & 93.43 & 90.10 & 65.37 & 71.97 & 86.17 & 25.13 & 67.33 & 48.00 & 54.27 & 68.23 & 67.00 \\
+         MMRL & 72.03 & \textbf{94.67} & \textbf{91.43} & 66.10 & 72.77 & 86.40 & 26.30 & 67.57 & 45.90 & 53.10 & 68.27 & 67.25 \\
+        \midrule
+    \ours{} (Ours) & \textbf{72.91} & 94.40 & 91.35 & \textbf{68.32} & \textbf{74.13} & \textbf{87.12} & \textbf{29.24} & \textbf{68.22} & \textbf{48.43} & \textbf{55.14} & \textbf{71.44} & \textbf{68.78} \\
+        \bottomrule
+    \end{tabular}
+    \caption{Cross-dataset transfer evaluation results of EDPL across multiple datasets. We trained models on ImageNet dataset and tested on the other datasets. These results suggest very strong generalization ability of EDPL.}
+    \label{tab_base2new}
+    \end{table*}

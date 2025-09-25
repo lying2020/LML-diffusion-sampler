@@ -23,7 +23,7 @@ matplotlib.use('Agg')
 
 # Import schedulers
 from diffusers import DDPMPipeline, DDPMScheduler
-from scheduler.scheduling_dpmsolver_multistep_lm_advanced import DPMSolverMultistepLMSchedulerAdvanced
+from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepLMSchedulerAdvanced
 import project as project
 
 class DDPMvsHessianFreeAnalyzer:
