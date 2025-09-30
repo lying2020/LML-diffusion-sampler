@@ -64,10 +64,11 @@ def parse_args():
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
     parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
     parser.add_argument('--compare_all', action='store_true', default=False, help='Compare all samplers and generate table')
+    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
 
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
-    parser.add_argument('--samplers', nargs='+', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_lm'],
+    parser.add_argument('--samplers', nargs='+', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
                         help='List of samplers to test in batch mode')
     parser.add_argument('--steps', nargs='+', type=int, default=[5, 10, 20],
                         help='List of inference steps to test in batch mode')
@@ -87,7 +88,7 @@ def get_sampler_description(sampler_type):
         'ddim_lm': 'DDIM with Levenberg-Marquardt Langevin correction',
         'dpm': 'DPM-Solver - High-order solver for diffusion ODEs',
         'dpm++': 'DPM-Solver++ - Improved version with better stability',
-        'dpm_lm': 'DPM-Solver with Levenberg-Marquardt Langevin correction',
+        # 'dpm_lm': 'DPM-Solver with Levenberg-Marquardt Langevin correction',
         'pndm': 'Pseudo Numerical methods for Diffusion Models',
         'unipc': 'Unified Predictor-Corrector framework',
         'hessian_free': 'DPM-Solver with Hessian-Free HVP correction using CG'
@@ -362,7 +363,7 @@ def generate_comparison_table(results_dict):
     """Generate comparison table in the format shown in the image"""
 
     # Define the methods in order
-    methods = ['DDIM [75]', 'PNDM [50]', 'DPM [51]', 'DPM++ [52]', 'UniPC [91]', 'LML(Ours)', 'HVP(Ours)']
+    methods = ['DDIM [75]', 'PNDM [50]', 'DPM [51]', 'DPM++ [52]', 'UniPC [91]', 'HILDA(Ours)']
 
     # Map sampler types to method names
     sampler_to_method = {
@@ -371,9 +372,9 @@ def generate_comparison_table(results_dict):
         'dpm': 'DPM [51]',
         'dpm++': 'DPM++ [52]',
         'unipc': 'UniPC [91]',
-        'dpm_lm': 'LML',
-        'ddim_lm': 'LML',
-        'hessian_free': 'HVP(Ours)'
+        # 'dpm_lm': 'LML',
+        # 'ddim_lm': 'LML',
+        'hessian_free': 'HILDA(Ours)'
     }
 
     # Create table data
@@ -477,7 +478,7 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
         # 确保hessian_free方法有正确的模型设置
         if hasattr(pipe.scheduler, 'set_model') and pipe.scheduler.model is None:
             pipe.scheduler.set_model(pipe.unet)
-        
+
         with torch.no_grad():
             images = pipe(batch_size=batch_size, num_inference_steps=num_inference_steps).images
 
@@ -854,6 +855,151 @@ def main(args):
         project.info(f"   EAT: {eval_results['EAT']:.3f}")
         project.info(f"   Laion: {eval_results['Laion']:.3f}")
 
+def generate_comparison_grid(save_dir, sampler_types, num_inference_steps=10, test_num=6, batch_size=1):
+    """
+    生成类似截图的对比图组，6行多列展示不同采样方法的结果
+
+    Args:
+        save_dir: 保存目录
+        sampler_types: 采样器类型列表
+        num_inference_steps: 推理步数
+        test_num: 测试数量（行数）
+        batch_size: 批次大小
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib
+    matplotlib.use('Agg')  # 使用非交互式后端
+    import matplotlib.patches as patches
+    from matplotlib.gridspec import GridSpec
+
+    project.info(f"\n🎨 生成对比图组...")
+    project.info(f"采样器: {sampler_types}")
+    project.info(f"行数: {test_num}, 列数: {len(sampler_types)}")
+
+    # 创建图像网格
+    fig = plt.figure(figsize=(len(sampler_types) * 2.5, test_num * 2.5))
+    gs = GridSpec(test_num, len(sampler_types), figure=fig,
+                  hspace=0.1, wspace=0.05,
+                  left=0.05, right=0.95, top=0.95, bottom=0.05)
+
+    # 方法名称映射
+    method_names = {
+        'ddim': 'DDIM',
+        'pndm': 'PNDM',
+        'dpm': 'DPM-Solver',
+        'dpm++': 'DPM-Solver++',
+        'unipc': 'UniPC',
+        # 'dpm_lm': 'LML (Ours)',
+        # 'ddim_lm': 'LML (Ours)',
+        'hessian_free': 'HILDA (Ours)'
+    }
+
+    # 为每个采样器生成图像
+    all_images = {}
+
+    for col, sampler_type in enumerate(sampler_types):
+        project.info(f"  生成 {sampler_type} 图像...")
+
+        # 设置路径
+        sampler_dir = os.path.join(save_dir, "steps" + '_' + str(num_inference_steps), sampler_type)
+
+        # 查找该采样器生成的图像
+        image_files = glob.glob(os.path.join(sampler_dir, "*.png"))
+        if not image_files:
+            project.warning(f"  未找到 {sampler_type} 的图像文件")
+            continue
+
+        # 按文件名排序，取前test_num个
+        image_files.sort()
+        selected_images = image_files[:test_num]
+        all_images[sampler_type] = selected_images
+
+    # 绘制图像网格
+    for row in range(test_num):
+        for col, sampler_type in enumerate(sampler_types):
+            ax = fig.add_subplot(gs[row, col])
+
+            if sampler_type in all_images and row < len(all_images[sampler_type]):
+                # 加载并显示图像
+                img_path = all_images[sampler_type][row]
+                try:
+                    img = Image.open(img_path)
+                    ax.imshow(img)
+                except Exception as e:
+                    project.warning(f"  无法加载图像 {img_path}: {e}")
+                    ax.text(0.5, 0.5, 'Error', ha='center', va='center', transform=ax.transAxes)
+            else:
+                # 显示占位符
+                ax.text(0.5, 0.5, 'N/A', ha='center', va='center', transform=ax.transAxes,
+                       fontsize=12, color='gray')
+
+            # 设置坐标轴
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.axis('off')
+
+            # 添加列标题（只在第一行）
+            if row == 0:
+                method_name = method_names.get(sampler_type, sampler_type)
+                ax.set_title(method_name, fontsize=12, fontweight='bold', pad=10)
+
+            # 添加行标签（只在第一列）
+            if col == 0:
+                ax.text(-0.15, 0.5, f'Row {row+1}', ha='center', va='center',
+                       transform=ax.transAxes, fontsize=10, rotation=90)
+
+    # 添加分隔线（在LML列后）
+    if 'dpm_lm' in sampler_types or 'ddim_lm' in sampler_types:
+        lml_index = sampler_types.index('dpm_lm') if 'dpm_lm' in sampler_types else sampler_types.index('ddim_lm')
+        if lml_index < len(sampler_types) - 1:
+            # 在LML列后添加垂直分隔线
+            for row in range(test_num):
+                ax = fig.add_subplot(gs[row, lml_index])
+                # 添加右侧边框
+                ax.add_patch(patches.Rectangle((0.95, 0), 0.05, 1,
+                                             transform=ax.transAxes,
+                                             facecolor='black', alpha=0.3))
+
+    # 设置整体标题
+    fig.suptitle(f'CelebA-HQ Generation Comparison (Steps: {num_inference_steps})',
+                 fontsize=16, fontweight='bold', y=0.98)
+
+    # 保存图像
+    output_path = os.path.join(save_dir, f'comparison_grid_steps{num_inference_steps}.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+    plt.close()
+
+    project.success(f"对比图组已保存到: {output_path}")
+    return output_path
+
+def generate_comparison_grid_from_existing(save_dir, num_inference_steps=10):
+    """
+    从已存在的图像文件生成对比图组
+
+    Args:
+        save_dir: 保存目录
+        num_inference_steps: 推理步数
+    """
+    # 定义采样器类型
+    # sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
+    sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'hessian_free']
+
+    # 检查哪些采样器有图像
+    available_samplers = []
+    for sampler in sampler_types:
+        sampler_dir = os.path.join(save_dir, "steps" + '_' + str(num_inference_steps), sampler)
+        if os.path.exists(sampler_dir) and glob.glob(os.path.join(sampler_dir, "*.png")):
+            available_samplers.append(sampler)
+
+    if not available_samplers:
+        project.error("未找到任何采样器的图像文件")
+        return None
+
+    project.info(f"找到 {len(available_samplers)} 个采样器的图像: {available_samplers}")
+
+    # 生成对比图组
+    return generate_comparison_grid(save_dir, available_samplers, num_inference_steps)
+
 if __name__ == '__main__':
     # 设置日志系统
     logger = project.setup_logging(name='celeba', level=project.logging.INFO)
@@ -910,6 +1056,18 @@ if __name__ == '__main__':
         # 单个实验模式
         if args.compare_all:
             # Compare all samplers
+            results_dict = compare_all_samplers(args)
+            project.success("Comparison completed!")
+        elif args.generate_grid:
+            # Generate comparison grid from existing images
+            project.info("\n🎨 生成对比图组...")
+            output_path = generate_comparison_grid_from_existing(
+                os.path.join(project.output_dir, args.save_dir), args.num_inference_steps
+            )
+            if output_path:
+                project.success(f"对比图组已生成: {output_path}")
+            else:
+                project.error("对比图组生成失败")
             results_dict = compare_all_samplers(args)
             project.success("Comparison completed!")
         else:

@@ -22,7 +22,6 @@ from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMSche
 from scheduler.scheduling_unipc_multistep_lm import UniPCMultistepSchedulerLM
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
-from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepHessianFreeScheduler
 
 import project as project
 
@@ -49,13 +48,13 @@ def parse_args():
 
     # Basic parameters
     parser.add_argument('--test_num', type=int, default=10)
-    parser.add_argument('--start_index', type=int, default=8)
+    parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=50)
     parser.add_argument('--num_inference_steps', type=int, default=20)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='hessian_free',
-                        choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'])
+    parser.add_argument('--sampler_type', type=str, default='pndm',
+                        choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
@@ -73,7 +72,7 @@ def parse_args():
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
     parser.add_argument('--verbose', action='store_true')
-    parser.add_argument('--run_batch', action='store_true', default=False)
+    parser.add_argument('--run_batch', action='store_true', default=True)
     parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
 
     args = parser.parse_args()
@@ -88,8 +87,7 @@ def get_sampler_description(sampler_type):
         'dpm++': 'DPM-Solver++ - Improved version with better stability',
         'dpm_lm': 'DPM-Solver with Levenberg-Marquardt Langevin correction',
         'pndm': 'Pseudo Numerical methods for Diffusion Models',
-        'unipc': 'Unified Predictor-Corrector framework',
-        'hessian_free': 'DPM-Solver with Hessian-Free HVP correction using CG'
+        'unipc': 'Unified Predictor-Corrector framework'
     }
     return descriptions.get(sampler_type, 'Unknown sampler type')
 
@@ -129,18 +127,6 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     elif sampler_type == 'unipc':
         pipe.scheduler = UniPCMultistepSchedulerLM.from_config(pipe.scheduler.config)
         print(f"  Using UniPC scheduler")
-
-    elif sampler_type == 'hessian_free':
-        pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
-        pipe.scheduler.config.solver_order = 3
-        pipe.scheduler.config.algorithm_type = "dpmsolver++"
-        pipe.scheduler.lamb = lamb
-        pipe.scheduler.lm = True
-        pipe.scheduler.kappa = kappa
-        pipe.scheduler.hessian_method = 'hessian_free'
-        # 设置模型用于Hessian计算
-        pipe.scheduler.set_model(pipe.unet)
-        print(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
 
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
@@ -391,152 +377,6 @@ def generate_experiment_summary(experiment_results, start_time, end_time, args):
     else:
         print("🎉 所有实验都成功完成!")
 
-def generate_comparison_grid(save_dir, sampler_types, num_inference_steps=20, test_num=6, batch_size=1):
-    """
-    生成类似截图的对比图组，6行多列展示不同采样方法的结果
-
-    Args:
-        save_dir: 保存目录
-        sampler_types: 采样器类型列表
-        num_inference_steps: 推理步数
-        test_num: 测试数量（行数）
-        batch_size: 批次大小
-    """
-    import matplotlib.pyplot as plt
-    import matplotlib
-    matplotlib.use('Agg')  # 使用非交互式后端
-    import matplotlib.patches as patches
-    from matplotlib.gridspec import GridSpec
-    from PIL import Image
-    import glob
-
-    print(f"\n🎨 生成对比图组...")
-    print(f"采样器: {sampler_types}")
-    print(f"行数: {test_num}, 列数: {len(sampler_types)}")
-
-    # 创建图像网格
-    fig = plt.figure(figsize=(len(sampler_types) * 2.5, test_num * 2.5))
-    gs = GridSpec(test_num, len(sampler_types), figure=fig,
-                  hspace=0.1, wspace=0.05,
-                  left=0.05, right=0.95, top=0.95, bottom=0.05)
-
-    # 方法名称映射
-    method_names = {
-        'ddim': 'DDIM',
-        'pndm': 'PNDM',
-        'dpm': 'DPM-Solver',
-        'dpm++': 'DPM-Solver++',
-        'unipc': 'UniPC',
-        'dpm_lm': 'LML (Ours)',
-        'hessian_free': 'HILDA (Ours)'
-    }
-
-    # 为每个采样器生成图像
-    all_images = {}
-
-    for col, sampler_type in enumerate(sampler_types):
-        print(f"  生成 {sampler_type} 图像...")
-
-        # 设置路径
-        sampler_dir = os.path.join(save_dir, "steps" + '_' + str(num_inference_steps), sampler_type)
-
-        # 查找该采样器生成的图像
-        image_files = glob.glob(os.path.join(sampler_dir, "*.png"))
-        if not image_files:
-            print(f"  ⚠️  未找到 {sampler_type} 的图像文件")
-            continue
-
-        # 按文件名排序，取前test_num个
-        image_files.sort()
-        selected_images = image_files[:test_num]
-        all_images[sampler_type] = selected_images
-
-    # 绘制图像网格
-    for row in range(test_num):
-        for col, sampler_type in enumerate(sampler_types):
-            ax = fig.add_subplot(gs[row, col])
-
-            if sampler_type in all_images and row < len(all_images[sampler_type]):
-                # 加载并显示图像
-                img_path = all_images[sampler_type][row]
-                try:
-                    img = Image.open(img_path)
-                    ax.imshow(img)
-                except Exception as e:
-                    print(f"  ⚠️  无法加载图像 {img_path}: {e}")
-                    ax.text(0.5, 0.5, 'Error', ha='center', va='center', transform=ax.transAxes)
-            else:
-                # 显示占位符
-                ax.text(0.5, 0.5, 'N/A', ha='center', va='center', transform=ax.transAxes,
-                       fontsize=12, color='gray')
-
-            # 设置坐标轴
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.axis('off')
-
-            # 添加列标题（只在第一行）
-            if row == 0:
-                method_name = method_names.get(sampler_type, sampler_type)
-                ax.set_title(method_name, fontsize=12, fontweight='bold', pad=10)
-
-            # 添加行标签（只在第一列）
-            if col == 0:
-                ax.text(-0.15, 0.5, f'Row {row+1}', ha='center', va='center',
-                       transform=ax.transAxes, fontsize=10, rotation=90)
-
-    # 添加分隔线（在LML或HILDA列后）
-    if 'dpm_lm' in sampler_types or 'hessian_free' in sampler_types:
-        # 优先使用hessian_free，如果没有则使用dpm_lm
-        lml_index = sampler_types.index('hessian_free') if 'hessian_free' in sampler_types else sampler_types.index('dpm_lm')
-        if lml_index < len(sampler_types) - 1:
-            # 在LML/HILDA列后添加垂直分隔线
-            for row in range(test_num):
-                ax = fig.add_subplot(gs[row, lml_index])
-                # 添加右侧边框
-                ax.add_patch(patches.Rectangle((0.95, 0), 0.05, 1,
-                                             transform=ax.transAxes,
-                                             facecolor='black', alpha=0.3))
-
-    # 设置整体标题
-    fig.suptitle(f'CIFAR-10 Generation Comparison (Steps: {num_inference_steps})',
-                 fontsize=16, fontweight='bold', y=0.98)
-
-    # 保存图像
-    output_path = os.path.join(save_dir, f'comparison_grid_steps{num_inference_steps}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
-    plt.close()
-
-    print(f"✅ 对比图组已保存到: {output_path}")
-    return output_path
-
-def generate_comparison_grid_from_existing(save_dir, num_inference_steps=20):
-    """
-    从已存在的图像文件生成对比图组
-
-    Args:
-        save_dir: 保存目录
-        num_inference_steps: 推理步数
-    """
-    # 定义采样器类型
-    sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
-
-    # 检查哪些采样器有图像
-    available_samplers = []
-    for sampler in sampler_types:
-        sampler_dir = os.path.join(save_dir, "steps" + '_' + str(num_inference_steps), sampler)
-        if os.path.exists(sampler_dir) and glob.glob(os.path.join(sampler_dir, "*.png")):
-            available_samplers.append(sampler)
-
-    if not available_samplers:
-        print("❌ 未找到任何采样器的图像文件")
-        return None
-
-    print(f"找到 {len(available_samplers)} 个采样器的图像: {available_samplers}")
-
-    # 生成对比图组
-    return generate_comparison_grid(save_dir, available_samplers, num_inference_steps)
-
 def main(args):
     """Main function for single experiment"""
     print(args)
@@ -593,13 +433,97 @@ def main(args):
     print(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
 
 
-if __name__ == '__main__':
-    args = parse_args()
+def generate_comparison_grid(save_dir, sampler_types, num_inference_steps=20, test_num=6, batch_size=1):
+    """
+    生成类似截图的对比图组，6行多列展示不同采样方法的结果
 
+    Args:
+        save_dir: 保存目录
+        sampler_types: 采样器类型列表
+        num_inference_steps: 推理步数
+        test_num: 测试数量（行数）
+        batch_size: 批次大小
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib
+    matplotlib.use('Agg')  # 使用非交互式后端
+    import matplotlib.patches as patches
+    from matplotlib.gridspec import GridSpec
+    from PIL import Image
+    import glob
+
+    print(f"\n🎨 生成对比图组...")
+    print(f"采样器: {sampler_types}")
+    print(f"行数: {test_num}, 列数: {len(sampler_types)}")
+
+    # 创建图像网格
+    fig = plt.figure(figsize=(len(sampler_types) * 2.5, test_num * 2.5))
+    gs = GridSpec(test_num, len(sampler_types), figure=fig,
+                  hspace=0.1, wspace=0.05,
+                  left=0.05, right=0.95, top=0.95, bottom=0.05)
+
+    # 方法名称映射
+    method_names = {
+        'ddim': 'DDIM',
+        'pndm': 'PNDM',
+        'dpm': 'DPM-Solver',
+        'dpm++': 'DPM-Solver++',
+        'unipc': 'UniPC',
+        'dpm_lm': 'LML (Ours)'
+    }
+
+    # 为每个采样器生成图像
+    all_images = {}
+
+    for col, sampler_type in enumerate(sampler_types):
+        print(f"  生成 {sampler_type} 图像...")
+
+        # 设置路径
+        sampler_dir = os.path.join(save_dir, "steps" + '_' + str(num_inference_steps), sampler_type)
+
+        # 查找该采样器生成的图像
+        image_files = glob.glob(os.path.join(sampler_dir, "*.png"))
+        if not image_files:
+            print(f"  ⚠️  未找到 {sampler_type} 的图像文件")
+            continue
+
+        # 按文件名排序，取前test_num个
+        image_files.sort()
+        selected_images = image_files[:test_num]
+        all_images[sampler_type] = selected_images
+
+    # 绘制图像网格
+    for row in range(test_num):
+        for col, sampler_type in enumerate(sampler_types):
+            ax = fig.add_subplot(gs[row, col])
+
+            if sampler_type in all_images and row < len(all_images[sampler_type]):
+                # 加载并显示图像
+                img_path = all_images[sampler_type][row]
+                try:
+                    img = Image.open(img_path)
+                    ax.imshow(img)
+                except Exception as e:
+                    print(f"  ⚠️  无法加载图像 {img_path}: {e}")
+                    ax.text(0.5, 0.5, 'Error', ha='center', va='center', transform=ax.transAxes)
+            else:
+                # 显示占位符
+                ax.text(0.5, 0.5, 'N/A', ha='center', va='center', transform=ax.transAxes,
+                       fontsize=12, color='gray')
+
+            # 设置坐标轴
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.axis('off')
+
+            # 添加列标题（只在第一行）
+            if row == 0:
+                method_name = method_names.get(sampler_type, sampler_type)
+                ax.set_title(method_name, fontsize=12, fontweight='bold', pad=10)
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
+        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc"]
         INFERENCE_STEPS = [5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
 
         print("="*50)
@@ -651,9 +575,113 @@ if __name__ == '__main__':
             print("❌ 对比图组生成失败")
     else:
         # 单个实验模式（保持原有逻辑）
-        SAMPLER_TYPES=["hessian_free"] # ["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
+        SAMPLER_TYPES=["pndm", "ddim", "dpm++", "dpm", "unipc"]
         # INFERENCE_STEPS=[5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
-        INFERENCE_STEPS=[args.num_inference_steps] # [5, 6]
+        INFERENCE_STEPS=[5, 6]
+
+        for i in range(len(INFERENCE_STEPS)):
+            for j in range(len(SAMPLER_TYPES)):
+                args.num_inference_steps = INFERENCE_STEPS[i]
+                args.sampler_type = SAMPLER_TYPES[j]
+                main(args)
+            for row in range(test_num):
+                ax = fig.add_subplot(gs[row, lml_index])
+                # 添加右侧边框
+                ax.add_patch(patches.Rectangle((0.95, 0), 0.05, 1,
+                                             transform=ax.transAxes,
+                                             facecolor='black', alpha=0.3))
+
+    # 设置整体标题
+    fig.suptitle(f'CIFAR-10 Generation Comparison (Steps: {num_inference_steps})',
+                 fontsize=16, fontweight='bold', y=0.98)
+
+    # 保存图像
+    output_path = os.path.join(save_dir, f'comparison_grid_steps{num_inference_steps}.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+    plt.close()
+
+    print(f"✅ 对比图组已保存到: {output_path}")
+    return output_path
+
+def generate_comparison_grid_from_existing(save_dir, num_inference_steps=20):
+    """
+    从已存在的图像文件生成对比图组
+
+    Args:
+        save_dir: 保存目录
+        num_inference_steps: 推理步数
+    """
+    # 定义采样器类型
+    sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm']
+
+    # 检查哪些采样器有图像
+    available_samplers = []
+    for sampler in sampler_types:
+        sampler_dir = os.path.join(save_dir, "steps" + '_' + str(num_inference_steps), sampler)
+        if os.path.exists(sampler_dir) and glob.glob(os.path.join(sampler_dir, "*.png")):
+            available_samplers.append(sampler)
+
+    if not available_samplers:
+        print("❌ 未找到任何采样器的图像文件")
+        return None
+
+    print(f"找到 {len(available_samplers)} 个采样器的图像: {available_samplers}")
+
+    # 生成对比图组
+    return generate_comparison_grid(save_dir, available_samplers, num_inference_steps)
+
+
+if __name__ == '__main__':
+    args = parse_args()
+
+    # 检查是否运行批量实验
+    if hasattr(args, 'run_batch') and args.run_batch:
+        # 批量实验模式
+        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc"]
+        INFERENCE_STEPS = [5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
+
+        print("="*50)
+        print("CIFAR-10 实验批量运行开始")
+        print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("="*50)
+
+        total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
+        experiment_results = []
+        start_time = datetime.now()
+
+        experiment_num = 0
+        for i in range(len(INFERENCE_STEPS)):
+            for j in range(len(SAMPLER_TYPES)):
+                experiment_num += 1
+                num_inference_steps = INFERENCE_STEPS[i]
+                sampler_type = SAMPLER_TYPES[j]
+
+                # 更新args
+                args.num_inference_steps = num_inference_steps
+                args.sampler_type = sampler_type
+
+                result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
+                experiment_results.append(result)
+
+        end_time = datetime.now()
+
+        print("\n" + "="*50)
+        print("CIFAR-10 实验批量运行完成")
+        print(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"总实验数: {total_experiments}")
+        print("="*50)
+
+        # 生成实验总结报告
+        print("\n生成实验总结报告...")
+        generate_experiment_summary(experiment_results, start_time, end_time, args)
+
+        print(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
+    else:
+        # 单个实验模式（保持原有逻辑）
+        SAMPLER_TYPES=["pndm", "ddim", "dpm++", "dpm", "unipc"]
+        # INFERENCE_STEPS=[5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
+        INFERENCE_STEPS=[5, 6]
 
         for i in range(len(INFERENCE_STEPS)):
             for j in range(len(SAMPLER_TYPES)):

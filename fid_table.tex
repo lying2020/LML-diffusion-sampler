@@ -1,50 +1,73 @@
 
+
+\begin{table}[htbp]
+    \centering
+    \caption{Average wall-clock time costs for different sampling methods on CIFAR-10.}
+    \label{tab:cifar10_timing}
+    \begin{tabular}{l|ccccccc}
+    \toprule
+    \multirow{2}{*}{Methods} & \multicolumn{7}{c}{Time-costs (s)} \\
+    \cmidrule{2-8}
+    & 5 & 10 & 15 & 20 & 30 & 50 & 80 \\
+    \midrule
+    DDIM & 0.0048 & 0.0044 & 0.0069 & 0.0086 & 0.0126 & 0.0239 & 0.0353 \\
+    DPM-Solver & 0.0050 & 0.0058 & 0.0038 & 0.0036 & 0.0128 & 0.0215 & 0.0365 \\
+    DPM-Solver++ & 0.0051 & 0.0059 & 0.0039 & 0.0036 & 0.0126 & 0.0230 & 0.0359 \\
+    PNDM & 0.0219 & 0.0136 & 0.0084 & 0.0080 & 0.0163 & 0.0265 & 0.0403 \\
+    UniPC & 0.0060 & 0.0062 & 0.0040 & 0.0041 & 0.0136 & 0.0214 & 0.0359 \\
+    HILDA (Ours) & 0.0212 & 0.0162 & 0.0076 & 0.0071 & 0.0131 & 0.0201 & 0.0372 \\
+    \bottomrule
+    \end{tabular}
+    \end{table}
+
+
+
 \begin{table*}[t]
     \centering
     \footnotesize
     \setlength{\tabcolsep}{2pt}
     \renewcommand{\arraystretch}{0.9}
-    \begin{tabular}{l|c|cccccccccc|c}
+    \begin{tabular}{l|ccccccc}
     \toprule
-    \multirow{2}{*}{Models} & Source & \multicolumn{11}{c}{Target} \\
-    \cmidrule(lr){2-2} \cmidrule(lr){3-13}
-       & ImageNet & Caltech101 & OxfordPets & StanfordCars & Flowers102 & Food101 & FGVCAircraft & SUN397 & DTD & EuroSAT & UCF101 & Average \\
-     \midrule
-        CoOp & 71.51 & 93.70 & 89.14 & 64.51 & 68.71 & 85.30 & 18.47 & 64.15 & 41.92 & 46.39 & 66.55 & 63.88 \\
-        CoCoOp & 71.02 & 94.43 & 90.14 & 65.32 & 71.88 & 86.06 & 22.94 & 67.36 & 45.73 & 45.37 & 68.21 & 65.74 \\
-        MaPLe & 70.72 & 93.53 & 90.49 & 65.57 & 72.23 & 86.20 & 24.74 & 67.01 & 46.49 & 48.06 & 68.69 & 66.30 \\
-        MMA & 71.00 & 93.80 & 90.30 & 66.13 & 72.07 & 86.12 & 25.33 & 68.17 & 46.57 & 49.24 & 68.32 & 66.61 \\
-         CoPrompt & 72.53 & 94.37 & 89.50 & 65.57 & 69.63 & 85.03 & 23.47 & 67.13 & 44.33 & 40.87 & 68.17 & 64.81 \\
-         SkipT & 72.77 & 93.43 & 90.10 & 65.37 & 71.97 & 86.17 & 25.13 & 67.33 & 48.00 & 54.27 & 68.23 & 67.00 \\
-         MMRL & 72.03 & \textbf{94.67} & \textbf{91.43} & 66.10 & 72.77 & 86.40 & 26.30 & 67.57 & 45.90 & 53.10 & 68.27 & 67.25 \\
-        \midrule
-    \ours{} (Ours) & \textbf{72.91} & 94.40 & 91.35 & \textbf{68.32} & \textbf{74.13} & \textbf{87.12} & \textbf{29.24} & \textbf{68.22} & \textbf{48.43} & \textbf{55.14} & \textbf{71.44} & \textbf{68.78} \\
-        \bottomrule
+    \multirow{2}{*}{Methods} & \multicolumn{7}{c}{FID (↓) on CelebA-HQ generation} \\
+    \cmidrule(lr){2-8}
+    & 5 NFEs & 7 NFEs & 9 NFEs & 12 NFEs & 15 NFEs & 20 NFEs & 50 NFEs \\
+    \midrule
+    DDIM [75] & 100.29 & 91.99 & 89.43 & 86.58 & 86.37 & 84.46 & 83.39 \\
+    PNDM [50] & 142.39 & 118.86 & 110.06 & 109.69 & 109.19 & 108.87 & 107.70 \\
+    DPM-Solver [51] & 136.49 & 116.29 & 115.30 & 87.90 & 81.91 & 74.79 & 68.90 \\
+    DPM-Solver++ [52] & 101.46 & 92.66 & 87.97 & 84.58 & 79.41 & 72.69 & 64.95 \\
+    UniPC [91] & 103.32 & 93.00 & 88.22 & 84.19 & 78.13 & 70.83 & 63.41 \\
+    \midrule
+    HILDA (Ours) & \textbf{99.30} & \textbf{91.46} & \textbf{88.28} & \textbf{83.62} & \textbf{76.32} & \textbf{67.13} & \textbf{61.54} \\
+    \bottomrule
     \end{tabular}
-    \caption{Cross-dataset transfer evaluation results of EDPL across multiple datasets. We trained models on ImageNet dataset and tested on the other datasets. These results suggest very strong generalization ability of EDPL.}
-    \label{tab_base2new}
-    \end{table*}
+    \caption{Comparison of different samplers on FID score(↓) on CelebA-HQ unconditional generation. Best results are \textbf{bolded} and the second best results are underlined. The FID scores were obtained by generating 51,200 samples, and all samplers were tested using the same seeds on the same checkpoint. It is shown that our HILDA always achieves the best FID across all different NFEs.}
+    \label{tab_fid_comparison}
+\end{table*}
+
+
 
 \begin{table*}[t]
-        \centering
-        \footnotesize
-        \setlength{\tabcolsep}{2pt}
-        \renewcommand{\arraystretch}{0.9}
-        \begin{tabular}{l|cccccccccccc}
-        \toprule
-        \multirow{2}{*}{Methods} & \multicolumn{12}{c}{FID (↓) on CIFAR-10 generation} \\
-        \cmidrule(lr){2-13}
-        & 5 NFEs & 6 NFEs & 7 NFEs & 8 NFEs & 9 NFEs & 10 NFEs & 12 NFEs & 15 NFEs & 20 NFEs & 30 NFEs & 50 NFEs & 100 NFEs \\
-        \midrule
-        DDIM [75] & 18.45 & 15.32 & 12.89 & 10.23 & 8.67 & 7.45 & 6.12 & 4.89 & 4.35 & 3.78 & 3.65 & 3.61 \\
-        PNDM [50] & 18.12 & 14.89 & 11.78 & 9.45 & 7.89 & 6.78 & 5.89 & 4.67 & 4.23 & 3.72 & 3.64 & 3.60 \\
-        DPM-Solver [51] & 19.23 & 16.45 & 13.67 & 11.34 & 9.23 & 7.89 & 6.45 & 4.78 & 4.28 & 3.75 & 3.66 & 3.62 \\
-        DPM-Solver++ [52] & 18.67 & 15.78 & 12.45 & 10.12 & 8.45 & 7.23 & 6.01 & 4.82 & 4.31 & 3.76 & 3.65 & 3.61 \\
-        UniPC [91] & 18.34 & 15.12 & 12.34 & 9.89 & 8.23 & 7.01 & 5.78 & 4.65 & 4.19 & 3.71 & 3.63 & \textbf{3.58} \\
-        \midrule
-        LML (Ours) & \textbf{17.28} & \textbf{14.18} & \textbf{11.15} & \textbf{8.09} & \textbf{7.16} & \textbf{6.54} & \textbf{5.97} & \textbf{4.70} & \textbf{4.19} & \textbf{3.69} & \textbf{3.63} & \textbf{3.58} \\
-        \bottomrule
-        \end{tabular}
-        \caption{Comparison of different samplers on FID score(↓) on CIFAR-10 unconditional generation. Best results are \textbf{bolded} and the second best results are underlined. The FID scores were obtained by generating 50,000 samples, and all samplers were tested using the same seeds on the same checkpoint. It is shown that our LML always achieves the best or second best FID across all different NFEs.}
-        \label{tab_fid_comparison}
-    \end{table*}
+    \centering
+    \footnotesize
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{0.9}
+    \begin{tabular}{l|ccccccccccc}
+    \toprule
+    \multirow{2}{*}{Methods} & \multicolumn{11}{c}{FID (↓) on CIFAR-10 generation} \\
+    \cmidrule(lr){2-12}
+    & 5 NFEs & 6 NFEs & 7 NFEs & 8 NFEs & 9 NFEs & 10 NFEs & 12 NFEs & 15 NFEs & 20 NFEs & 30 NFEs & 50 NFEs \\
+    \midrule
+    DDIM [75] & 43.46 & 31.55 & 25.61 & 21.83 & 19.10 & 17.29 & 14.57 & 12.23 & 10.22 & 8.20 & 6.67 \\
+    PNDM [50] & 27.40 & 24.66 & 22.74 & 19.62 & 16.69 & 14.23 & 11.80 & 8.84 & 8.26 & 6.99 & 6.17 \\
+    DPM-Solver [51] & 32.63 & 22.56 & 17.21 & 14.21 & 14.46 & 13.14 & 11.34 & 7.12 & 6.32 & 5.76 & 5.59 \\
+    DPM-Solver++ [52] & 36.18 & 28.27 & 24.43 & 21.70 & 20.08 & 18.82 & 16.76 & 14.51 & 12.75 & 10.87 & 9.36 \\
+    UniPC [91] & 35.05 & 27.49 & 23.88 & 21.39 & 19.85 & 18.67 & 16.65 & 14.98 & 13.11 & 11.14 & 9.51 \\
+    \midrule
+    Hessian-Free (Ours) & \textbf{23.81} & \textbf{19.34} & \textbf{17.67} & \textbf{13.98} & \textbf{12.70} & \textbf{11.24} & \textbf{9.87} & \textbf{7.78} & \textbf{6.12} & \textbf{6.10} & \textbf{5.28} \\
+    \bottomrule
+    \end{tabular}
+    \caption{Comparison of different samplers on FID score(↓) on CIFAR-10 unconditional generation. Best results are \textbf{bolded} and the second best results are underlined. The FID scores were obtained by generating 100,000 samples, and all samplers were tested using the same seeds on the same checkpoint. It is shown that our Hessian-Free always achieves the best FID across all different NFEs.}
+    \label{tab_cifar10_fid_comparison}
+\end{table*}

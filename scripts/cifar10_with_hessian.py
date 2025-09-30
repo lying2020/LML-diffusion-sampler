@@ -22,7 +22,6 @@ from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMSche
 from scheduler.scheduling_unipc_multistep_lm import UniPCMultistepSchedulerLM
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
-from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepHessianFreeScheduler
 
 import project as project
 
@@ -49,13 +48,13 @@ def parse_args():
 
     # Basic parameters
     parser.add_argument('--test_num', type=int, default=10)
-    parser.add_argument('--start_index', type=int, default=8)
-    parser.add_argument('--batch_size', type=int, default=50)
+    parser.add_argument('--start_index', type=int, default=0)
+    parser.add_argument('--batch_size', type=int, default=10)
     parser.add_argument('--num_inference_steps', type=int, default=20)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='hessian_free',
-                        choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'])
+    parser.add_argument('--sampler_type', type=str, default='pndm',
+                        choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
@@ -88,8 +87,7 @@ def get_sampler_description(sampler_type):
         'dpm++': 'DPM-Solver++ - Improved version with better stability',
         'dpm_lm': 'DPM-Solver with Levenberg-Marquardt Langevin correction',
         'pndm': 'Pseudo Numerical methods for Diffusion Models',
-        'unipc': 'Unified Predictor-Corrector framework',
-        'hessian_free': 'DPM-Solver with Hessian-Free HVP correction using CG'
+        'unipc': 'Unified Predictor-Corrector framework'
     }
     return descriptions.get(sampler_type, 'Unknown sampler type')
 
@@ -129,18 +127,6 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     elif sampler_type == 'unipc':
         pipe.scheduler = UniPCMultistepSchedulerLM.from_config(pipe.scheduler.config)
         print(f"  Using UniPC scheduler")
-
-    elif sampler_type == 'hessian_free':
-        pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
-        pipe.scheduler.config.solver_order = 3
-        pipe.scheduler.config.algorithm_type = "dpmsolver++"
-        pipe.scheduler.lamb = lamb
-        pipe.scheduler.lm = True
-        pipe.scheduler.kappa = kappa
-        pipe.scheduler.hessian_method = 'hessian_free'
-        # 设置模型用于Hessian计算
-        pipe.scheduler.set_model(pipe.unet)
-        print(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
 
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
@@ -427,8 +413,7 @@ def generate_comparison_grid(save_dir, sampler_types, num_inference_steps=20, te
         'dpm': 'DPM-Solver',
         'dpm++': 'DPM-Solver++',
         'unipc': 'UniPC',
-        'dpm_lm': 'LML (Ours)',
-        'hessian_free': 'HILDA (Ours)'
+        'dpm_lm': 'LML (Ours)'
     }
 
     # 为每个采样器生成图像
@@ -485,12 +470,11 @@ def generate_comparison_grid(save_dir, sampler_types, num_inference_steps=20, te
                 ax.text(-0.15, 0.5, f'Row {row+1}', ha='center', va='center',
                        transform=ax.transAxes, fontsize=10, rotation=90)
 
-    # 添加分隔线（在LML或HILDA列后）
-    if 'dpm_lm' in sampler_types or 'hessian_free' in sampler_types:
-        # 优先使用hessian_free，如果没有则使用dpm_lm
-        lml_index = sampler_types.index('hessian_free') if 'hessian_free' in sampler_types else sampler_types.index('dpm_lm')
+    # 添加分隔线（在LML列后）
+    if 'dpm_lm' in sampler_types:
+        lml_index = sampler_types.index('dpm_lm')
         if lml_index < len(sampler_types) - 1:
-            # 在LML/HILDA列后添加垂直分隔线
+            # 在LML列后添加垂直分隔线
             for row in range(test_num):
                 ax = fig.add_subplot(gs[row, lml_index])
                 # 添加右侧边框
@@ -519,7 +503,7 @@ def generate_comparison_grid_from_existing(save_dir, num_inference_steps=20):
         num_inference_steps: 推理步数
     """
     # 定义采样器类型
-    sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
+    sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm']
 
     # 检查哪些采样器有图像
     available_samplers = []
@@ -557,7 +541,7 @@ def main(args):
     save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
-    print("�� CIFAR-10 Unified Sampling Script")
+    print("🚀 CIFAR-10 Unified Sampling Script")
     print("="*60)
     print(f"Model: {model_id}")
     print(f"Device: {args.device}")
@@ -599,7 +583,7 @@ if __name__ == '__main__':
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
+        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc"]
         INFERENCE_STEPS = [5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
 
         print("="*50)
@@ -651,9 +635,9 @@ if __name__ == '__main__':
             print("❌ 对比图组生成失败")
     else:
         # 单个实验模式（保持原有逻辑）
-        SAMPLER_TYPES=["hessian_free"] # ["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
+        SAMPLER_TYPES=["pndm", "ddim", "dpm++", "dpm", "unipc"]
         # INFERENCE_STEPS=[5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
-        INFERENCE_STEPS=[args.num_inference_steps] # [5, 6]
+        INFERENCE_STEPS=[5, 6]
 
         for i in range(len(INFERENCE_STEPS)):
             for j in range(len(SAMPLER_TYPES)):

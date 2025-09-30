@@ -49,12 +49,12 @@ def parse_args():
 
     # Basic parameters
     parser.add_argument('--test_num', type=int, default=10)
-    parser.add_argument('--start_index', type=int, default=8)
-    parser.add_argument('--batch_size', type=int, default=50)
+    parser.add_argument('--start_index', type=int, default=0)
+    parser.add_argument('--batch_size', type=int, default=10)
     parser.add_argument('--num_inference_steps', type=int, default=20)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='hessian_free',
+    parser.add_argument('--sampler_type', type=str, default='pndm',
                         choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
@@ -74,7 +74,7 @@ def parse_args():
     parser.add_argument('--save_log', action='store_true', default=True)
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--run_batch', action='store_true', default=False)
-    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument("--generate_grid", action="store_true", default=False, help="Generate comparison grid from existing images")
 
     args = parser.parse_args()
 
@@ -557,7 +557,7 @@ def main(args):
     save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
-    print("�� CIFAR-10 Unified Sampling Script")
+    print("🚀 CIFAR-10 Unified Sampling Script")
     print("="*60)
     print(f"Model: {model_id}")
     print(f"Device: {args.device}")
@@ -651,9 +651,9 @@ if __name__ == '__main__':
             print("❌ 对比图组生成失败")
     else:
         # 单个实验模式（保持原有逻辑）
-        SAMPLER_TYPES=["hessian_free"] # ["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
+        SAMPLER_TYPES=["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
         # INFERENCE_STEPS=[5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
-        INFERENCE_STEPS=[args.num_inference_steps] # [5, 6]
+        INFERENCE_STEPS=[5, 6]
 
         for i in range(len(INFERENCE_STEPS)):
             for j in range(len(SAMPLER_TYPES)):
