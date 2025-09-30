@@ -83,7 +83,7 @@ def parse_args():
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
     parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
     parser.add_argument('--compare_all', action='store_true', default=False, help='Compare all samplers and generate table')
-    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
 
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
