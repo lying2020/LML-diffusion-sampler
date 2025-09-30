@@ -61,10 +61,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="COCO sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=100)
+    parser.add_argument('--test_num', type=int, default=30)
     parser.add_argument('--start_index', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=2)
-    parser.add_argument('--num_inference_steps', type=int, default=10)
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--num_inference_steps', type=int, default=20)
 
     parser.add_argument('--guidance', type=float, default=7.5)
     parser.add_argument('--seed', type=int, default=1)
@@ -89,8 +89,9 @@ def parse_args():
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
     parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
-    parser.add_argument('--compare_all', action='store_true', default=False, help='Compare all samplers and generate table')
     parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--grid_methods', default=['ddim', 'pndm', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'],
+                        help='List of samplers to test in batch mode')
 
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
@@ -507,7 +508,7 @@ def generate_comparison_grid(save_dir, sampler_types, num_inference_steps=20, te
         'dpm': 'DPM-Solver',
         'dpm++': 'DPM-Solver++',
         'unipc': 'UniPC',
-        'dpm_lm': 'LML (Ours)',
+        'dpm_lm': 'LML',
         'hessian_free': 'HILDA (Ours)'
     }
 
@@ -560,10 +561,10 @@ def generate_comparison_grid(save_dir, sampler_types, num_inference_steps=20, te
                 method_name = method_names.get(sampler_type, sampler_type)
                 ax.set_title(method_name, fontsize=12, fontweight='bold', pad=10)
 
-            # 添加行标签（只在第一列）
-            if col == 0:
-                ax.text(-0.15, 0.5, f'Row {row+1}', ha='center', va='center',
-                       transform=ax.transAxes, fontsize=10, rotation=90)
+            # # 添加行标签（只在第一列）
+            # if col == 0:
+            #     ax.text(-0.15, 0.5, f'Row {row+1}', ha='center', va='center',
+            #            transform=ax.transAxes, fontsize=10, rotation=90)
 
     # 添加分隔线（在LML或HILDA列后）
     if 'dpm_lm' in sampler_types or 'hessian_free' in sampler_types:
@@ -590,7 +591,7 @@ def generate_comparison_grid(save_dir, sampler_types, num_inference_steps=20, te
     print(f"✅ 对比图组已保存到: {output_path}")
     return output_path
 
-def generate_comparison_grid_from_existing(save_dir, num_inference_steps=20):
+def generate_comparison_grid_from_existing(save_dir, num_inference_steps=20, grid_methods=None):
     """
     从已存在的图像文件生成对比图组
 
@@ -599,7 +600,10 @@ def generate_comparison_grid_from_existing(save_dir, num_inference_steps=20):
         num_inference_steps: 推理步数
     """
     # 定义采样器类型
-    sampler_types = ['ddim', 'ddim_lm', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
+    if grid_methods is None:
+        sampler_types = ['ddim', 'ddim_lm', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
+    else:
+        sampler_types = grid_methods
 
     # 检查哪些采样器有图像
     available_samplers = []
@@ -679,7 +683,8 @@ if __name__ == '__main__':
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = ["pndm", "ddim", "ddim_lm", "dpm++", "dpm", "unipc", "hessian_free"]
+        SAMPLER_TYPES = ['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free']
+        # SAMPLER_TYPES = ["pndm", "ddim", "ddim_lm", "dpm++", "dpm", "unipc", "hessian_free"]
         INFERENCE_STEPS = [5, 10, 20]
 
         print("="*50)
@@ -692,8 +697,9 @@ if __name__ == '__main__':
         start_time = datetime.now()
 
         experiment_num = 0
-        for i in range(len(INFERENCE_STEPS)):
-            for j in range(len(SAMPLER_TYPES)):
+
+        for j in range(len(SAMPLER_TYPES)):
+            for i in range(len(INFERENCE_STEPS)):
                 experiment_num += 1
                 num_inference_steps = INFERENCE_STEPS[i]
                 sampler_type = SAMPLER_TYPES[j]
@@ -704,6 +710,16 @@ if __name__ == '__main__':
 
                 result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
                 experiment_results.append(result)
+
+            if args.generate_grid:
+                # 生成对比图组模式
+                print("\n🎨 生成对比图组...")
+                output_path = generate_comparison_grid_from_existing(
+                    os.path.join(project.output_dir, args.save_dir), args.num_inference_steps, args.grid_methods)
+                if output_path:
+                    print(f"✅ 对比图组已生成: {output_path}")
+                else:
+                    print("❌ 对比图组生成失败")
 
         end_time = datetime.now()
 
@@ -719,16 +735,6 @@ if __name__ == '__main__':
         generate_experiment_summary(experiment_results, start_time, end_time, args)
 
         print(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
-    elif args.generate_grid:
-        # 生成对比图组模式
-        print("\n🎨 生成对比图组...")
-        output_path = generate_comparison_grid_from_existing(
-            os.path.join(project.output_dir, args.save_dir), args.num_inference_steps
-        )
-        if output_path:
-            print(f"✅ 对比图组已生成: {output_path}")
-        else:
-            print("❌ 对比图组生成失败")
     else:
         # 单个实验模式（保持原有逻辑）
         SAMPLER_TYPES=["hessian_free"] # ["pndm", "ddim", "ddim_lm", "dpm++", "dpm", "unipc", "hessian_free"]
@@ -739,3 +745,13 @@ if __name__ == '__main__':
                 args.num_inference_steps = INFERENCE_STEPS[i]
                 args.sampler_type = SAMPLER_TYPES[j]
                 main(args)
+
+        if args.generate_grid:
+            # 生成对比图组模式
+            print("\n🎨 生成对比图组...")
+            output_path = generate_comparison_grid_from_existing(
+                os.path.join(project.output_dir, args.save_dir), args.num_inference_steps, args.grid_methods)
+            if output_path:
+                print(f"✅ 对比图组已生成: {output_path}")
+            else:
+                print("❌ 对比图组生成失败")
