@@ -7,6 +7,11 @@ diffusion sampling algorithms with Stable Diffusion. It follows the enhanced for
 from cifar10.py with comprehensive features and flexible configuration.
 """
 
+# Fix Qt platform plugin issues
+import os
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ["MPLBACKEND"] = "Agg"
+
 import sys
 import time
 import torch
@@ -20,6 +25,8 @@ from PIL import Image
 import cv2
 from scipy import stats
 from sklearn.metrics.pairwise import cosine_similarity
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 
 sys.path.append(os.getcwd())
@@ -83,7 +90,7 @@ def parse_args():
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
     parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
     parser.add_argument('--compare_all', action='store_true', default=False, help='Compare all samplers and generate table')
-    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
 
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
