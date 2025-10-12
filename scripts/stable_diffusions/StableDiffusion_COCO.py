@@ -90,7 +90,7 @@ def parse_args():
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
     parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
     parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
-    parser.add_argument('--grid_methods', default=['ddim', 'pndm', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'],
+    parser.add_argument('--grid_methods', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
@@ -325,14 +325,14 @@ def count_generated_images(save_dir):
         print(f"  ⚠️  Warning: Could not count images in {save_dir}: {e}")
         return 0
 
-def run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps):
+def run_single_experiment(args, experiment_num, total_experiments):
     """Run a single experiment with enhanced logging"""
 
     print("")
     print("="*50)
     print(f"实验 {experiment_num}/{total_experiments}")
-    print(f"Sampler: {sampler_type}")
-    print(f"Steps: {num_inference_steps}")
+    print(f"Sampler: {args.sampler_type}")
+    print(f"Steps: {args.num_inference_steps}")
     print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*50)
 
@@ -353,7 +353,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
         model_id = args.model_id
 
         # Handle save_dir path properly
-        save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(num_inference_steps), sampler_type)
+        save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
         os.makedirs(save_dir, exist_ok=True)
 
         print(f"🚀 Stable Diffusion COCO Sampling Script")
@@ -361,7 +361,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
         print(f"Model: {model_id}")
         print(f"Device: {args.device}")
         print(f"Data type: {args.dtype}")
-        print(f"Sampler: {sampler_type}")
+        print(f"Sampler: {args.sampler_type}")
         print(f"Output: {save_dir}")
         print("="*60)
 
@@ -373,18 +373,18 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
 
         # Setup scheduler
         print(f"\n⚙️ Setting up scheduler...")
-        setup_scheduler(pipe, sampler_type, args.lamb, args.kappa)
+        setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
 
         # Generate images
         generation_stats = generate_images(
-            pipe, args.batch_size, num_inference_steps,
-            args.test_num, args.start_index, save_dir, sampler_type, args.guidance, args.use_generator
+            pipe, args.batch_size, args.num_inference_steps,
+            args.test_num, args.start_index, save_dir, args.sampler_type, args.guidance, args.use_generator
         )
 
         # Save generation log if requested
         if args.save_log:
             print(f"\n📝 Saving generation log...")
-            save_generation_log(save_dir, sampler_type, generation_stats, args)
+            save_generation_log(save_dir, args.sampler_type, generation_stats, args)
 
         # 计算实验耗时
         exp_end_time = time.time()
@@ -417,8 +417,8 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
             'success': False,
             'duration': exp_duration,
             'error': str(e),
-            'sampler_type': sampler_type,
-            'num_inference_steps': num_inference_steps
+            'sampler_type': args.sampler_type,
+            'num_inference_steps': args.num_inference_steps
         }
 
 def generate_experiment_summary(experiment_results, start_time, end_time, args):
@@ -621,130 +621,42 @@ def generate_comparison_grid_from_existing(save_dir, num_inference_steps=20, gri
     # 生成对比图组
     return generate_comparison_grid(save_dir, available_samplers, num_inference_steps)
 
-def main(args):
-    """Main function for single experiment"""
-    print(args)
-
-    # Convert dtype string to torch dtype
-    dtype_map = {
-        'fp32': torch.float32,
-        'fp64': torch.float64,
-        'fp16': torch.float16,
-        'bf16': torch.bfloat16
-    }
-    dtype = dtype_map[args.dtype]
-
-    # Setup paths
-    model_id = args.model_id
-
-    # Handle save_dir path properly
-    save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
-    os.makedirs(save_dir, exist_ok=True)
-
-    print("🚀 Stable Diffusion COCO Sampling Script")
-    print("="*60)
-    print(f"Model: {model_id}")
-    print(f"Device: {args.device}")
-    print(f"Data type: {args.dtype}")
-    print(f"Sampler: {args.sampler_type}")
-    print(f"Output: {save_dir}")
-    print("="*60)
-
-    # Load pipeline
-    print("\n📦 Loading model...")
-    pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, safety_checker=None)
-    pipe = pipe.to(args.device)
-    print("  ✓ Model loaded successfully")
-
-    # Setup scheduler
-    print(f"\n⚙️ Setting up scheduler...")
-    setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
-
-    # Generate images
-    generation_stats = generate_images(
-        pipe, args.batch_size, args.num_inference_steps,
-        args.test_num, args.start_index, save_dir, args.sampler_type, args.guidance, args.use_generator
-    )
-
-    # Save generation log if requested
-    if args.save_log:
-        print(f"\n📝 Saving generation log...")
-        save_generation_log(save_dir, args.sampler_type, generation_stats, args)
-
-    print(f"\n✅ Generation completed successfully!")
-    print(f"   Generated {generation_stats['total_images']} images")
-    print(f"   Total time: {generation_stats['total_time']:.2f}s")
-    print(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
-
-
 if __name__ == '__main__':
     args = parse_args()
+
+    # 单个实验模式（保持原有逻辑）
+    SAMPLER_TYPES = [args.sampler_type]
+    INFERENCE_STEPS = [args.num_inference_steps]
 
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
         SAMPLER_TYPES = ['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free']
         # SAMPLER_TYPES = ["pndm", "ddim", "ddim_lm", "dpm++", "dpm", "unipc", "hessian_free"]
-        INFERENCE_STEPS = [5, 10, 20]
+        INFERENCE_STEPS = [5, 10, 20, 30]
 
-        print("="*50)
-        print("Stable Diffusion COCO 实验批量运行开始")
-        print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("="*50)
+    total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
+    experiment_results = []
+    start_time = datetime.now()
+    experiment_num = 0
 
-        total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
-        experiment_results = []
-        start_time = datetime.now()
+    print("="*50)
+    print("Stable Diffusion COCO 实验批量运行开始")
+    print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*50)
 
-        experiment_num = 0
-
-        for j in range(len(SAMPLER_TYPES)):
-            for i in range(len(INFERENCE_STEPS)):
-                experiment_num += 1
-                num_inference_steps = INFERENCE_STEPS[i]
-                sampler_type = SAMPLER_TYPES[j]
-
-                # 更新args
-                args.num_inference_steps = num_inference_steps
-                args.sampler_type = sampler_type
-
-                result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
-                experiment_results.append(result)
-
-            if args.generate_grid:
-                # 生成对比图组模式
-                print("\n🎨 生成对比图组...")
-                output_path = generate_comparison_grid_from_existing(
-                    os.path.join(project.output_dir, args.save_dir), args.num_inference_steps, args.grid_methods)
-                if output_path:
-                    print(f"✅ 对比图组已生成: {output_path}")
-                else:
-                    print("❌ 对比图组生成失败")
-
-        end_time = datetime.now()
-
-        print("\n" + "="*50)
-        print("Stable Diffusion COCO 实验批量运行完成")
-        print(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"总实验数: {total_experiments}")
-        print("="*50)
-
-        # 生成实验总结报告
-        print("\n生成实验总结报告...")
-        generate_experiment_summary(experiment_results, start_time, end_time, args)
-
-        print(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
-    else:
-        # 单个实验模式（保持原有逻辑）
-        SAMPLER_TYPES=["hessian_free"] # ["pndm", "ddim", "ddim_lm", "dpm++", "dpm", "unipc", "hessian_free"]
-        INFERENCE_STEPS=[args.num_inference_steps] # [5, 10, 20]
-
+    for j in range(len(SAMPLER_TYPES)):
         for i in range(len(INFERENCE_STEPS)):
-            for j in range(len(SAMPLER_TYPES)):
-                args.num_inference_steps = INFERENCE_STEPS[i]
-                args.sampler_type = SAMPLER_TYPES[j]
-                main(args)
+            experiment_num += 1
+            num_inference_steps = INFERENCE_STEPS[i]
+            sampler_type = SAMPLER_TYPES[j]
+
+            # 更新args
+            args.num_inference_steps = num_inference_steps
+            args.sampler_type = sampler_type
+
+            result = run_single_experiment(args, experiment_num, total_experiments)
+            experiment_results.append(result)
 
         if args.generate_grid:
             # 生成对比图组模式
@@ -755,3 +667,18 @@ if __name__ == '__main__':
                 print(f"✅ 对比图组已生成: {output_path}")
             else:
                 print("❌ 对比图组生成失败")
+
+    end_time = datetime.now()
+
+    print("\n" + "="*50)
+    print("Stable Diffusion COCO 实验批量运行完成")
+    print(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"总实验数: {total_experiments}")
+    print("="*50)
+
+    # 生成实验总结报告
+    print("\n生成实验总结报告...")
+    generate_experiment_summary(experiment_results, start_time, end_time, args)
+
+    print(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
