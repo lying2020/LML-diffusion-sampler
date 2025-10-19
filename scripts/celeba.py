@@ -30,8 +30,8 @@ from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepHessia
 
 import project as project
 
-celeba_model_id = "/home/liying/Documents/ldm-celebahq-256/"
-# celeba_model_id = "/research/cbim/vast/cj574/data/diffusion/celeba_hq_256/ldm-celebahq-256"
+celeba_model_path = "/home/liying/Documents/ldm-celebahq-256/"
+# celeba_model_path = "/research/cbim/vast/cj574/data/diffusion/celeba_hq_256/ldm-celebahq-256"
 
 def parse_args():
     """Parse command line arguments"""
@@ -42,15 +42,16 @@ def parse_args():
     parser.add_argument('--test_num', type=int, default=20)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=10)
+    parser.add_argument('--num_inference_steps', type=int, default=20, choices=[5, 10, 20, 30, 40, 50, 80, 100])
 
     # Sampler selection
     parser.add_argument('--sampler_type', type=str, default='hessian_free',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'])
+    parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='celeba')
-    parser.add_argument('--model_path', type=str, default='ddpm_ema_celeba')
+    parser.add_argument('--model_path', type=str, default=celeba_model_path)
 
     # LML parameters
     parser.add_argument('--lamb', type=float, default=0.004)
@@ -61,17 +62,19 @@ def parse_args():
     parser.add_argument('--device', type=str, default='cuda')
 
     # Evaluation options
+    parser.add_argument('--compare_all', action='store_true', default=False, help='Compare all samplers and generate table')
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
     parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
-    parser.add_argument('--compare_all', action='store_true', default=False, help='Compare all samplers and generate table')
     parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--grid_title', type=str, default="CelebA-HQ Generation Comparison", help='Title of comparison grid')
+    parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
+    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
+                        help='List of samplers to test in batch mode')
 
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
-    parser.add_argument('--samplers', nargs='+', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
-                        help='List of samplers to test in batch mode')
-    parser.add_argument('--steps', nargs='+', type=int, default=[5, 10, 20],
-                        help='List of inference steps to test in batch mode')
+    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[10, 20, 50], help='List of inference steps to test in batch mode')
 
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
@@ -80,20 +83,6 @@ def parse_args():
     args = parser.parse_args()
 
     return args
-
-def get_sampler_description(sampler_type):
-    """Get description for different sampler types"""
-    descriptions = {
-        'ddim': 'Denoising Diffusion Implicit Models - Deterministic sampling',
-        'ddim_lm': 'DDIM with Levenberg-Marquardt Langevin correction',
-        'dpm': 'DPM-Solver - High-order solver for diffusion ODEs',
-        'dpm++': 'DPM-Solver++ - Improved version with better stability',
-        # 'dpm_lm': 'DPM-Solver with Levenberg-Marquardt Langevin correction',
-        'pndm': 'Pseudo Numerical methods for Diffusion Models',
-        'unipc': 'Unified Predictor-Corrector framework',
-        'hessian_free': 'DPM-Solver with Hessian-Free HVP correction using CG'
-    }
-    return descriptions.get(sampler_type, 'Unknown sampler type')
 
 def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     """Setup the appropriate scheduler based on sampler type"""
@@ -462,7 +451,7 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
     project.info(f"\n{'='*60}")
     project.info(f"Starting image generation")
     project.info(f"{'='*60}")
-    project.info(f"Sampler: {sampler_type} - {get_sampler_description(sampler_type)}")
+    project.info(f"Sampler: {sampler_type} - {project.get_sampler_description(sampler_type)}")
     project.info(f"Batch size: {batch_size}")
     project.info(f"Inference steps: {num_inference_steps}")
     project.info(f"Total images: {test_num}")
@@ -525,43 +514,6 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
         'evaluation_results': evaluation_results
     }
 
-def save_generation_log(save_dir, sampler_type, generation_stats, args):
-    """Save generation log to JSON file"""
-
-    log_data = {
-        'timestamp': datetime.now().isoformat(),
-        'sampler_type': sampler_type,
-        'sampler_description': get_sampler_description(sampler_type),
-        'parameters': {
-            'test_num': args.test_num,
-            'start_index': args.start_index,
-            'batch_size': args.batch_size,
-            'num_inference_steps': args.num_inference_steps,
-            'lamb': args.lamb,
-            'kappa': args.kappa,
-            'dtype': args.dtype,
-            'device': args.device
-        },
-        'generation_stats': generation_stats
-    }
-
-    log_filename = f"generation_log_{sampler_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    log_path = os.path.join(save_dir, log_filename)
-
-    with open(log_path, 'w') as f:
-        json.dump(log_data, f, indent=2)
-
-    project.info(f"  ✓ Generation log saved to: {log_path}")
-
-def count_generated_images(save_dir):
-    """Count the number of generated images in the save directory"""
-    try:
-        png_files = glob.glob(os.path.join(save_dir, "*.png"))
-        return len(png_files)
-    except Exception as e:
-        project.warning(f"Could not count images in {save_dir}: {e}")
-        return 0
-
 def run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps):
     """Run a single experiment with enhanced logging"""
 
@@ -587,7 +539,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
         dtype = dtype_map[args.dtype]
 
         # Setup paths
-        model_path = celeba_model_id
+        model_path = args.model_path
         save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(num_inference_steps), sampler_type)
         os.makedirs(save_dir, exist_ok=True)
 
@@ -657,55 +609,6 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
             'num_inference_steps': num_inference_steps
         }
 
-def generate_experiment_summary(experiment_results, start_time, end_time, args):
-    """Generate comprehensive experiment summary report"""
-
-    summary_file = os.path.join(project.output_dir, args.save_dir, "experiment_summary.txt")
-    os.makedirs(os.path.dirname(summary_file), exist_ok=True)
-
-    successful_experiments = [r for r in experiment_results if r['success']]
-    failed_experiments = [r for r in experiment_results if not r['success']]
-
-    total_images = sum(r.get('image_count', 0) for r in successful_experiments)
-    total_duration = sum(r.get('duration', 0) for r in experiment_results)
-
-    with open(summary_file, 'w', encoding='utf-8') as f:
-        f.write("CelebA-HQ 实验总结报告\n")
-        f.write("="*50 + "\n\n")
-        f.write(f"运行时间: {start_time} 到 {end_time}\n")
-        f.write(f"总实验数: {len(experiment_results)}\n")
-        f.write(f"成功实验: {len(successful_experiments)}\n")
-        f.write(f"失败实验: {len(failed_experiments)}\n")
-        f.write(f"总生成图片: {total_images}\n")
-        f.write(f"总耗时: {total_duration:.1f}秒\n\n")
-
-        f.write("参数配置:\n")
-        f.write(f"- Batch Size: {args.batch_size}\n")
-        f.write(f"- Test Num: {args.test_num}\n")
-        f.write(f"- Device: {args.device}\n")
-        f.write(f"- Data Type: {args.dtype}\n")
-        f.write(f"- Lambda: {args.lamb}\n")
-        f.write(f"- Kappa: {args.kappa}\n\n")
-
-        f.write("各实验详情:\n")
-        for result in experiment_results:
-            if result['success']:
-                f.write(f"- {result.get('sampler_type', 'unknown')} ({result.get('num_inference_steps', 'unknown')} steps): {result.get('image_count', 0)} 张图片, 耗时 {result.get('duration', 0):.1f}秒\n")
-            else:
-                f.write(f"- {result.get('sampler_type', 'unknown')} ({result.get('num_inference_steps', 'unknown')} steps): 失败 - {result.get('error', 'Unknown error')}\n")
-
-    project.info(f"\n📊 实验总结报告已保存到: {summary_file}")
-
-    # 保存失败实验日志
-    if failed_experiments:
-        failed_log_file = os.path.join(project.output_dir, args.save_dir, "failed_experiments.log")
-        with open(failed_log_file, 'w', encoding='utf-8') as f:
-            for result in failed_experiments:
-                f.write(f"{result.get('sampler_type', 'unknown')},{result.get('num_inference_steps', 'unknown')},{result.get('error', 'Unknown error')}\n")
-        project.warning(f"有 {len(failed_experiments)} 个实验失败，详情请查看: {failed_log_file}")
-    else:
-        project.success("所有实验都成功完成!")
-
 def compare_all_samplers(args):
     """Compare all available samplers and generate comparison table"""
 
@@ -759,7 +662,7 @@ def run_single_sampler(args):
     dtype = dtype_map[args.dtype]
 
         # Setup paths
-    model_path = celeba_model_id
+    model_path = args.model_path
     save_dir = os.path.join(project.output_dir, args.save_dir,  "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
@@ -780,7 +683,7 @@ def run_single_sampler(args):
 
         # Save generation log if requested
         if args.save_log:
-            save_generation_log(save_dir, args.sampler_type, generation_stats, args)
+            project.save_generation_log(save_dir, args.sampler_type, generation_stats, args)
 
         return generation_stats
 
@@ -791,244 +694,45 @@ def run_single_sampler(args):
             traceback.print_exc()
         return None
 
-def main(args):
-    """Main function for single experiment"""
-    project.info(args)
-
-    # Convert dtype string to torch dtype
-    dtype_map = {
-        'fp32': torch.float32,
-        'fp64': torch.float64,
-        'fp16': torch.float16,
-        'bf16': torch.bfloat16
-    }
-    dtype = dtype_map[args.dtype]
-
-    # Setup paths
-    model_path = celeba_model_id
-    save_dir = os.path.join(project.output_dir, args.save_dir,  "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
-    os.makedirs(save_dir, exist_ok=True)
-
-    project.info("🚀 CelebA-HQ Unified Sampling Script")
-    project.info("="*60)
-    project.info(f"Model: {model_path}")
-    project.info(f"Device: {args.device}")
-    project.info(f"Data type: {args.dtype}")
-    project.info(f"Sampler: {args.sampler_type}")
-    project.info(f"Output: {save_dir}")
-    project.info("="*60)
-
-    # Load pipeline
-    project.info("\n📦 Loading model...")
-    pipe = LDMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
-    pipe.unet.to(args.device)
-    pipe.vqvae.to(args.device)
-    project.success("Model loaded successfully")
-
-    # Setup scheduler
-    project.info(f"\n⚙️ Setting up scheduler...")
-    setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
-
-    # Generate images
-    generation_stats = generate_images(
-        pipe, args.batch_size, args.num_inference_steps,
-        args.test_num, args.start_index, save_dir, args.sampler_type, args.evaluate
-    )
-
-    # Save generation log if requested
-    if args.save_log:
-        project.info(f"\n📝 Saving generation log...")
-        save_generation_log(save_dir, args.sampler_type, generation_stats, args)
-
-    project.success("Generation completed successfully!")
-    project.info(f"   Generated {generation_stats['total_images']} images")
-    project.info(f"   Total time: {generation_stats['total_time']:.2f}s")
-    project.info(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
-
-    if generation_stats.get('evaluation_results'):
-        project.info(f"\n📊 Evaluation Results:")
-        eval_results = generation_stats['evaluation_results']
-        project.info(f"   ColorS: {eval_results['ColorS']:.3f}")
-        project.info(f"   FS: {eval_results['FS']:.3f}")
-        project.info(f"   DFIQA: {eval_results['DFIQA']:.3f}")
-        project.info(f"   PicS: {eval_results['PicS']:.3f}")
-        project.info(f"   EAT: {eval_results['EAT']:.3f}")
-        project.info(f"   Laion: {eval_results['Laion']:.3f}")
-
-def generate_comparison_grid(save_dir, sampler_types, num_inference_steps=10, test_num=6, batch_size=1):
-    """
-    生成类似截图的对比图组，6行多列展示不同采样方法的结果
-
-    Args:
-        save_dir: 保存目录
-        sampler_types: 采样器类型列表
-        num_inference_steps: 推理步数
-        test_num: 测试数量（行数）
-        batch_size: 批次大小
-    """
-    import matplotlib.pyplot as plt
-    import matplotlib
-    matplotlib.use('Agg')  # 使用非交互式后端
-    import matplotlib.patches as patches
-    from matplotlib.gridspec import GridSpec
-
-    project.info(f"\n🎨 生成对比图组...")
-    project.info(f"采样器: {sampler_types}")
-    project.info(f"行数: {test_num}, 列数: {len(sampler_types)}")
-
-    # 创建图像网格
-    fig = plt.figure(figsize=(len(sampler_types) * 2.5, test_num * 2.5))
-    gs = GridSpec(test_num, len(sampler_types), figure=fig,
-                  hspace=0.1, wspace=0.05,
-                  left=0.05, right=0.95, top=0.95, bottom=0.05)
-
-    # 方法名称映射
-    method_names = {
-        'ddim': 'DDIM',
-        'pndm': 'PNDM',
-        'dpm': 'DPM-Solver',
-        'dpm++': 'DPM-Solver++',
-        'unipc': 'UniPC',
-        # 'dpm_lm': 'LML (Ours)',
-        # 'ddim_lm': 'LML (Ours)',
-        'hessian_free': 'HILDA (Ours)'
-    }
-
-    # 为每个采样器生成图像
-    all_images = {}
-
-    for col, sampler_type in enumerate(sampler_types):
-        project.info(f"  生成 {sampler_type} 图像...")
-
-        # 设置路径
-        sampler_dir = os.path.join(save_dir, "steps" + '_' + str(num_inference_steps), sampler_type)
-
-        # 查找该采样器生成的图像
-        image_files = glob.glob(os.path.join(sampler_dir, "*.png"))
-        if not image_files:
-            project.warning(f"  未找到 {sampler_type} 的图像文件")
-            continue
-
-        # 按文件名排序，取前test_num个
-        image_files.sort()
-        selected_images = image_files[:test_num]
-        all_images[sampler_type] = selected_images
-
-    # 绘制图像网格
-    for row in range(test_num):
-        for col, sampler_type in enumerate(sampler_types):
-            ax = fig.add_subplot(gs[row, col])
-
-            if sampler_type in all_images and row < len(all_images[sampler_type]):
-                # 加载并显示图像
-                img_path = all_images[sampler_type][row]
-                try:
-                    img = Image.open(img_path)
-                    ax.imshow(img)
-                except Exception as e:
-                    project.warning(f"  无法加载图像 {img_path}: {e}")
-                    ax.text(0.5, 0.5, 'Error', ha='center', va='center', transform=ax.transAxes)
-            else:
-                # 显示占位符
-                ax.text(0.5, 0.5, 'N/A', ha='center', va='center', transform=ax.transAxes,
-                       fontsize=12, color='gray')
-
-            # 设置坐标轴
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.axis('off')
-
-            # 添加列标题（只在第一行）
-            if row == 0:
-                method_name = method_names.get(sampler_type, sampler_type)
-                ax.set_title(method_name, fontsize=12, fontweight='bold', pad=10)
-
-            # 添加行标签（只在第一列）
-            if col == 0:
-                ax.text(-0.15, 0.5, f'Row {row+1}', ha='center', va='center',
-                       transform=ax.transAxes, fontsize=10, rotation=90)
-
-    # 添加分隔线（在LML列后）
-    if 'dpm_lm' in sampler_types or 'ddim_lm' in sampler_types:
-        lml_index = sampler_types.index('dpm_lm') if 'dpm_lm' in sampler_types else sampler_types.index('ddim_lm')
-        if lml_index < len(sampler_types) - 1:
-            # 在LML列后添加垂直分隔线
-            for row in range(test_num):
-                ax = fig.add_subplot(gs[row, lml_index])
-                # 添加右侧边框
-                ax.add_patch(patches.Rectangle((0.95, 0), 0.05, 1,
-                                             transform=ax.transAxes,
-                                             facecolor='black', alpha=0.3))
-
-    # 设置整体标题
-    fig.suptitle(f'CelebA-HQ Generation Comparison (Steps: {num_inference_steps})',
-                 fontsize=16, fontweight='bold', y=0.98)
-
-    # 保存图像
-    output_path = os.path.join(save_dir, f'comparison_grid_steps{num_inference_steps}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
-    plt.close()
-
-    project.success(f"对比图组已保存到: {output_path}")
-    return output_path
-
-def generate_comparison_grid_from_existing(save_dir, num_inference_steps=10):
-    """
-    从已存在的图像文件生成对比图组
-
-    Args:
-        save_dir: 保存目录
-        num_inference_steps: 推理步数
-    """
-    # 定义采样器类型
-    # sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
-    sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'hessian_free']
-
-    # 检查哪些采样器有图像
-    available_samplers = []
-    for sampler in sampler_types:
-        sampler_dir = os.path.join(save_dir, "steps" + '_' + str(num_inference_steps), sampler)
-        if os.path.exists(sampler_dir) and glob.glob(os.path.join(sampler_dir, "*.png")):
-            available_samplers.append(sampler)
-
-    if not available_samplers:
-        project.error("未找到任何采样器的图像文件")
-        return None
-
-    project.info(f"找到 {len(available_samplers)} 个采样器的图像: {available_samplers}")
-
-    # 生成对比图组
-    return generate_comparison_grid(save_dir, available_samplers, num_inference_steps)
 
 if __name__ == '__main__':
     # 设置日志系统
     logger = project.setup_logging(name='celeba', level=project.logging.INFO)
 
     args = parse_args()
+    results_save_dir = os.path.join(project.output_dir, args.save_dir + '_' + args.model_type)
+
+    # 单个实验模式（保持原有逻辑）
+    SAMPLER_TYPES = [args.sampler_type]
+    INFERENCE_STEPS = [args.num_inference_steps]
 
     # 检查是否运行批量实验
-    if args.run_batch:
+    if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
-        # INFERENCE_STEPS = [5, 7, 9, 12, 15, 20, 50]
-        # INFERENCE_STEPS = [5, 6]
+        SAMPLER_TYPES = args.run_batch_samplers  #['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free']
+        INFERENCE_STEPS = args.run_batch_steps  # [5, 10, 20, 30]
 
-        project.log_experiment_start("CelebA-HQ 批量实验", {
-            'samplers': SAMPLER_TYPES,
-            'steps': args.num_inference_steps,
-            'batch_size': args.batch_size,
-            'test_num': args.test_num
-        })
+    total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
+    experiment_results = []
+    start_time = datetime.now()
+    experiment_num = 0
 
-        total_experiments = len(SAMPLER_TYPES)
-        experiment_results = []
-        start_time = datetime.now()
+    project.log_experiment_start("CelebA-HQ 批量实验", {
+        'samplers': SAMPLER_TYPES,
+        'steps': args.num_inference_steps,
+        'batch_size': args.batch_size,
+        'test_num': args.test_num
+    })
 
-        experiment_num = 0
+    print("="*50)
+    print("CelebA-HQ 实验批量运行开始")
+    print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*50)
 
+    for i in range(len(INFERENCE_STEPS)):
         for j in range(len(SAMPLER_TYPES)):
             experiment_num += 1
-            num_inference_steps = args.num_inference_steps
+            num_inference_steps = INFERENCE_STEPS[i]
             sampler_type = SAMPLER_TYPES[j]
 
             # 更新args
@@ -1040,55 +744,54 @@ if __name__ == '__main__':
             result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
             experiment_results.append(result)
 
-        end_time = datetime.now()
-
-        # 生成实验总结报告
-        project.info("\n生成实验总结报告...")
-        generate_experiment_summary(experiment_results, start_time, end_time, args)
-
-        project.log_experiment_end("CelebA-HQ 批量实验",
-                                 duration=(end_time - start_time).total_seconds(),
-                                 results={'total_experiments': total_experiments, 'successful': len([r for r in experiment_results if r['success']])})
-
-        project.info(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
-        project.info(f"日志文件: {logger.get_log_file()}")
-    else:
-        # 单个实验模式
-        if args.compare_all:
-            # Compare all samplers
-            results_dict = compare_all_samplers(args)
-            project.success("Comparison completed!")
-        elif args.generate_grid:
-            # Generate comparison grid from existing images
-            project.info("\n🎨 生成对比图组...")
-            output_path = generate_comparison_grid_from_existing(
-                os.path.join(project.output_dir, args.save_dir), args.num_inference_steps
-            )
+        if args.generate_grid:
+            # 生成对比图组模式
+            print("\n🎨 生成对比图组...")
+            output_path = project.generate_comparison_grid_from_existing(
+                results_save_dir, args.num_inference_steps, args.grid_test_num, args.grid_samplers)
             if output_path:
-                project.success(f"对比图组已生成: {output_path}")
+                print(f"✅ 对比图组已生成: {output_path}")
             else:
-                project.error("对比图组生成失败")
-            results_dict = compare_all_samplers(args)
-            project.success("Comparison completed!")
-        else:
-            # Run single sampler
-            generation_stats = run_single_sampler(args)
+                print("❌ 对比图组生成失败")
 
-            if generation_stats:
-                project.success("Generation completed successfully!")
-                project.info(f"   Generated {generation_stats['total_images']} images")
-                project.info(f"   Total time: {generation_stats['total_time']:.2f}s")
-                project.info(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
+    end_time = datetime.now()
 
-                if generation_stats.get('evaluation_results'):
-                    project.info(f"\n📊 Evaluation Results:")
-                    eval_results = generation_stats['evaluation_results']
-                    project.info(f"   ColorS: {eval_results['ColorS']:.3f}")
-                    project.info(f"   FS: {eval_results['FS']:.3f}")
-                    project.info(f"   DFIQA: {eval_results['DFIQA']:.3f}")
-                    project.info(f"   PicS: {eval_results['PicS']:.3f}")
-                    project.info(f"   EAT: {eval_results['EAT']:.3f}")
-                    project.info(f"   Laion: {eval_results['Laion']:.3f}")
+    print("\n" + "="*50)
+    print("CelebA-HQ 实验批量运行完成")
+    print(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*50)
+
+    # 生成实验总结报告
+    project.info("\n生成实验总结报告...")
+    project.generate_experiment_summary(experiment_results, start_time, end_time, args)
+
+    project.log_experiment_end("CelebA-HQ 批量实验",
+                                duration=(end_time - start_time).total_seconds(),
+                                results={'total_experiments': total_experiments, 'successful': len([r for r in experiment_results if r['success']])})
+
+    project.info(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
+    project.info(f"日志文件: {logger.get_log_file()}")
+
+    # # Run single sampler
+    # generation_stats = run_single_sampler(args)
+
+    # if generation_stats:
+    #     project.success("Generation completed successfully!")
+    #     project.info(f"   Generated {generation_stats['total_images']} images")
+    #     project.info(f"   Total time: {generation_stats['total_time']:.2f}s")
+    #     project.info(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
+
+    #     if generation_stats.get('evaluation_results'):
+    #         project.info(f"\n📊 Evaluation Results:")
+    #         eval_results = generation_stats['evaluation_results']
+    #         project.info(f"   ColorS: {eval_results['ColorS']:.3f}")
+    #         project.info(f"   FS: {eval_results['FS']:.3f}")
+    #         project.info(f"   DFIQA: {eval_results['DFIQA']:.3f}")
+    #         project.info(f"   PicS: {eval_results['PicS']:.3f}")
+    #         project.info(f"   EAT: {eval_results['EAT']:.3f}")
+    #         project.info(f"   Laion: {eval_results['Laion']:.3f}")
+
+
 
     # 关闭日志器
     logger.close()

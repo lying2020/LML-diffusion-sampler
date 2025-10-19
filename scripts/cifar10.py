@@ -61,6 +61,7 @@ def parse_args():
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='cifar10')
     parser.add_argument('--model_path', type=str, default='ddpm_ema_cifar10')
+    parser.add_argument('--model_type', type=str, default="")
 
     # LML parameters
     parser.add_argument('--lamb', type=float, default=0.0008)
@@ -70,11 +71,22 @@ def parse_args():
     parser.add_argument('--dtype', type=str, default='fp32', choices=['fp32', 'fp64', 'fp16', 'bf16'])
     parser.add_argument('--device', type=str, default='cuda')
 
+    # Evaluation options
+    parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
+    parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
+    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
+    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
+                        help='List of samplers to test in batch mode')
+
+    # Batch processing options
+    parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
+    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[10, 20, 50], help='List of inference steps to test in batch mode')
+
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
     parser.add_argument('--verbose', action='store_true')
-    parser.add_argument('--run_batch', action='store_true', default=False)
-    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
 
     args = parser.parse_args()
 
@@ -595,68 +607,63 @@ def main(args):
 
 if __name__ == '__main__':
     args = parse_args()
+    results_save_dir = os.path.join(project.output_dir, args.save_dir + '_' + args.model_type)
+
+    # 单个实验模式（保持原有逻辑）
+    SAMPLER_TYPES = [args.sampler_type]
+    INFERENCE_STEPS = [args.num_inference_steps]
 
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = ["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
-        INFERENCE_STEPS = [5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
+        SAMPLER_TYPES = args.run_batch_samplers    #['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free']
+        INFERENCE_STEPS = args.run_batch_steps #[5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
 
-        print("="*50)
-        print("CIFAR-10 实验批量运行开始")
-        print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("="*50)
+    total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
+    experiment_results = []
+    start_time = datetime.now()
+    experiment_num = 0
 
-        total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
-        experiment_results = []
-        start_time = datetime.now()
+    print("="*50)
+    print("CIFAR-10 实验批量运行开始")
+    print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*50)
 
-        experiment_num = 0
-        for i in range(len(INFERENCE_STEPS)):
-            for j in range(len(SAMPLER_TYPES)):
-                experiment_num += 1
-                num_inference_steps = INFERENCE_STEPS[i]
-                sampler_type = SAMPLER_TYPES[j]
+    for i in range(len(INFERENCE_STEPS)):
+        for j in range(len(SAMPLER_TYPES)):
+            experiment_num += 1
+            num_inference_steps = INFERENCE_STEPS[i]
+            sampler_type = SAMPLER_TYPES[j]
 
-                # 更新args
-                args.num_inference_steps = num_inference_steps
-                args.sampler_type = sampler_type
+            # 更新args
+            args.num_inference_steps = num_inference_steps
+            args.sampler_type = sampler_type
 
-                result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
-                experiment_results.append(result)
+            result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
+            experiment_results.append(result)
 
-        end_time = datetime.now()
+        if args.generate_grid:
+            # 生成对比图组模式
+            print("\n🎨 生成对比图组...")
+            output_path = generate_comparison_grid_from_existing(
+                os.path.join(project.output_dir, args.save_dir), args.num_inference_steps
+            )
+            if output_path:
+                print(f"✅ 对比图组已生成: {output_path}")
+            else:
+                print("❌ 对比图组生成失败")
 
-        print("\n" + "="*50)
-        print("CIFAR-10 实验批量运行完成")
-        print(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"总实验数: {total_experiments}")
-        print("="*50)
+    end_time = datetime.now()
 
-        # 生成实验总结报告
-        print("\n生成实验总结报告...")
-        generate_experiment_summary(experiment_results, start_time, end_time, args)
+    print("\n" + "="*50)
+    print("CIFAR-10 实验批量运行完成")
+    print(f"开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"结束时间: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"总实验数: {total_experiments}")
+    print("="*50)
 
-        print(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
-    elif args.generate_grid:
-        # 生成对比图组模式
-        print("\n🎨 生成对比图组...")
-        output_path = generate_comparison_grid_from_existing(
-            os.path.join(project.output_dir, args.save_dir), args.num_inference_steps
-        )
-        if output_path:
-            print(f"✅ 对比图组已生成: {output_path}")
-        else:
-            print("❌ 对比图组生成失败")
-    else:
-        # 单个实验模式（保持原有逻辑）
-        SAMPLER_TYPES=["hessian_free"] # ["pndm", "ddim", "dpm++", "dpm", "unipc", "hessian_free"]
-        # INFERENCE_STEPS=[5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
-        INFERENCE_STEPS=[args.num_inference_steps] # [5, 6]
+    # 生成实验总结报告
+    print("\n生成实验总结报告...")
+    generate_experiment_summary(experiment_results, start_time, end_time, args)
 
-        for i in range(len(INFERENCE_STEPS)):
-            for j in range(len(SAMPLER_TYPES)):
-                args.num_inference_steps = INFERENCE_STEPS[i]
-                args.sampler_type = SAMPLER_TYPES[j]
-                main(args)
+    print(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
