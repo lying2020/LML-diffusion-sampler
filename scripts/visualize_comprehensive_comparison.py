@@ -20,7 +20,7 @@ plt.style.use('default')
 
 def create_comprehensive_comparison_chart(results, save_path='output/test/comprehensive_algorithm_comparison_fixed.png'):
     """Create comprehensive comparison chart with proper dimensions"""
-    
+
     # Create figure with reasonable size
     fig = plt.figure(figsize=(16, 12))  # Reduced from (24, 18)
     fig.suptitle('Comprehensive Algorithm Comparison Analysis', fontsize=20, fontweight='bold', y=0.95)
@@ -42,7 +42,7 @@ def create_comprehensive_comparison_chart(results, save_path='output/test/compre
             fids.append(data['fid_score'])
             efficiencies.append(data['efficiency'])
             stabilities.append(data['time_stability'])
-            
+
             # Handle memory usage - use average if it's a list
             memory_data = data.get('memory_usage', 0)
             if isinstance(memory_data, list):
@@ -61,7 +61,7 @@ def create_comprehensive_comparison_chart(results, save_path='output/test/compre
     ax1.set_ylabel('Time per Image (s)')
     ax1.set_xticks(range(len(algorithms)))
     ax1.set_xticklabels(algorithms, rotation=45, ha='right')
-    
+
     # Add value labels on bars
     for i, bar in enumerate(bars1):
         height = bar.get_height()
@@ -76,7 +76,7 @@ def create_comprehensive_comparison_chart(results, save_path='output/test/compre
     ax2.set_ylabel('Average Variance')
     ax2.set_xticks(range(len(algorithms)))
     ax2.set_xticklabels(algorithms, rotation=45, ha='right')
-    
+
     for i, bar in enumerate(bars2):
         height = bar.get_height()
         ax2.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
@@ -90,7 +90,7 @@ def create_comprehensive_comparison_chart(results, save_path='output/test/compre
     ax3.set_ylabel('FID Score')
     ax3.set_xticks(range(len(algorithms)))
     ax3.set_xticklabels(algorithms, rotation=45, ha='right')
-    
+
     for i, bar in enumerate(bars3):
         height = bar.get_height()
         ax3.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
@@ -104,7 +104,7 @@ def create_comprehensive_comparison_chart(results, save_path='output/test/compre
     ax4.set_ylabel('Efficiency (Quality/s)')
     ax4.set_xticks(range(len(algorithms)))
     ax4.set_xticklabels(algorithms, rotation=45, ha='right')
-    
+
     for i, bar in enumerate(bars4):
         height = bar.get_height()
         ax4.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
@@ -118,7 +118,7 @@ def create_comprehensive_comparison_chart(results, save_path='output/test/compre
     ax5.set_ylabel('Time Stability')
     ax5.set_xticks(range(len(algorithms)))
     ax5.set_xticklabels(algorithms, rotation=45, ha='right')
-    
+
     for i, bar in enumerate(bars5):
         height = bar.get_height()
         ax5.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
@@ -132,7 +132,7 @@ def create_comprehensive_comparison_chart(results, save_path='output/test/compre
     ax6.set_ylabel('Memory Usage (MB)')
     ax6.set_xticks(range(len(algorithms)))
     ax6.set_xticklabels(algorithms, rotation=45, ha='right')
-    
+
     for i, bar in enumerate(bars6):
         height = bar.get_height()
         ax6.text(bar.get_x() + bar.get_width()/2., height + height*0.01,
@@ -147,7 +147,7 @@ def create_comprehensive_comparison_chart(results, save_path='output/test/compre
 
 def create_detailed_analysis_chart(results, save_path='output/test/detailed_algorithm_analysis_fixed.png'):
     """Create detailed analysis chart with proper dimensions"""
-    
+
     # Create figure with reasonable size
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(14, 10))  # Reduced from larger size
     fig.suptitle('Detailed Algorithm Analysis', fontsize=18, fontweight='bold', y=0.95)
@@ -172,10 +172,10 @@ def create_detailed_analysis_chart(results, save_path='output/test/detailed_algo
     ax1.set_xlabel('Efficiency (Quality/s)')
     ax1.set_ylabel('Image Quality (Variance)')
     ax1.set_title('Quality vs Efficiency Trade-off', fontsize=14, fontweight='bold')
-    
+
     # Add algorithm labels
     for i, alg in enumerate(algorithms):
-        ax1.annotate(alg, (efficiencies[i], qualities[i]), xytext=(5, 5), 
+        ax1.annotate(alg, (efficiencies[i], qualities[i]), xytext=(5, 5),
                     textcoords='offset points', fontsize=8)
 
     # 2. Speed vs Quality
@@ -183,9 +183,9 @@ def create_detailed_analysis_chart(results, save_path='output/test/detailed_algo
     ax2.set_xlabel('Generation Time (s)')
     ax2.set_ylabel('Image Quality (Variance)')
     ax2.set_title('Speed vs Quality', fontsize=14, fontweight='bold')
-    
+
     for i, alg in enumerate(algorithms):
-        ax2.annotate(alg, (times[i], qualities[i]), xytext=(5, 5), 
+        ax2.annotate(alg, (times[i], qualities[i]), xytext=(5, 5),
                     textcoords='offset points', fontsize=8)
 
     # 3. FID vs Time
@@ -193,9 +193,9 @@ def create_detailed_analysis_chart(results, save_path='output/test/detailed_algo
     ax3.set_xlabel('Generation Time (s)')
     ax3.set_ylabel('FID Score')
     ax3.set_title('FID Score vs Generation Time', fontsize=14, fontweight='bold')
-    
+
     for i, alg in enumerate(algorithms):
-        ax3.annotate(alg, (times[i], fids[i]), xytext=(5, 5), 
+        ax3.annotate(alg, (times[i], fids[i]), xytext=(5, 5),
                     textcoords='offset points', fontsize=8)
 
     # 4. Efficiency vs FID
@@ -203,9 +203,9 @@ def create_detailed_analysis_chart(results, save_path='output/test/detailed_algo
     ax4.set_xlabel('Efficiency (Quality/s)')
     ax4.set_ylabel('FID Score')
     ax4.set_title('Efficiency vs FID Score', fontsize=14, fontweight='bold')
-    
+
     for i, alg in enumerate(algorithms):
-        ax4.annotate(alg, (efficiencies[i], fids[i]), xytext=(5, 5), 
+        ax4.annotate(alg, (efficiencies[i], fids[i]), xytext=(5, 5),
                     textcoords='offset points', fontsize=8)
 
     # Adjust layout
@@ -242,7 +242,7 @@ def main():
     # Create visualizations
     print("\nCreating comprehensive comparison chart...")
     fig1 = create_comprehensive_comparison_chart(
-        results, 
+        results,
         os.path.join(args.output_dir, 'comprehensive_algorithm_comparison_fixed.png')
     )
     plt.close(fig1)

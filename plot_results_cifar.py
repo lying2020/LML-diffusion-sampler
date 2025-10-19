@@ -17,6 +17,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import matplotlib
 matplotlib.use('Agg')
 
+sys.path.append(os.getcwd())
+import project as project
+
+plot_results_dir = os.path.join(project.output_dir, "plots")
+
 # Set matplotlib parameters for ICLR paper format
 plt.rcParams.update({
     'font.size': 14,
@@ -54,14 +59,14 @@ class ICLRFIDPlotter:
             'HILDA (Ours)': sorted(([23.81, 19.34, 17.67, 13.98, 12.70, 11.24, 9.87, 7.78, 6.12, 6.10, 5.28]), reverse=True)
         }
 
-# Method           Step 5    Step 6    Step 7    Step 8    Step 9    Step 10   Step 12   Step 15   Step 20   Step 30   Step 50
-# ----------------------------------------------------------------------------------------------------------------------------------------
-# ddim             43.46     31.55     25.61     21.83     19.10     17.29     14.57     12.23     10.22     8.20      6.67
-# dpm              32.63     22.56     17.21     14.21     14.46     13.14     11.34     7.12      6.32      5.76      5.59
-# dpm++            36.18     28.27     24.43     21.70     20.08     18.82     16.76     14.51     12.75     10.87     9.36
-# pndm             27.40     24.66     22.74     19.62     16.69     14.23     11.80      8.84      8.26      6.99     6.17
-# unipc            35.05     27.49     23.88     21.39     19.85     18.67     16.65     14.98     13.11     11.14     9.51
-# hessian_free     23.81     19.34     17.67     13.98     12.70     11.24      9.87     7.78       6.12      6.10     5.28
+        # Method           Step 5    Step 6    Step 7    Step 8    Step 9    Step 10   Step 12   Step 15   Step 20   Step 30   Step 50
+        # ----------------------------------------------------------------------------------------------------------------------------------------
+        # ddim             43.46     31.55     25.61     21.83     19.10     17.29     14.57     12.23     10.22     8.20      6.67
+        # dpm              32.63     22.56     17.21     14.21     14.46     13.14     11.34     7.12      6.32      5.76      5.59
+        # dpm++            36.18     28.27     24.43     21.70     20.08     18.82     16.76     14.51     12.75     10.87     9.36
+        # pndm             27.40     24.66     22.74     19.62     16.69     14.23     11.80      8.84      8.26      6.99     6.17
+        # unipc            35.05     27.49     23.88     21.39     19.85     18.67     16.65     14.98     13.11     11.14     9.51
+        # hessian_free     23.81     19.34     17.67     13.98     12.70     11.24      9.87     7.78       6.12      6.10     5.28
 
         print("FID数据:")
         for key, value in self.fid_data.items():
@@ -97,7 +102,7 @@ class ICLRFIDPlotter:
             'HILDA (Ours)': 'o'  # 圆形标记
         }
 
-    def plot_fid_results(self, save_dir='output/zigzag_cg_hessian'):
+    def plot_fid_results(self, save_dir=plot_results_dir):
         """绘制FID结果折线图"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -168,14 +173,14 @@ class ICLRFIDPlotter:
 
         # 保存图形
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'cifar10_fid_results_iclr_{timestamp}.png')
+        save_path = os.path.join(save_dir, f'cifar10_fid_results_iclr.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight',
                    facecolor='white', edgecolor='none')
 
         print(f"✓ ICLR格式FID结果图已保存到: {save_path}")
 
         # 也保存为PDF格式（适合论文）
-        pdf_path = os.path.join(save_dir, f'cifar10_fid_results_iclr_{timestamp}.pdf')
+        pdf_path = os.path.join(save_dir, f'cifar10_fid_results_iclr.pdf')
         plt.savefig(pdf_path, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"✓ ICLR格式FID结果图PDF已保存到: {pdf_path}")
 
@@ -183,7 +188,7 @@ class ICLRFIDPlotter:
 
         return save_path
 
-    def plot_fid_results_log_scale(self, save_dir='output/zigzag_cg_hessian'):
+    def plot_fid_results_log_scale(self, save_dir=plot_results_dir):
         """绘制对数尺度的FID结果折线图（更符合论文格式）"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -255,14 +260,14 @@ class ICLRFIDPlotter:
 
         # 保存图形
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'cifar10_fid_results_log_iclr_{timestamp}.png')
+        save_path = os.path.join(save_dir, f'cifar10_fid_results_log_iclr.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight',
                    facecolor='white', edgecolor='none')
 
         print(f"✓ ICLR格式对数尺度FID结果图已保存到: {save_path}")
 
         # 也保存为PDF格式
-        pdf_path = os.path.join(save_dir, f'cifar10_fid_results_log_iclr_{timestamp}.pdf')
+        pdf_path = os.path.join(save_dir, f'cifar10_fid_results_log_iclr.pdf')
         plt.savefig(pdf_path, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"✓ ICLR格式对数尺度FID结果图PDF已保存到: {pdf_path}")
 
@@ -270,12 +275,12 @@ class ICLRFIDPlotter:
 
         return save_path
 
-    def generate_fid_report(self, save_dir='output/zigzag_cg_hessian'):
+    def generate_fid_report(self, save_dir=plot_results_dir):
         """生成FID结果报告"""
         os.makedirs(save_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        report_path = os.path.join(save_dir, f'cifar10_fid_report_{timestamp}.txt')
+        report_path = os.path.join(save_dir, f'cifar10_fid_report.txt')
 
         with open(report_path, 'w') as f:
             f.write("CIFAR10 FID Results Analysis Report\n")
@@ -335,26 +340,20 @@ def main():
 
     # 创建绘制器
     plotter = ICLRFIDPlotter()
+    # 绘制普通FID结果图
+    print("\n�� 绘制普通FID结果图...")
+    plotter.plot_fid_results()
 
-    try:
-        # 绘制普通FID结果图
-        print("\n�� 绘制普通FID结果图...")
-        plotter.plot_fid_results()
+    # 绘制对数尺度FID结果图
+    print("\n�� 绘制对数尺度FID结果图...")
+    plotter.plot_fid_results_log_scale()
 
-        # 绘制对数尺度FID结果图
-        print("\n�� 绘制对数尺度FID结果图...")
-        plotter.plot_fid_results_log_scale()
+    # 生成报告
+    print("\n📝 生成FID结果报告...")
+    plotter.generate_fid_report()
 
-        # 生成报告
-        print("\n📝 生成FID结果报告...")
-        plotter.generate_fid_report()
+    print("\n✅ ICLR格式FID结果图生成完成！")
 
-        print("\n✅ ICLR格式FID结果图生成完成！")
-
-    except Exception as e:
-        print(f"\n❌ 生成图表时出错: {e}")
-        import traceback
-        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
