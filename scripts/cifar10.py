@@ -60,7 +60,7 @@ def parse_args():
 
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='cifar10')
-    parser.add_argument('--model_id', type=str, default='ddpm_ema_cifar10')
+    parser.add_argument('--model_path', type=str, default='ddpm_ema_cifar10')
 
     # LML parameters
     parser.add_argument('--lamb', type=float, default=0.0008)
@@ -271,7 +271,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
         dtype = dtype_map[args.dtype]
 
         # Setup paths - fix the path handling
-        model_id = os.path.join(project.model_dir, args.model_id)
+        model_path = os.path.join(project.model_dir, args.model_path)
 
         # Handle save_dir path properly
         save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(num_inference_steps), sampler_type)
@@ -279,7 +279,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
 
         print(f"🚀 CIFAR-10 Unified Sampling Script")
         print("="*60)
-        print(f"Model: {model_id}")
+        print(f"Model: {model_path}")
         print(f"Device: {args.device}")
         print(f"Data type: {args.dtype}")
         print(f"Sampler: {sampler_type}")
@@ -288,7 +288,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
 
         # Load pipeline
         print("\n📦 Loading model...")
-        pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=False)
+        pipe = DDPMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
         pipe.unet.to(args.device)
         print("  ✓ Model loaded successfully")
 
@@ -551,7 +551,7 @@ def main(args):
     dtype = dtype_map[args.dtype]
 
     # Setup paths - fix the path handling
-    model_id = os.path.join(project.model_dir, args.model_id)
+    model_path = os.path.join(project.model_dir, args.model_path)
 
     # Handle save_dir path properly
     save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
@@ -559,7 +559,7 @@ def main(args):
 
     print("�� CIFAR-10 Unified Sampling Script")
     print("="*60)
-    print(f"Model: {model_id}")
+    print(f"Model: {model_path}")
     print(f"Device: {args.device}")
     print(f"Data type: {args.dtype}")
     print(f"Sampler: {args.sampler_type}")
@@ -568,7 +568,7 @@ def main(args):
 
     # Load pipeline
     print("\n📦 Loading model...")
-    pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=False)
+    pipe = DDPMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
     pipe.unet.to(args.device)
     print("  ✓ Model loaded successfully")
 

@@ -58,10 +58,10 @@ class DDIMICLRAnalysis:
 
     def load_pipeline(self):
         """Load DDIM pipeline"""
-        model_id = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
+        model_path = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
 
         print(f"\n🔧 Loading {self.method.upper()} pipeline...")
-        pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=torch.float32, use_safetensors=False)
+        pipe = DDPMPipeline.from_pretrained(model_path, torch_dtype=torch.float32, use_safetensors=False)
         pipe.unet.to('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Setup DDIM scheduler
@@ -320,13 +320,13 @@ class DDIMICLRAnalysis:
                 tick_interval = 100
             else:
                 tick_interval = 50
-            
+
             # 生成整百/整十刻度
             tick_steps = np.arange(0, max_step + 1, tick_interval)
             # 确保包含最后一个点
             if tick_steps[-1] < max_step:
                 tick_steps = np.append(tick_steps, max_step)
-            
+
             ax2.set_xticks(tick_steps)
             ax2.set_xticklabels([str(int(x)) for x in tick_steps])
         elif len(steps) > 10:
@@ -336,7 +336,7 @@ class DDIMICLRAnalysis:
             tick_steps = np.arange(0, max_step + 1, tick_interval)
             if tick_steps[-1] < max_step:
                 tick_steps = np.append(tick_steps, max_step)
-            
+
             ax2.set_xticks(tick_steps)
             ax2.set_xticklabels([str(int(x)) for x in tick_steps])
         else:
@@ -378,24 +378,24 @@ class DDIMICLRAnalysis:
         # 自适应调整x轴显示范围，让图例占满坐标轴的至少2/3
         x_data = score_pca_proj[:, 0]
         y_data = score_pca_proj[:, 1]
-        
+
         # 计算数据范围
         x_range = np.max(x_data) - np.min(x_data)
         y_range = np.max(y_data) - np.min(y_data)
-        
+
         # 计算中心点
         x_center = (np.max(x_data) + np.min(x_data)) / 2
         y_center = (np.max(y_data) + np.min(y_data)) / 2
-        
+
         # 计算显示范围，确保图例占满坐标轴的至少2/3
         display_ratio = 0.67  # 至少2/3
         x_display_range = x_range / display_ratio
         y_display_range = y_range / display_ratio
-        
+
         # 设置坐标轴范围
         ax3.set_xlim(x_center - x_display_range/2, x_center + x_display_range/2)
         ax3.set_ylim(y_center - y_display_range/2, y_center + y_display_range/2)
-        
+
         ax3.set_xlabel('PC1', fontsize=12, fontweight='bold')
         ax3.set_ylabel('PC2', fontsize=12, fontweight='bold')
         ax3.set_title('Score Space PCA2 Analysis\n(Gradient Evolution)', fontsize=14, fontweight='bold')

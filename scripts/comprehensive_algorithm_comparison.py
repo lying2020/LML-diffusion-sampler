@@ -33,8 +33,8 @@ from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 class ComprehensiveAlgorithmComparator:
     """Comprehensive comparator for different diffusion sampling algorithms"""
 
-    def __init__(self, model_id: str, device: str = 'cuda', output_dir: str = 'output/test'):
-        self.model_id = model_id
+    def __init__(self, model_path: str, device: str = 'cuda', output_dir: str = 'output/test'):
+        self.model_path = model_path
         self.device = device
         self.output_dir = output_dir
         self.results = {}
@@ -44,7 +44,7 @@ class ComprehensiveAlgorithmComparator:
 
         # Load model
         print("Loading model...")
-        self.pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=torch.float32, use_safetensors=False)
+        self.pipe = DDPMPipeline.from_pretrained(model_path, torch_dtype=torch.float32, use_safetensors=False)
         self.pipe.unet.to(device)
 
         # Statistics tracking
@@ -479,7 +479,7 @@ class ComprehensiveAlgorithmComparator:
         print("🚀 Starting Comprehensive Algorithm Comparison")
         print("="*80)
         print(f"Test configuration:")
-        print(f"  - Model: {self.model_id}")
+        print(f"  - Model: {self.model_path}")
         print(f"  - Device: {self.device}")
         print(f"  - Test samples: {test_num}")
         print(f"  - Output directory: {self.output_dir}")
@@ -760,7 +760,7 @@ class ComprehensiveAlgorithmComparator:
 
 def main():
     parser = argparse.ArgumentParser(description="Comprehensive Algorithm Comparison - Final Version")
-    parser.add_argument('--model_id', type=str, default='./model/ddpm_ema_cifar10',
+    parser.add_argument('--model_path', type=str, default='./model/ddpm_ema_cifar10',
                         help='Path to the model')
     parser.add_argument('--test_num', type=int, default=100,
                         help='Number of test images to generate')
@@ -773,11 +773,11 @@ def main():
 
     # Get absolute path
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_id = os.path.join(project_dir, args.model_id)
+    model_path = os.path.join(project_dir, args.model_path)
     output_dir = os.path.join(project_dir, args.output_dir)
 
     # Run comprehensive comparison
-    comparator = ComprehensiveAlgorithmComparator(model_id, args.device, output_dir)
+    comparator = ComprehensiveAlgorithmComparator(model_path, args.device, output_dir)
     comparator.run_comprehensive_comparison(args.test_num)
 
 if __name__ == '__main__':

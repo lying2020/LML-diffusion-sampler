@@ -23,8 +23,8 @@ def main():
     parser.add_argument('--model', type=str, default='sd15', choices=['sd15', 'sd2_base', 'sdxl', 'pixart'])
     parser.add_argument('--model_dir', type=str, default='XXX')
     parser.add_argument('--save_dir', type=str, default='results/')
-    parser.add_argument('--lamb', type=float, default=5.0)
-    parser.add_argument('--kappa', type=float, default=0.0)
+    parser.add_argument('--lamb', type=float, default=0.001)
+    parser.add_argument('--kappa', type=float, default=1.0e-8)
     parser.add_argument('--freeze', type=float, default=0.0)
     parser.add_argument('--dataset_category', type=str, default="color")
     parser.add_argument('--dataset_path', type=str, default="../T2I-CompBench-main")
@@ -110,7 +110,7 @@ def main():
         config = SAMPLER_CONFIG[sampler_type]
         scheduler_class = config['scheduler']
         sd_pipe.scheduler = scheduler_class.from_config(sd_pipe.scheduler.config)
-        
+
         for param, value in config['params'].items():
             if hasattr(sd_pipe.scheduler, param):
                 setattr(sd_pipe.scheduler, param, value)
@@ -118,9 +118,9 @@ def main():
                  setattr(sd_pipe.scheduler.config, param, value)
     else:
         raise ValueError(f"invalid: '{sampler_type}'.")
-        
+
     save_dir = args.save_dir
-    
+
     if sampler_type in ['ddim_lm', 'dpm++_lm', 'dpm_lm']:
         save_dir = os.path.join(save_dir, args.model, args.dataset_category, sampler_type + "_lambda_" + str(lamb))
     else:
@@ -128,14 +128,14 @@ def main():
     save_dir = os.path.join(save_dir, "samples")
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
-    
+
     def getT2IDataset(file_path):
         with open(file_path, "r", encoding="utf-8") as file:
             for line in file:
                 stripped_line = line.strip()
                 if stripped_line:
                     yield stripped_line
-    
+
     # T2I prompts
     dataset_path = os.path.join(args.dataset_path, 'examples/dataset', args.dataset_category + '_val.txt')
     count = 0

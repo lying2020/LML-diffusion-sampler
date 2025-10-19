@@ -63,10 +63,10 @@ class ICLRTrajectoryEvolution3MethodsSimple:
 
     def load_pipeline(self, method_name):
         """Load pipeline for different sampling methods"""
-        model_id = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
+        model_path = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
 
         print(f"\n🔧 Loading {method_name.upper()} pipeline...")
-        pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=torch.float32, use_safetensors=False)
+        pipe = DDPMPipeline.from_pretrained(model_path, torch_dtype=torch.float32, use_safetensors=False)
         pipe.unet.to('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Setup scheduler based on method

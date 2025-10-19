@@ -39,9 +39,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=1)
+    parser.add_argument('--test_num', type=int, default=20)
     parser.add_argument('--start_index', type=int, default=0)
-    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_inference_steps', type=int, default=10)
 
     # Sampler selection
@@ -50,10 +50,10 @@ def parse_args():
 
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='celeba')
-    parser.add_argument('--model_id', type=str, default='ddpm_ema_celeba')
+    parser.add_argument('--model_path', type=str, default='ddpm_ema_celeba')
 
     # LML parameters
-    parser.add_argument('--lamb', type=float, default=0.0008)
+    parser.add_argument('--lamb', type=float, default=0.004)
     parser.add_argument('--kappa', type=float, default=1.0e-8)
 
     # Technical parameters
@@ -587,13 +587,13 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
         dtype = dtype_map[args.dtype]
 
         # Setup paths
-        model_id = celeba_model_id
+        model_path = celeba_model_id
         save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(num_inference_steps), sampler_type)
         os.makedirs(save_dir, exist_ok=True)
 
         project.info(f"🚀 CelebA-HQ Unified Sampling Script")
         project.info("="*60)
-        project.info(f"Model: {model_id}")
+        project.info(f"Model: {model_path}")
         project.info(f"Device: {args.device}")
         project.info(f"Data type: {args.dtype}")
         project.info(f"Sampler: {sampler_type}")
@@ -602,7 +602,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
 
         # Load pipeline
         project.info("\n📦 Loading model...")
-        pipe = LDMPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=False)
+        pipe = LDMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
         pipe.unet.to(args.device)
         pipe.vqvae.to(args.device)
         project.success("Model loaded successfully")
@@ -759,13 +759,13 @@ def run_single_sampler(args):
     dtype = dtype_map[args.dtype]
 
         # Setup paths
-    model_id = celeba_model_id
+    model_path = celeba_model_id
     save_dir = os.path.join(project.output_dir, args.save_dir,  "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
     try:
         # Load pipeline
-        pipe = LDMPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=False)
+        pipe = LDMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
         pipe.unet.to(args.device)
         pipe.vqvae.to(args.device)
 
@@ -805,13 +805,13 @@ def main(args):
     dtype = dtype_map[args.dtype]
 
     # Setup paths
-    model_id = celeba_model_id
+    model_path = celeba_model_id
     save_dir = os.path.join(project.output_dir, args.save_dir,  "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
     os.makedirs(save_dir, exist_ok=True)
 
     project.info("🚀 CelebA-HQ Unified Sampling Script")
     project.info("="*60)
-    project.info(f"Model: {model_id}")
+    project.info(f"Model: {model_path}")
     project.info(f"Device: {args.device}")
     project.info(f"Data type: {args.dtype}")
     project.info(f"Sampler: {args.sampler_type}")
@@ -820,7 +820,7 @@ def main(args):
 
     # Load pipeline
     project.info("\n📦 Loading model...")
-    pipe = LDMPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=False)
+    pipe = LDMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
     pipe.unet.to(args.device)
     pipe.vqvae.to(args.device)
     project.success("Model loaded successfully")

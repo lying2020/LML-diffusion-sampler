@@ -18,7 +18,7 @@ def main():
     parser.add_argument('--num_inference_steps', type=int, default=10)
     parser.add_argument('--guidance', type=float, default=7.5)
     parser.add_argument('--sampler_type', type = str, default='fm_euler')
-    parser.add_argument('--model_id', type=str, default='XXX')
+    parser.add_argument('--model_path', type=str, default='XXX')
     parser.add_argument('--save_dir', type=str, default='results/')
     parser.add_argument('--lamb', type=float, default=5.0)
     parser.add_argument('--kappa', type=float, default=0.0)
@@ -47,12 +47,12 @@ def main():
     lamb = args.lamb
     freeze = args.freeze
     kappa = args.kappa
-    model_id = args.model_id
+    model_path = args.model_path
     device = args.device
 
     # load model
     sd_pipe = FluxPipeline.from_pretrained(
-        model_id,
+        model_path,
         torch_dtype=dtype, safety_checker=None)
     sd_pipe = sd_pipe.to(device)
     print("flux model loaded")
@@ -68,23 +68,23 @@ def main():
         raise ValueError(f"invalid: '{sampler_type}'.")
 
     save_dir = args.save_dir
-    
+
     if sampler_type in ['lml_euler']:
         save_dir = os.path.join(save_dir, "flux", args.dataset_category, sampler_type + "_lamda_" + str(lamb))
     else:
         save_dir = os.path.join(save_dir, "flux", args.dataset_category, sampler_type)
-    
+
     save_dir = os.path.join(save_dir, "samples")
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
-    
+
     def getT2IDataset(file_path):
         with open(file_path, "r", encoding="utf-8") as file:
             for line in file:
                 stripped_line = line.strip()
                 if stripped_line:
                     yield stripped_line
-    
+
     # T2I prompts
     dataset_path = os.path.join(args.dataset_path, 'examples/dataset', args.dataset_category + '_val.txt')
     count = 0

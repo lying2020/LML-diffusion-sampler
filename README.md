@@ -5,7 +5,7 @@
 We introduce **LML**, an accelerated sampler for diffusion models leveraging the second-order Hessian geometry. Our LML implementation is completely compatible with the **[diffusers](https://github.com/huggingface/diffusers)**.
 
 This repository is the official implementation of the **ICCV 2025** paper:
-_"Unleashing High-Quality Image Generation in Diffusion Sampling Using Second-Order Levenberg-Marquardt-Langevin"_ 
+_"Unleashing High-Quality Image Generation in Diffusion Sampling Using Second-Order Levenberg-Marquardt-Langevin"_
 
 
 > **Fangyikang Wang<sup>1,2</sup>, Hubery Yin<sup>2</sup>, Lei Qian<sup>1</sup>, Yinan Li<sup>1</sup>, Shaobin Zhuang<sup>3,2</sup>, Huminhao Zhu<sup>1</sup>, Yilin Zhang<sup>1</sup>, Yanlong Tang<sup>4</sup>, Chao Zhang<sup>1</sup>, Hanbin Zhao<sup>1</sup>, Hui Qian<sup>1</sup>, Chen Li<sup>2</sup>**
@@ -36,7 +36,7 @@ _"Unleashing High-Quality Image Generation in Diffusion Sampling Using Second-Or
 However, this approach proved to be highly computationally expensive within the DM context.
 Drawing inspiration from the Levenberg-Marquardt method used in optimization, our method incorporates low-rank approximation and damping techniques. This enables us to obtain the Hessian geometry in a computationally affordable manner. Subsequently, we use this approximated Hessian geometry to guide the Langevin updates.
 
-## 👨🏻‍💻 Run the code 
+## 👨🏻‍💻 Run the code
 ### 1) Get start
 
 * Python 3.8.12
@@ -53,11 +53,11 @@ first, please switch to the root directory.
 - #### CIFAR-10 sampling
   For baseline, you can do CIAFR-10 sampling as follows, choose sampler_type within [ddim, pndm, dpm, dpm++, unipc]:
   ```bash
-  python3 ./scripts/cifar10.py --test_num 1 --batch_size 1 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_id xx/xx/ddpm_ema_cifar10 --sampler_type ddim
+  python3 ./scripts/cifar10.py --test_num 1 --batch_size 1 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_path xx/xx/ddpm_ema_cifar10 --sampler_type ddim
   ```
   For our LML sampler, there is an additional $\lambda$ hyperparameter:
   ```bash
-  python3 ./scripts/cifar10.py --test_num 1 --batch_size 1 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_id xx/xx/ddpm_ema_cifar10 --sampler_type dpm_lm --lamb 0.0008
+  python3 ./scripts/cifar10.py --test_num 1 --batch_size 1 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_path xx/xx/ddpm_ema_cifar10 --sampler_type dpm_lm --lamb 0.0008
   ```
 
   For the optimal choice of LML, we have:
@@ -70,17 +70,17 @@ first, please switch to the root directory.
 - #### CelebA-HQ sampling
   For baseline:
   ```bash
-  python3 ./scripts/celeba.py --test_num 1 --batch_size 1 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_id xx/xx/ldm-celebahq-256 --sampler_type ddim
+  python3 ./scripts/celeba.py --test_num 1 --batch_size 1 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_path xx/xx/ldm-celebahq-256 --sampler_type ddim
   ```
 
   For our LML:
   ```bash
-  python3 ./scripts/celeba.py --test_num 1 --batch_size 1 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_id xx/xx/ldm-celebahq-256 --sampler_type ddim_lm --lamb 0.005
+  python3 ./scripts/celeba.py --test_num 1 --batch_size 1 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_path xx/xx/ldm-celebahq-256 --sampler_type ddim_lm --lamb 0.005
   ```
 
   - #### SD-15 and SD-2b on MS-COCO sampling
   ```bash
-  python3 ./scripts/StableDiffusion_COCO.py --test_num 30002 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_id xx/xx/stable-diffusion-v1-5 --sampler_type dpm_lm --lamb 0.001
+  python3 ./scripts/StableDiffusion_COCO.py --test_num 30002 --num_inference_steps 10  --save_dir YOUR/SAVE/DIR --model_path xx/xx/stable-diffusion-v1-5 --sampler_type dpm_lm --lamb 0.001
   ```
 
   For the optimal choice of LML on MS-COCO, for NFEs of {5, 6, 7, 8, 9, 10, 12, 15}, we always choose $\lambda = 0.001$:
@@ -123,11 +123,11 @@ first, please switch to the root directory.
 - #### LML sampling on FLUX
   For baseline:
   ```bash
-  python3 ./scripts/FLUX_T2i_Sampling.py --dataset_category color --dataset_path PATH/TO/T2I-COMPBENCH --test_num 10 --num_inference_steps 10 --model_id YOUR/MODEL/DIR --save_dir YOUR/SAVE/DIR --sampler_type fm_euler
+  python3 ./scripts/FLUX_T2i_Sampling.py --dataset_category color --dataset_path PATH/TO/T2I-COMPBENCH --test_num 10 --num_inference_steps 10 --model_path YOUR/MODEL/DIR --save_dir YOUR/SAVE/DIR --sampler_type fm_euler
   ```
   For our LML:
   ```bash
-  python3 ./scripts/FLUX_T2i_Sampling.py --dataset_category color --dataset_path PATH/TO/T2I-COMPBENCH --test_num 10 --num_inference_steps 10 --model_id YOUR/MODEL/DIR --save_dir YOUR/SAVE/DIR --sampler_type lml_euler --lamb 0.01
+  python3 ./scripts/FLUX_T2i_Sampling.py --dataset_category color --dataset_path PATH/TO/T2I-COMPBENCH --test_num 10 --num_inference_steps 10 --model_path YOUR/MODEL/DIR --save_dir YOUR/SAVE/DIR --sampler_type lml_euler --lamb 0.01
   ```
 
 
@@ -138,7 +138,7 @@ first, please switch to the root directory.
 - #### FID evaluation on MS-COCO
   [Coming Soon] ⏳
 
-- #### T2I-compbench evaluation 
+- #### T2I-compbench evaluation
   Please refer to the [T2I-CompBench](https://github.com/Karine-Huang/T2I-CompBench) guide. Create a new environment and install the dependencies for T2I-CompBench evaluation.
   For testing combinations of multiple models and samplers, we also provide a convenient one-click script. Place the script file in the corresponding directory of **T2I-CompBench** to replace the origin script. For example:
   ```sh
@@ -164,15 +164,15 @@ first, please switch to the root directory.
 We adopt well-pretrained diffusion models from the community. Thanks for these contributions! Here we list the links to the pretrained diffusion models.
 
 ddpm-ema-cifar10:
-     
+
 https://github.com/VainF/Diff-Pruning/releases/download/v0.0.1/ddpm_ema_cifar10.zip
 
 ldm-celebahq-256:
-    
+
 https://huggingface.co/CompVis/ldm-celebahq-256
-    
+
 stable-diffusion-v1.5:
-    
+
 https://huggingface.co/runwayml/stable-diffusion-v1-5
 
 stable-diffusion-v2-base:

@@ -58,10 +58,10 @@ class DDIMICLRAnalysis:
 
     def load_pipeline(self):
         """Load DDIM pipeline"""
-        model_id = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
+        model_path = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
 
         print(f"\n🔧 Loading {self.method.upper()} pipeline...")
-        pipe = DDPMPipeline.from_pretrained(model_id, torch_dtype=torch.float32, use_safetensors=False)
+        pipe = DDPMPipeline.from_pretrained(model_path, torch_dtype=torch.float32, use_safetensors=False)
         pipe.unet.to('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Setup DDIM scheduler
@@ -196,22 +196,22 @@ class DDIMICLRAnalysis:
     def calculate_score_angles(self, trajectories):
         """Calculate angles between consecutive score vectors"""
         print(f"\n📊 Calculating score vector angles...")
-        
+
         all_angles = []
         for traj in trajectories:
             score_vectors = traj['score']  # [T, D]
             angles = []
-            
+
             for i in range(1, len(score_vectors)):
                 # 计算score_i和score_{i-1}的夹角
                 score_curr = score_vectors[i]
                 score_prev = score_vectors[i-1]
-                
+
                 # 计算余弦相似度
                 dot_product = np.dot(score_curr, score_prev)
                 norm_curr = np.linalg.norm(score_curr)
                 norm_prev = np.linalg.norm(score_prev)
-                
+
                 if norm_curr > 0 and norm_prev > 0:
                     cos_angle = dot_product / (norm_curr * norm_prev)
                     # 限制在[-1, 1]范围内，避免数值误差
@@ -220,14 +220,14 @@ class DDIMICLRAnalysis:
                     angles.append(angle)
                 else:
                     angles.append(0.0)
-            
+
             all_angles.append(angles)
-        
+
         # 计算平均角度
         mean_angles = np.mean(all_angles, axis=0)
         print(f"  Score angles calculated for {len(trajectories)} trajectories")
         print(f"  Mean angle range: {np.min(mean_angles):.4f} - {np.max(mean_angles):.4f} radians")
-        
+
         return mean_angles
 
     def find_high_slope_points(self, step_ratios, num_points=3):
@@ -357,13 +357,13 @@ class DDIMICLRAnalysis:
                 tick_interval = 100
             else:
                 tick_interval = 50
-            
+
             # 生成整百/整十刻度
             tick_steps = np.arange(0, max_step + 1, tick_interval)
             # 确保包含最后一个点
             if tick_steps[-1] < max_step:
                 tick_steps = np.append(tick_steps, max_step)
-            
+
             ax2.set_xticks(tick_steps)
             ax2.set_xticklabels([str(int(x)) for x in tick_steps])
         elif len(steps) > 10:
@@ -373,7 +373,7 @@ class DDIMICLRAnalysis:
             tick_steps = np.arange(0, max_step + 1, tick_interval)
             if tick_steps[-1] < max_step:
                 tick_steps = np.append(tick_steps, max_step)
-            
+
             ax2.set_xticks(tick_steps)
             ax2.set_xticklabels([str(int(x)) for x in tick_steps])
         else:
@@ -425,7 +425,7 @@ class DDIMICLRAnalysis:
         # Subplot 4: Score Vector Angle Analysis
         ax4 = axes[3]
         steps = np.arange(1, self.num_inference_steps)  # 角度从第2步开始
-        
+
         # 如果步数超过40，则均匀采样40个点
         if len(steps) > 40:
             sample_indices = np.linspace(0, len(steps)-1, 40, dtype=int)
@@ -447,13 +447,13 @@ class DDIMICLRAnalysis:
                 tick_interval = 100
             else:
                 tick_interval = 50
-            
+
             # 生成整百/整十刻度
             tick_steps = np.arange(0, max_step + 1, tick_interval)
             # 确保包含最后一个点
             if tick_steps[-1] < max_step:
                 tick_steps = np.append(tick_steps, max_step)
-            
+
             ax4.set_xticks(tick_steps)
             ax4.set_xticklabels([str(int(x)) for x in tick_steps])
         elif len(steps) > 10:
@@ -463,14 +463,14 @@ class DDIMICLRAnalysis:
             tick_steps = np.arange(0, max_step + 1, tick_interval)
             if tick_steps[-1] < max_step:
                 tick_steps = np.append(tick_steps, max_step)
-            
+
             ax4.set_xticks(tick_steps)
             ax4.set_xticklabels([str(int(x)) for x in tick_steps])
         else:
             # 对于小范围，显示所有刻度
             ax4.set_xticks(steps)
             ax4.set_xticklabels([str(int(x)) for x in steps])
-        
+
         ax4.set_ylabel('Angle (radians)', fontsize=12, fontweight='bold')
         ax4.set_title('Score Vector Angle Analysis\n(Consecutive Score Angles)', fontsize=14, fontweight='bold')
         ax4.legend(fontsize=10)
