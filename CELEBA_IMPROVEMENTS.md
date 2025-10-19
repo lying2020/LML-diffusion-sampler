@@ -17,13 +17,13 @@ Based on the table in the image, implemented all 6 evaluation metrics:
 #### **Colorful Category**
 - **ColorS (↑)**: Colorfulness score based on color channel variance
 
-#### **Face Quality Category**  
+#### **Face Quality Category**
 - **FS (↑)**: Face Score using edge detection and symmetry analysis
 - **DFIQA (↑)**: Deep Face Image Quality Assessment using sharpness, contrast, and brightness
 
 #### **Aesthetic Category**
 - **PicS (↑)**: Picture Score for aesthetic quality using color harmony and composition
-- **EAT (↑)**: Enhanced Aesthetic Test using color diversity and edge complexity  
+- **EAT (↑)**: Enhanced Aesthetic Test using color diversity and edge complexity
 - **Laion (↑)**: LAION aesthetic score using image clarity and color saturation
 
 ### 3. **Comparison Table Generation**
@@ -34,8 +34,6 @@ Based on the table in the image, implemented all 6 evaluation metrics:
 ### 4. **New Command Line Options**
 ```bash
 --evaluate          # Run evaluation metrics on generated images
---save_results      # Save evaluation results to JSON file
---compare_all       # Compare all samplers and generate comparison table
 --save_log          # Save detailed generation logs
 --verbose           # Enable verbose error reporting
 ```
@@ -49,12 +47,12 @@ python3 scripts/celeba.py --sampler_type ddim --test_num 10 --evaluate
 
 #### Compare All Samplers
 ```bash
-python3 scripts/celeba.py --compare_all --test_num 5 --save_results
+python3 scripts/celeba.py --compare_all --test_num 5
 ```
 
 #### LML with Custom Parameters
 ```bash
-python3 scripts/celeba.py --sampler_type dpm_lm --lamb 0.001 --kappa 1e-7 --test_num 20 --evaluate
+python3 scripts/celeba.py --sampler_type dpm_lm --lamb 0.001 --kappa 1e-7 --test_num 20
 ```
 
 ## File Structure
@@ -73,7 +71,7 @@ scripts/
 - Higher values indicate more colorful images
 - Range: 0 → ∞ (higher is better)
 
-### FS (Face Score)  
+### FS (Face Score)
 - Combines edge density and facial symmetry
 - Uses OpenCV for edge detection
 - Range: 0 → 10+ (higher is better)

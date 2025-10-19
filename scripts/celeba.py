@@ -63,12 +63,11 @@ def parse_args():
     parser.add_argument('--device', type=str, default='cuda')
 
     # Evaluation options
-    parser.add_argument('--compare_all', action='store_true', default=False, help='Compare all samplers and generate table')
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
-    parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
     parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="CelebA-HQ Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
+    parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
     parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
                         help='List of samplers to test in batch mode')
 
@@ -442,7 +441,7 @@ def format_table_with_ranking(table_data):
 
     project.info("="*120)
 
-def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index, save_dir, sampler_type, evaluate=False):
+def generate_images(results_save_dir, args, pipe):
     """Generate images using the specified pipeline"""
 
     total_time = 0
@@ -452,15 +451,15 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
     project.info(f"\n{'='*60}")
     project.info(f"Starting image generation")
     project.info(f"{'='*60}")
-    project.info(f"Sampler: {sampler_type} - {project.get_sampler_description(sampler_type)}")
-    project.info(f"Batch size: {batch_size}")
-    project.info(f"Inference steps: {num_inference_steps}")
-    project.info(f"Total images: {test_num}")
-    project.info(f"Save directory: {save_dir}")
+    project.info(f"Sampler: {args.sampler_type} - {project.get_sampler_description(args.sampler_type)}")
+    project.info(f"Batch size: {args.batch_size}")
+    project.info(f"Inference steps: {args.num_inference_steps}")
+    project.info(f"Total images: {args.test_num}")
+    project.info(f"Save directory: {results_save_dir}")
     project.info(f"{'='*60}")
 
-    for seed in range(start_index, start_index + test_num):
-        project.info(f"\nGenerating batch {seed - start_index + 1}/{test_num} (seed={seed})")
+    for seed in range(args.seed, args.seed + args.test_num):
+        project.info(f"\nGenerating batch {seed - args.seed + 1}/{args.test_num} (seed={seed})")
         batch_start_time = time.time()
         torch.manual_seed(seed)
 
@@ -470,12 +469,12 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
             pipe.scheduler.set_model(pipe.unet)
 
         with torch.no_grad():
-            images = pipe(batch_size=batch_size, num_inference_steps=num_inference_steps).images
+            images = pipe(batch_size=args.batch_size, num_inference_steps=args.num_inference_steps).images
 
         # Save images
         for i, image in enumerate(images):
-            filename = f"celeba_{sampler_type}_inference{num_inference_steps}_seed{seed}_{i}.png"
-            filepath = os.path.join(save_dir, filename)
+            filename = f"celeba_{args.sampler_type}_inference{args.num_inference_steps}_seed{seed}_{i}.png"
+            filepath = os.path.join(results_save_dir, filename)
             image.save(filepath)
             all_images.append(image)
 
@@ -484,11 +483,11 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
         total_time += batch_time
 
         project.info(f"  ✓ Generated {len(images)} images in {batch_time:.3f}s")
-        project.info(f"  ✓ Saved to: {save_dir}")
+        project.info(f"  ✓ Saved to: {results_save_dir}")
 
     # Print summary
-    avg_time = total_time / test_num
-    avg_time_per_image = avg_time / batch_size
+    avg_time = total_time / args.test_num
+    avg_time_per_image = avg_time / args.batch_size
 
     project.info(f"\n{'='*60}")
     project.info(f"GENERATION SUMMARY")
@@ -496,33 +495,33 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
     project.info(f"Total time: {total_time:.2f}s")
     project.info(f"Average time per batch: {avg_time:.3f}s")
     project.info(f"Average time per image: {avg_time_per_image:.3f}s")
-    project.info(f"Total images generated: {test_num * batch_size}")
-    project.info(f"Images per second: {test_num * batch_size / total_time:.2f}")
+    project.info(f"Total images generated: {args.test_num * args.batch_size}")
+    project.info(f"Images per second: {args.test_num * args.batch_size / total_time:.2f}")
     project.info(f"{'='*60}")
 
     # Evaluate images if requested
     evaluation_results = None
-    if evaluate and all_images:
-        evaluation_results = evaluate_images(all_images, sampler_type)
+    if args.evaluate and all_images:
+        evaluation_results = evaluate_images(all_images, args.sampler_type)
 
     return {
         'total_time': total_time,
         'avg_time_per_batch': avg_time,
         'avg_time_per_image': avg_time_per_image,
-        'total_images': test_num * batch_size,
-        'images_per_second': test_num * batch_size / total_time,
+        'total_images': args.test_num * args.batch_size,
+        'images_per_second': args.test_num * args.batch_size / total_time,
         'generation_times': generation_times,
         'evaluation_results': evaluation_results
     }
 
-def run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps):
+def run_single_experiment(results_save_dir, args, experiment_num, total_experiments):
     """Run a single experiment with enhanced logging"""
 
     project.info("")
     project.info("="*50)
     project.info(f"实验 {experiment_num}/{total_experiments}")
-    project.info(f"Sampler: {sampler_type}")
-    project.info(f"Steps: {num_inference_steps}")
+    project.info(f"Sampler: {args.sampler_type}")
+    project.info(f"Steps: {args.num_inference_steps}")
     project.info(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     project.info("="*50)
 
@@ -541,7 +540,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
 
         # Setup paths
         model_path = args.model_path
-        save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(num_inference_steps), sampler_type)
+        save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
         os.makedirs(save_dir, exist_ok=True)
 
         project.info(f"🚀 CelebA-HQ Unified Sampling Script")
@@ -549,7 +548,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
         project.info(f"Model: {model_path}")
         project.info(f"Device: {args.device}")
         project.info(f"Data type: {args.dtype}")
-        project.info(f"Sampler: {sampler_type}")
+        project.info(f"Sampler: {args.sampler_type}")
         project.info(f"Output: {save_dir}")
         project.info("="*60)
 
@@ -562,25 +561,24 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
 
         # Setup scheduler
         project.info(f"\n⚙️ Setting up scheduler...")
-        setup_scheduler(pipe, sampler_type, args.lamb, args.kappa)
+        setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
 
         # Generate images
         generation_stats = generate_images(
-            pipe, args.batch_size, num_inference_steps,
-            args.test_num, args.start_index, save_dir, sampler_type, args.evaluate
+            results_save_dir, args, pipe
         )
 
         # Save generation log if requested
         if args.save_log:
             project.info(f"\n📝 Saving generation log...")
-            save_generation_log(save_dir, sampler_type, generation_stats, args)
+            project.save_generation_log(results_save_dir, args, generation_stats)
 
         # 计算实验耗时
         exp_end_time = time.time()
         exp_duration = exp_end_time - exp_start_time
 
         # 统计生成的图片数量
-        image_count = count_generated_images(save_dir)
+        image_count = project.count_generated_images(results_save_dir)
 
         project.success(f"实验完成! 耗时: {exp_duration:.1f}秒")
         project.info(f"生成图片数量: {image_count}")
@@ -591,7 +589,7 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
             'duration': exp_duration,
             'image_count': image_count,
             'generation_stats': generation_stats,
-            'save_dir': save_dir
+            'results_save_dir': results_save_dir
         }
 
     except Exception as e:
@@ -606,94 +604,9 @@ def run_single_experiment(args, experiment_num, total_experiments, sampler_type,
             'success': False,
             'duration': exp_duration,
             'error': str(e),
-            'sampler_type': sampler_type,
-            'num_inference_steps': num_inference_steps
+            'sampler_type': args.sampler_type,
+            'num_inference_steps': args.num_inference_steps
         }
-
-def compare_all_samplers(args):
-    """Compare all available samplers and generate comparison table"""
-
-    samplers = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
-    results_dict = {}
-
-    project.info("🔄 Running comprehensive comparison of all samplers...")
-    project.info("="*80)
-
-    for sampler in samplers:
-        project.info(f"\n🔍 Testing {sampler}...")
-
-        # Update args for this sampler
-        args.sampler_type = sampler
-        args.test_num = 5  # Reduced for comparison
-        args.evaluate = True
-
-        try:
-            # Run generation and evaluation
-            generation_stats = run_single_sampler(args)
-            if generation_stats and generation_stats.get('evaluation_results'):
-                results_dict[sampler] = generation_stats['evaluation_results']
-        except Exception as e:
-            project.error(f"Error with {sampler}: {e}")
-            continue
-
-    # Generate comparison table
-    if results_dict:
-        table_data = generate_comparison_table(results_dict)
-        format_table_with_ranking(table_data)
-
-        # Save results
-        if args.save_results:
-            results_file = os.path.join(project.output_dir, 'celeba_comparison_results.json')
-            with open(results_file, 'w') as f:
-                json.dump(results_dict, f, indent=2)
-            project.info(f"\n📊 Results saved to: {results_file}")
-
-    return results_dict
-
-def run_single_sampler(args):
-    """Run a single sampler configuration"""
-
-    # Convert dtype string to torch dtype
-    dtype_map = {
-        'fp32': torch.float32,
-        'fp64': torch.float64,
-        'fp16': torch.float16,
-        'bf16': torch.bfloat16
-    }
-    dtype = dtype_map[args.dtype]
-
-        # Setup paths
-    model_path = args.model_path
-    save_dir = os.path.join(project.output_dir, args.save_dir,  "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
-    os.makedirs(save_dir, exist_ok=True)
-
-    try:
-        # Load pipeline
-        pipe = LDMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
-        pipe.unet.to(args.device)
-        pipe.vqvae.to(args.device)
-
-        # Setup scheduler
-        setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
-
-        # Generate images
-        generation_stats = generate_images(
-            pipe, args.batch_size, args.num_inference_steps,
-            args.test_num, args.start_index, save_dir, args.sampler_type, args.evaluate
-        )
-
-        # Save generation log if requested
-        if args.save_log:
-            project.save_generation_log(save_dir, args.sampler_type, generation_stats, args)
-
-        return generation_stats
-
-    except Exception as e:
-        project.error(f"Error during generation: {e}")
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
-        return None
 
 
 if __name__ == '__main__':
@@ -742,18 +655,44 @@ if __name__ == '__main__':
 
             project.progress(experiment_num, total_experiments, f"Running {sampler_type} with {num_inference_steps} steps")
 
-            result = run_single_experiment(args, experiment_num, total_experiments, sampler_type, num_inference_steps)
+            result = run_single_experiment(results_save_dir, args, experiment_num, total_experiments)
+            if result['success']:
+                generation_stats = result['generation_stats']
+                project.success("Generation completed successfully!")
+                project.info(f"   Generated {generation_stats['total_images']} images")
+                project.info(f"   Total time: {generation_stats['total_time']:.2f}s")
+                project.info(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
+
+                if generation_stats.get('evaluation_results'):
+                    project.info(f"\n📊 Evaluation Results:")
+                    eval_results = generation_stats['evaluation_results']
+                    project.info(f"   ColorS: {eval_results['ColorS']:.3f}")
+                    project.info(f"   FS: {eval_results['FS']:.3f}")
+                    project.info(f"   DFIQA: {eval_results['DFIQA']:.3f}")
+                    project.info(f"   PicS: {eval_results['PicS']:.3f}")
+                    project.info(f"   EAT: {eval_results['EAT']:.3f}")
+                    project.info(f"   Laion: {eval_results['Laion']:.3f}")
+
             experiment_results.append(result)
 
         if args.generate_grid:
             # 生成对比图组模式
             print("\n🎨 生成对比图组...")
-            output_path = project.generate_comparison_grid_from_existing(
-                results_save_dir, args.num_inference_steps, args.grid_test_num, args.grid_samplers)
+            output_path = project.generate_comparison_grid_from_existing(results_save_dir, args)
             if output_path:
                 print(f"✅ 对比图组已生成: {output_path}")
             else:
                 print("❌ 对比图组生成失败")
+
+    # Generate comparison table
+    if experiment_results:
+        table_data = generate_comparison_table(experiment_results)
+        format_table_with_ranking(table_data)
+
+        results_file = os.path.join(results_save_dir, 'celeba_comparison_results.json')
+        with open(results_file, 'w') as f:
+            json.dump(experiment_results, f, indent=2)
+        project.info(f"\n📊 Results saved to: {results_file}")
 
     end_time = datetime.now()
 
@@ -764,35 +703,14 @@ if __name__ == '__main__':
 
     # 生成实验总结报告
     project.info("\n生成实验总结报告...")
-    project.generate_experiment_summary(experiment_results, start_time, end_time, args)
+    project.generate_experiment_summary(results_save_dir, args, experiment_results, start_time, end_time)
 
     project.log_experiment_end("CelebA-HQ 批量实验",
                                 duration=(end_time - start_time).total_seconds(),
                                 results={'total_experiments': total_experiments, 'successful': len([r for r in experiment_results if r['success']])})
 
-    project.info(f"\n实验完成! 结果保存在: {os.path.join(project.output_dir, args.save_dir)}")
+    project.info(f"\n实验完成! 结果保存在: {results_save_dir}")
     project.info(f"日志文件: {logger.get_log_file()}")
-
-    # # Run single sampler
-    # generation_stats = run_single_sampler(args)
-
-    # if generation_stats:
-    #     project.success("Generation completed successfully!")
-    #     project.info(f"   Generated {generation_stats['total_images']} images")
-    #     project.info(f"   Total time: {generation_stats['total_time']:.2f}s")
-    #     project.info(f"   Average time per image: {generation_stats['avg_time_per_image']:.3f}s")
-
-    #     if generation_stats.get('evaluation_results'):
-    #         project.info(f"\n📊 Evaluation Results:")
-    #         eval_results = generation_stats['evaluation_results']
-    #         project.info(f"   ColorS: {eval_results['ColorS']:.3f}")
-    #         project.info(f"   FS: {eval_results['FS']:.3f}")
-    #         project.info(f"   DFIQA: {eval_results['DFIQA']:.3f}")
-    #         project.info(f"   PicS: {eval_results['PicS']:.3f}")
-    #         project.info(f"   EAT: {eval_results['EAT']:.3f}")
-    #         project.info(f"   Laion: {eval_results['Laion']:.3f}")
-
-
 
     # 关闭日志器
     logger.close()

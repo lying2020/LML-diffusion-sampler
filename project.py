@@ -37,6 +37,10 @@ def save_generation_log(results_save_dir, args, generation_stats):
         'sampler_description': get_sampler_description(args.sampler_type),
         'parameters': {
             'test_num': args.test_num,
+            'grid_test_num': args.grid_test_num,
+            'grid_test_index': args.grid_test_index,
+            'grid_samplers': args.grid_samplers,
+            'grid_title': args.grid_title,
             'start_index': args.start_index,
             'batch_size': args.batch_size,
             'num_inference_steps': args.num_inference_steps,
@@ -118,7 +122,7 @@ def generate_experiment_summary(results_save_dir, args, experiment_results, star
     else:
         print("🎉 所有实验都成功完成!")
 
-def generate_comparison_grid(results_save_dir, sampler_types, num_inference_steps=20, grid_test_num=6, grid_title="COCO Generation Comparison"):
+def generate_comparison_grid(results_save_dir, sampler_types, num_inference_steps=20, grid_test_num=6, grid_test_index=[], grid_title="COCO Generation Comparison"):
     """
     生成类似截图的对比图组，6行多列展示不同采样方法的结果
 
@@ -127,6 +131,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         sampler_types: 采样器类型列表
         num_inference_steps: 推理步数
         grid_test_num: 测试数量（行数）
+        grid_test_index: test pic grid index
         grid_title: 对比图组标题
     """
     import matplotlib.pyplot as plt
@@ -169,7 +174,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         sampler_dir = os.path.join(results_save_dir, "steps" + '_' + str(num_inference_steps), sampler_type)
 
         # 查找该采样器生成的图像
-        image_files = glob.glob(os.path.join(sampler_dir, "*.jpg"))
+        image_files = glob.glob(os.path.join(sampler_dir, "*.png"))
         if not image_files:
             print(f"  ⚠️  未找到 {sampler_type} 的图像文件")
             continue
@@ -177,6 +182,8 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         # 按文件名排序，取前test_num个
         image_files.sort()
         selected_images = image_files[:grid_test_num]
+        if grid_test_index:
+            selected_images = [image_files[i] for i in grid_test_index]
         all_images[sampler_type] = selected_images
 
     # 绘制图像网格
@@ -238,28 +245,29 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
     print(f"✅ 对比图组已保存到: {output_path}")
     return output_path
 
-def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps=20, grid_test_num=8, grid_samplers=None, grid_title="COCO Generation Comparison"):
+def generate_comparison_grid_from_existing(results_save_dir, args):
     """
     从已存在的图像文件生成对比图组
 
     Args:
         results_save_dir: 保存目录
-        num_inference_steps: 推理步数
-        grid_test_num: 测试数量（行数）
-        grid_samplers: 采样器类型列表
-        grid_title: 对比图组标题
+        args.num_inference_steps: 推理步数
+        args.grid_test_num: 测试数量（行数）
+        args.grid_samplers: 采样器类型列表
+        args.grid_test_index: 测试图片索引
+        args.grid_title: 对比图组标题
     """
     # 定义采样器类型
-    if grid_samplers is None:
-        sampler_types = ['ddim', 'ddim_lm', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
+    if args.grid_samplers is None:
+        sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
     else:
-        sampler_types = grid_samplers
+        sampler_types = args.grid_samplers
 
     # 检查哪些采样器有图像
     available_samplers = []
     for sampler in sampler_types:
-        sampler_dir = os.path.join(results_save_dir, "steps" + '_' + str(num_inference_steps), sampler)
-        if os.path.exists(sampler_dir) and glob.glob(os.path.join(sampler_dir, "*.jpg")):
+        sampler_dir = os.path.join(results_save_dir, "steps" + '_' + str(args.num_inference_steps), sampler)
+        if os.path.exists(sampler_dir) and glob.glob(os.path.join(sampler_dir, "*.png")):
             available_samplers.append(sampler)
 
     if not available_samplers:
@@ -269,7 +277,7 @@ def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps
     print(f"找到 {len(available_samplers)} 个采样器的图像: {available_samplers}")
 
     # 生成对比图组
-    return generate_comparison_grid(results_save_dir, available_samplers, num_inference_steps, grid_test_num, grid_title)
+    return generate_comparison_grid(results_save_dir, available_samplers, args.num_inference_steps, args.grid_test_num, args.grid_test_index, args.grid_title)
 
 class ProjectLogger:
     """项目统一的日志管理器"""

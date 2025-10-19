@@ -48,7 +48,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CIFAR-10 sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=20)
+    parser.add_argument('--test_num', type=int, default=2)
     parser.add_argument('--start_index', type=int, default=8)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_inference_steps', type=int, default=20)
@@ -57,7 +57,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='hessian_free',
+    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
                         choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
@@ -76,16 +76,16 @@ def parse_args():
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
-    parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
-    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="CIFAR-10 Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
+    parser.add_argument('--grid_test_index', type=list, default=[9, 1, 8, 3, 4, 5], help='Index of images to test in grid')
     parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
-    parser.add_argument('--run_batch', action='store_true', default=True, help='Run batch experiments with multiple samplers and steps')
-    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
+    parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
+    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
     parser.add_argument('--run_batch_steps', type=int, default=[10, 20, 50], help='List of inference steps to test in batch mode')
 
     # Additional options
@@ -317,7 +317,7 @@ if __name__ == '__main__':
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = args.run_batch_samplers    #['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free']
+        SAMPLER_TYPES = args.run_batch_samplers    #['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free']
         INFERENCE_STEPS = args.run_batch_steps #[5, 6, 7, 8, 9, 10, 12, 15, 20, 30, 50, 80]
 
     total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
@@ -346,8 +346,7 @@ if __name__ == '__main__':
         if args.generate_grid:
             # 生成对比图组模式
             print("\n🎨 生成对比图组...")
-            output_path = project.generate_comparison_grid_from_existing(
-                results_save_dir, args.num_inference_steps, args.grid_test_num, args.grid_samplers, args.grid_title)
+            output_path = project.generate_comparison_grid_from_existing(results_save_dir, args)
             if output_path:
                 print(f"✅ 对比图组已生成: {output_path}")
             else:

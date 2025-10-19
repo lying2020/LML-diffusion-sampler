@@ -91,10 +91,10 @@ def parse_args():
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
-    parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
     parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="COCO Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
+    parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
     parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
                         help='List of samplers to test in batch mode')
 
@@ -432,8 +432,7 @@ if __name__ == '__main__':
         if args.generate_grid:
             # 生成对比图组模式
             print("\n🎨 生成对比图组...")
-            output_path = project.generate_comparison_grid_from_existing(
-                results_save_dir, args.num_inference_steps, args.grid_test_num, args.grid_samplers, args.grid_title)
+            output_path = project.generate_comparison_grid_from_existing(results_save_dir, args)
             if output_path:
                 print(f"✅ 对比图组已生成: {output_path}")
             else:
