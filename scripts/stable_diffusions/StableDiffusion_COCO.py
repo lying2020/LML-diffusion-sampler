@@ -62,7 +62,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="COCO sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=30)
+    parser.add_argument('--test_num', type=int, default=20)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_inference_steps', type=int, default=20)
@@ -76,9 +76,10 @@ def parse_args():
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
-    parser.add_argument('--save_dir', type=str, default='stable_diffusion_coco')
+    parser.add_argument('--save_dir', type=str, default='coco')
     parser.add_argument('--model_path', type=str, default=coco_model_path)
     parser.add_argument('--model_type', type=str, default='stable-diffusion-v1-5', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
+    parser.add_argument('--coco_prompts_file', type=str, default="coco_top_40_prompts.json", choices=['coco_top_40_prompts.json', 'coco_3w_prompts.json', 'fid_1k_json.json', 'fid_3w_json.json'])
 
     # LML parameters
     parser.add_argument('--lamb', type=float, default=0.001)
@@ -92,15 +93,13 @@ def parse_args():
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
     parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
     parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
-    parser.add_argument('--grid_methods', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
+    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
-    parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
-    parser.add_argument('--samplers', nargs='+', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
-                        help='List of samplers to test in batch mode')
-    parser.add_argument('--steps', nargs='+', type=int, default=[5, 10, 20],
-                        help='List of inference steps to test in batch mode')
+    parser.add_argument('--run_batch', action='store_true', default=True, help='Run batch experiments with multiple samplers and steps')
+    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[5, 10, 20], help='List of inference steps to test in batch mode')
 
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
@@ -189,10 +188,8 @@ def setup_scheduler(pipe, sampler_type, lamb=5.0, kappa=0.0):
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
-def load_coco_prompts():
+def load_coco_prompts(coco_prompts_path):
     """Load COCO prompts from JSON file"""
-    # coco_prompts_path = os.path.join(project.project_dir, "evaluation", "coco_prompts", "COCO_3W_prompt.json")
-    coco_prompts_path = os.path.join(project.project_dir, "evaluations", "coco_prompts", "fid_3W_json.json")
 
     try:
         with open(coco_prompts_path) as fr:
@@ -209,31 +206,33 @@ def load_coco_prompts():
             "00005": "a delicious plate of pasta"
         }
 
-def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index, results_save_dir, sampler_type, guidance_scale, use_generator=None):
+def generate_images(results_save_dir, args, pipe):
     """Generate images using the specified pipeline"""
 
     total_time = 0
     generation_times = []
 
     # Load COCO prompts
-    COCO_prompts_dict = load_coco_prompts()
+    # coco_prompts_path = os.path.join(project.project_dir, "evaluation", "coco_prompts", "COCO_3W_prompt.json")
+    coco_prompts_path = os.path.join(project.project_dir, "evaluations", "coco_prompts", args.coco_prompts_file)
+    COCO_prompts_dict = load_coco_prompts(coco_prompts_path)
     image_ids = list(COCO_prompts_dict.keys())
 
     print(f"\n{'='*60}")
     print(f"Starting COCO image generation")
     print(f"{'='*60}")
-    print(f"Sampler: {sampler_type} - {get_sampler_description(sampler_type)}")
-    print(f"Batch size: {batch_size}")
-    print(f"Inference steps: {num_inference_steps}")
-    print(f"Guidance scale: {guidance_scale}")
-    print(f"Total images: {test_num}")
+    print(f"Sampler: {args.sampler_type} - {get_sampler_description(args.sampler_type)}")
+    print(f"Batch size: {args.batch_size}")
+    print(f"Inference steps: {args.num_inference_steps}")
+    print(f"Guidance scale: {args.guidance}")
+    print(f"Total images: {args.test_num}")
     print(f"Save directory: {results_save_dir}")
     print(f"{'='*60}")
 
     generated_count = 0
     for pi, key in enumerate(image_ids):
-        if pi >= start_index and pi < start_index + test_num:
-            print(f"\nGenerating image {pi - start_index + 1}/{test_num} (ID: {key})")
+        if pi >= args.start_index and pi < args.start_index + args.test_num:
+            print(f"\nGenerating image {pi - args.start_index + 1}/{args.test_num} (ID: {key})")
             print(f"Prompt: {COCO_prompts_dict[key]}")
 
             batch_start_time = time.time()
@@ -250,12 +249,12 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
                         prompt=prompt,
                         negative_prompt=negative_prompt,
                         num_inference_steps=num_inference_steps,
-                        guidance_scale=guidance_scale,
+                        guidance_scale=args.guidance,
                         generator=generator
                     ).images[0]
 
                 # Save image
-                filename = f"{pi:05d}_{key}_guidance{guidance_scale}_inference{num_inference_steps}_seed{seed}_{sampler_type}.jpg"
+                filename = f"{pi:05d}_{key}_guidance{args.guidance}_inference{args.num_inference_steps}_seed{seed}_{args.sampler_type}.jpg"
                 filepath = os.path.join(results_save_dir, filename)
                 res.save(filepath)
                 generated_count += 1
@@ -269,7 +268,7 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
             print(f"{sampler_type}##{key},done")
 
     # Print summary
-    avg_time = total_time / test_num if test_num > 0 else 0
+    avg_time = total_time / args.test_num if args.test_num > 0 else 0
 
     print(f"\n{'='*60}")
     print(f"GENERATION SUMMARY")
@@ -288,13 +287,13 @@ def generate_images(pipe, batch_size, num_inference_steps, test_num, start_index
         'generation_times': generation_times
     }
 
-def save_generation_log(results_save_dir, sampler_type, generation_stats, args):
+def save_generation_log(results_save_dir, args, generation_stats):
     """Save generation log to JSON file"""
 
     log_data = {
         'timestamp': datetime.now().isoformat(),
-        'sampler_type': sampler_type,
-        'sampler_description': get_sampler_description(sampler_type),
+        'sampler_type': args.sampler_type,
+        'sampler_description': get_sampler_description(args.sampler_type),
         'parameters': {
             'test_num': args.test_num,
             'start_index': args.start_index,
@@ -310,7 +309,7 @@ def save_generation_log(results_save_dir, sampler_type, generation_stats, args):
         'generation_stats': generation_stats
     }
 
-    log_filename = f"generation_log_{sampler_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    log_filename = f"generation_log_{args.sampler_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     log_path = os.path.join(results_save_dir, log_filename)
 
     with open(log_path, 'w') as f:
@@ -352,7 +351,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
         dtype = dtype_map[args.dtype]
 
         # Setup paths
-        model_path = args.model_path
+        model_path = os.path.join(args.model_path, args.model_type)
 
         # Handle results_save_dir path properly
         results_save_dir = os.path.join(results_save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
@@ -378,15 +377,12 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
         setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
 
         # Generate images
-        generation_stats = generate_images(
-            pipe, args.batch_size, args.num_inference_steps,
-            args.test_num, args.start_index, results_save_dir, args.sampler_type, args.guidance, args.use_generator
-        )
+        generation_stats = generate_images(results_save_dir, args, pipe)
 
         # Save generation log if requested
         if args.save_log:
             print(f"\n📝 Saving generation log...")
-            save_generation_log(results_save_dir, args.sampler_type, generation_stats, args)
+            save_generation_log(results_save_dir, args, generation_stats)
 
         # 计算实验耗时
         exp_end_time = time.time()
@@ -423,7 +419,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
             'num_inference_steps': args.num_inference_steps
         }
 
-def generate_experiment_summary(results_save_dir, experiment_results, start_time, end_time, args):
+def generate_experiment_summary(results_save_dir, args, experiment_results, start_time, end_time):
     """Generate comprehensive experiment summary report"""
 
     summary_file = os.path.join(results_save_dir, "experiment_summary.txt")
@@ -593,7 +589,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
     print(f"✅ 对比图组已保存到: {output_path}")
     return output_path
 
-def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps=20, grid_methods=None):
+def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps=20, grid_samplers=None):
     """
     从已存在的图像文件生成对比图组
 
@@ -602,10 +598,10 @@ def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps
         num_inference_steps: 推理步数
     """
     # 定义采样器类型
-    if grid_methods is None:
+    if grid_samplers is None:
         sampler_types = ['ddim', 'ddim_lm', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
     else:
-        sampler_types = grid_methods
+        sampler_types = grid_samplers
 
     # 检查哪些采样器有图像
     available_samplers = []
@@ -625,7 +621,7 @@ def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps
 
 if __name__ == '__main__':
     args = parse_args()
-    results_save_dir = os.path.join(project.output_dir, args.save_dir)
+    results_save_dir = os.path.join(project.output_dir, args.save_dir + '_' + args.model_type)
 
     # 单个实验模式（保持原有逻辑）
     SAMPLER_TYPES = [args.sampler_type]
@@ -634,9 +630,8 @@ if __name__ == '__main__':
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = ['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free']
-        # SAMPLER_TYPES = ["pndm", "ddim", "ddim_lm", "dpm++", "dpm", "unipc", "hessian_free"]
-        INFERENCE_STEPS = [5, 10, 20, 30]
+        SAMPLER_TYPES = args.run_batch_samplers  #['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free']
+        INFERENCE_STEPS = args.run_batch_steps  # [5, 10, 20, 30]
 
     total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)
     experiment_results = []
@@ -665,7 +660,7 @@ if __name__ == '__main__':
             # 生成对比图组模式
             print("\n🎨 生成对比图组...")
             output_path = generate_comparison_grid_from_existing(
-                results_save_dir, args.num_inference_steps, args.grid_methods)
+                results_save_dir, args.num_inference_steps, args.grid_samplers)
             if output_path:
                 print(f"✅ 对比图组已生成: {output_path}")
             else:
@@ -682,6 +677,6 @@ if __name__ == '__main__':
 
     # 生成实验总结报告
     print("\n生成实验总结报告...")
-    generate_experiment_summary(results_save_dir, experiment_results, start_time, end_time, args)
+    generate_experiment_summary(results_save_dir, args, experiment_results, start_time, end_time)
 
     print(f"\n实验完成! 结果保存在: {results_save_dir}")

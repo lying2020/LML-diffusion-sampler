@@ -137,6 +137,7 @@ first, please switch to the root directory.
 
 - #### FID evaluation on MS-COCO
   [Coming Soon] ⏳
+The text prompts of Figure 4 and 5 are taken from (https://medium.com/phygital/top-40-useful-prompts-for-stable-diffusion-xl-008c03dd0557)
 
 - #### T2I-compbench evaluation
   Please refer to the [T2I-CompBench](https://github.com/Karine-Huang/T2I-CompBench) guide. Create a new environment and install the dependencies for T2I-CompBench evaluation.
