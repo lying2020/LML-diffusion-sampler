@@ -65,10 +65,10 @@ def parse_args():
     parser.add_argument('--test_num', type=int, default=20)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=20)
+    parser.add_argument('--num_inference_steps', type=int, default=20, choices=[5, 10, 20, 30, 40, 50, 80, 100])
 
     parser.add_argument('--guidance', type=float, default=7.5)
-    parser.add_argument('--seed', type=int, default=1)
+    parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
     parser.add_argument('--sampler_type', type=str, default='hessian_free',
@@ -78,7 +78,7 @@ def parse_args():
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='coco')
     parser.add_argument('--model_path', type=str, default=coco_model_path)
-    parser.add_argument('--model_type', type=str, default='stable-diffusion-v1-5', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
+    parser.add_argument('--model_type', type=str, default='stable-diffusion-xl-base-1.0', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
     parser.add_argument('--coco_prompts_file', type=str, default="coco_top_40_prompts.json", choices=['coco_top_40_prompts.json', 'coco_3w_prompts.json', 'fid_1k_json.json', 'fid_3w_json.json'])
 
     # LML parameters
@@ -93,13 +93,14 @@ def parse_args():
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
     parser.add_argument('--save_results', action='store_true', help='Save evaluation results to file')
     parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--grid_test_num', type=int, default=8, help='Number of images to test in grid')
     parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
-    parser.add_argument('--run_batch', action='store_true', default=True, help='Run batch experiments with multiple samplers and steps')
+    parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
     parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
-    parser.add_argument('--run_batch_steps', type=int, default=[5, 10, 20], help='List of inference steps to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[5, 10, 20, 50], help='List of inference steps to test in batch mode')
 
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
@@ -174,16 +175,24 @@ def setup_scheduler(pipe, sampler_type, lamb=5.0, kappa=0.0):
         print(f"  Using UniPC scheduler")
 
     elif sampler_type == 'hessian_free':
-        pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
         pipe.scheduler.config.solver_order = 3
-        pipe.scheduler.config.algorithm_type = "dpmsolver++"
+        pipe.scheduler.config.algorithm_type = "dpmsolver"
         pipe.scheduler.lamb = lamb
         pipe.scheduler.lm = True
         pipe.scheduler.kappa = kappa
-        pipe.scheduler.hessian_method = 'hessian_free'
-        # 设置模型用于Hessian计算
-        pipe.scheduler.set_model(pipe.unet)
-        print(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
+        print(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
+
+        # pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
+        # pipe.scheduler.config.solver_order = 3
+        # pipe.scheduler.config.algorithm_type = "dpmsolver++"
+        # pipe.scheduler.lamb = lamb
+        # pipe.scheduler.lm = True
+        # pipe.scheduler.kappa = kappa
+        # pipe.scheduler.hessian_method = 'hessian_free'
+        # # 设置模型用于Hessian计算
+        # pipe.scheduler.set_model(pipe.unet)
+        # print(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
 
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
@@ -239,7 +248,7 @@ def generate_images(results_save_dir, args, pipe):
             prompt = COCO_prompts_dict[key]
             negative_prompt = None
 
-            for seed in [1]:  # Can be extended to multiple seeds
+            for seed in [args.seed]:  # Can be extended to multiple seeds
                 generator = torch.Generator(device='cuda')
                 generator = generator.manual_seed(seed)
 
@@ -469,7 +478,7 @@ def generate_experiment_summary(results_save_dir, args, experiment_results, star
     else:
         print("🎉 所有实验都成功完成!")
 
-def generate_comparison_grid(results_save_dir, sampler_types, num_inference_steps=20, test_num=6, batch_size=1):
+def generate_comparison_grid(results_save_dir, sampler_types, num_inference_steps=20, grid_test_num=6, batch_size=1):
     """
     生成类似截图的对比图组，6行多列展示不同采样方法的结果
 
@@ -477,7 +486,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         results_save_dir: 保存目录
         sampler_types: 采样器类型列表
         num_inference_steps: 推理步数
-        test_num: 测试数量（行数）
+        grid_test_num: 测试数量（行数）
         batch_size: 批次大小
     """
     import matplotlib.pyplot as plt
@@ -490,11 +499,11 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
 
     print(f"\n🎨 生成对比图组...")
     print(f"采样器: {sampler_types}")
-    print(f"行数: {test_num}, 列数: {len(sampler_types)}")
+    print(f"行数: {grid_test_num}, 列数: {len(sampler_types)}")
 
     # 创建图像网格
-    fig = plt.figure(figsize=(len(sampler_types) * 2.5, test_num * 2.5))
-    gs = GridSpec(test_num, len(sampler_types), figure=fig,
+    fig = plt.figure(figsize=(len(sampler_types) * 2.5, grid_test_num * 2.5))
+    gs = GridSpec(grid_test_num, len(sampler_types), figure=fig,
                   hspace=0.1, wspace=0.05,
                   left=0.05, right=0.95, top=0.95, bottom=0.05)
 
@@ -527,11 +536,11 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
 
         # 按文件名排序，取前test_num个
         image_files.sort()
-        selected_images = image_files[:test_num]
+        selected_images = image_files[:grid_test_num]
         all_images[sampler_type] = selected_images
 
     # 绘制图像网格
-    for row in range(test_num):
+    for row in range(grid_test_num):
         for col, sampler_type in enumerate(sampler_types):
             ax = fig.add_subplot(gs[row, col])
 
@@ -570,7 +579,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         lml_index = sampler_types.index('hessian_free') if 'hessian_free' in sampler_types else sampler_types.index('dpm_lm')
         if lml_index < len(sampler_types) - 1:
             # 在LML/HILDA列后添加垂直分隔线
-            for row in range(test_num):
+            for row in range(grid_test_num):
                 ax = fig.add_subplot(gs[row, lml_index])
                 # 添加右侧边框
                 ax.add_patch(patches.Rectangle((0.95, 0), 0.05, 1,
@@ -589,7 +598,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
     print(f"✅ 对比图组已保存到: {output_path}")
     return output_path
 
-def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps=20, grid_samplers=None):
+def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps=20, grid_test_num=8, grid_samplers=None):
     """
     从已存在的图像文件生成对比图组
 
@@ -617,7 +626,7 @@ def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps
     print(f"找到 {len(available_samplers)} 个采样器的图像: {available_samplers}")
 
     # 生成对比图组
-    return generate_comparison_grid(results_save_dir, available_samplers, num_inference_steps)
+    return generate_comparison_grid(results_save_dir, available_samplers, num_inference_steps, grid_test_num)
 
 if __name__ == '__main__':
     args = parse_args()
@@ -643,8 +652,8 @@ if __name__ == '__main__':
     print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*50)
 
-    for j in range(len(SAMPLER_TYPES)):
-        for i in range(len(INFERENCE_STEPS)):
+    for i in range(len(INFERENCE_STEPS)):
+        for j in range(len(SAMPLER_TYPES)):
             experiment_num += 1
             num_inference_steps = INFERENCE_STEPS[i]
             sampler_type = SAMPLER_TYPES[j]
@@ -660,7 +669,7 @@ if __name__ == '__main__':
             # 生成对比图组模式
             print("\n🎨 生成对比图组...")
             output_path = generate_comparison_grid_from_existing(
-                results_save_dir, args.num_inference_steps, args.grid_samplers)
+                results_save_dir, args.num_inference_steps, args.grid_test_num, args.grid_samplers)
             if output_path:
                 print(f"✅ 对比图组已生成: {output_path}")
             else:
