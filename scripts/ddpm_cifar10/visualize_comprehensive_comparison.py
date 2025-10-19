@@ -18,7 +18,13 @@ from datetime import datetime
 plt.switch_backend('Agg')
 plt.style.use('default')
 
-def create_comprehensive_comparison_chart(results, save_path='output/test/comprehensive_algorithm_comparison_fixed.png'):
+sys.path.append(os.getcwd())
+import project as project
+
+hessian_cg_results_dir = os.path.join(project.output_dir, "hessian_cg")
+os.makedirs(hessian_cg_results_dir, exist_ok=True)
+
+def create_comprehensive_comparison_chart(results, save_path=os.path.join(hessian_cg_results_dir, 'comprehensive_algorithm_comparison_fixed.png')):
     """Create comprehensive comparison chart with proper dimensions"""
 
     # Create figure with reasonable size
@@ -145,7 +151,7 @@ def create_comprehensive_comparison_chart(results, save_path='output/test/compre
 
     return fig
 
-def create_detailed_analysis_chart(results, save_path='output/test/detailed_algorithm_analysis_fixed.png'):
+def create_detailed_analysis_chart(results, save_path=os.path.join(hessian_cg_results_dir, 'detailed_algorithm_analysis_fixed.png')):
     """Create detailed analysis chart with proper dimensions"""
 
     # Create figure with reasonable size
@@ -222,9 +228,9 @@ def create_detailed_analysis_chart(results, save_path='output/test/detailed_algo
 def main():
     parser = argparse.ArgumentParser(description="Fixed Comprehensive Algorithm Comparison Visualization")
     parser.add_argument('--results_file', type=str,
-                        default='output/test/comprehensive_algorithm_comparison_20250915_122638.json',
+                        default=os.path.join(hessian_cg_results_dir, 'comprehensive_algorithm_comparison_fixed.json'),
                         help='Path to the results JSON file')
-    parser.add_argument('--output_dir', type=str, default='output/test',
+    parser.add_argument('--output_dir', type=str, default=hessian_cg_results_dir,
                         help='Output directory for visualizations')
 
     args = parser.parse_args()

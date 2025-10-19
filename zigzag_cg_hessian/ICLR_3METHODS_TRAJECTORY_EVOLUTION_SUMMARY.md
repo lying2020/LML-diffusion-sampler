@@ -18,14 +18,14 @@
 ```python
 # 修复前：只有 UniPC 有 set_timesteps
 elif method_name == 'unipc':
-    pipe.scheduler = UniPCMultistepSchedulerLM.from_config(pipe.scheduler.config)
+    pipe.scheduler = UniPCMultistepHCGScheduler.from_config(pipe.scheduler.config)
     pipe.scheduler.set_timesteps(self.num_inference_steps)
 
 # 修复后：所有调度器都有 set_timesteps
 if method_name == 'ddim':
     pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
 elif method_name == 'pndm':
-    pipe.scheduler = PNDMSchedulerLM.from_config(pipe.scheduler.config)
+    pipe.scheduler = PNDMSHCGcheduler.from_config(pipe.scheduler.config)
 elif method_name == 'dpm':
     pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
     # ... 其他配置
@@ -112,11 +112,11 @@ python3 iclr_trajectory_evolution_3methods_simple.py
 ```python
 def load_pipeline(self, method_name):
     # ... 调度器配置 ...
-    
+
     # 关键修复：为所有调度器统一设置 timesteps
     pipe.scheduler.set_timesteps(self.num_inference_steps)
     print(f"✓ {method_name.upper()} pipeline loaded successfully")
-    
+
     return pipe
 ```
 

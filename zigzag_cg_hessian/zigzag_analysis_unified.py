@@ -33,9 +33,9 @@ matplotlib.use('Agg')
 # Import schedulers - 参考cifar10.py的导入方式
 from diffusers import DDPMPipeline, DDIMScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
-from scheduler.scheduling_unipc_multistep_lm import UniPCMultistepSchedulerLM
+from scheduler.scheduling_unipc_multistep_hcg import UniPCMultistepHCGScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
-from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
+from scheduler.scheduling_pndm_hcg import PNDMSHCGcheduler
 
 import project as project
 
@@ -95,7 +95,7 @@ class ZigzagAnalyzer:
     def setup_scheduler(self, sampler_type):
         """设置采样器 - 参考cifar10.py的方式"""
         if sampler_type == 'pndm':
-            self.pipe.scheduler = PNDMSchedulerLM.from_config(self.pipe.scheduler.config)
+            self.pipe.scheduler = PNDMSHCGcheduler.from_config(self.pipe.scheduler.config)
         elif sampler_type == 'ddim':
             self.pipe.scheduler = DDIMScheduler.from_config(self.pipe.scheduler.config)
         elif sampler_type == 'dpm':
@@ -104,7 +104,7 @@ class ZigzagAnalyzer:
             self.pipe.scheduler.config.algorithm_type = "dpmsolver"
             self.pipe.scheduler.lm = False
         elif sampler_type == 'unipc':
-            self.pipe.scheduler = UniPCMultistepSchedulerLM.from_config(self.pipe.scheduler.config)
+            self.pipe.scheduler = UniPCMultistepHCGScheduler.from_config(self.pipe.scheduler.config)
         else:
             raise ValueError(f"Unknown sampler type: {sampler_type}")
 

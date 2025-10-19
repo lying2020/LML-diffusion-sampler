@@ -42,7 +42,7 @@ self.methods = ['ddim', 'pndm', "dpm", "ddpm"]
 if method_name == 'ddim':
     pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
 elif method_name == 'pndm':
-    pipe.scheduler = PNDMSchedulerLM.from_config(pipe.scheduler.config)
+    pipe.scheduler = PNDMSHCGcheduler.from_config(pipe.scheduler.config)
 elif method_name == 'dpm':
     pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
     pipe.scheduler.config.solver_order = 3
@@ -93,11 +93,11 @@ elif method_name == 'ddpm':
 ```python
 def load_pipeline(self, method_name):
     # ... 调度器配置 ...
-    
+
     # 关键修复：为所有调度器统一设置 timesteps
     pipe.scheduler.set_timesteps(self.num_inference_steps)
     print(f"✓ {method_name.upper()} pipeline loaded successfully")
-    
+
     return pipe
 ```
 

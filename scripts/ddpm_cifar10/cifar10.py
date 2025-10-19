@@ -18,11 +18,12 @@ from datetime import datetime
 
 sys.path.append(os.getcwd())
 from diffusers import DDPMPipeline, DDIMScheduler, DPMSolverMultistepScheduler
-from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
-from scheduler.scheduling_unipc_multistep_lm import UniPCMultistepSchedulerLM
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
-from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
-from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepHessianFreeScheduler
+from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
+
+from scheduler.scheduling_pndm_hcg import PNDMSHCGcheduler
+from scheduler.scheduling_unipc_multistep_hcg import UniPCMultistepHCGScheduler
+from scheduler.scheduling_dpmsolver_multistep_hcg import DPMSolverMultistepHCGScheduler
 
 import project as project
 
@@ -100,7 +101,7 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     """Setup the appropriate scheduler based on sampler type"""
 
     if sampler_type == 'pndm':
-        pipe.scheduler = PNDMSchedulerLM.from_config(pipe.scheduler.config)
+        pipe.scheduler = PNDMSHCGcheduler.from_config(pipe.scheduler.config)
         print(f"  Using PNDM scheduler")
 
     elif sampler_type == 'ddim':
@@ -130,11 +131,11 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         print(f"  Using DPM-Solver scheduler")
 
     elif sampler_type == 'unipc':
-        pipe.scheduler = UniPCMultistepSchedulerLM.from_config(pipe.scheduler.config)
+        pipe.scheduler = UniPCMultistepHCGScheduler.from_config(pipe.scheduler.config)
         print(f"  Using UniPC scheduler")
 
     elif sampler_type == 'hessian_free':
-        pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
         pipe.scheduler.config.solver_order = 3
         pipe.scheduler.config.algorithm_type = "dpmsolver++"
         pipe.scheduler.lamb = lamb

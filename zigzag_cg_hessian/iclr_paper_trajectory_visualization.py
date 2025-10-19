@@ -25,9 +25,9 @@ matplotlib.use('Agg')
 # Import schedulers - 参考cifar10.py的导入方式
 from diffusers import DDPMPipeline, DDIMScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
-from scheduler.scheduling_unipc_multistep_lm import UniPCMultistepSchedulerLM
+from scheduler.scheduling_unipc_multistep_hcg import UniPCMultistepHCGScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
-from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
+from scheduler.scheduling_pndm_hcg import PNDMSHCGcheduler
 import project as project
 
 # Set matplotlib parameters for ICLR paper format
@@ -84,7 +84,7 @@ class ICLRMultiMethodTrajectoryVisualizer:
 
         # Setup scheduler based on method - 参考cifar10.py的scheduler设置
         if method_name == 'pndm':
-            pipe.scheduler = PNDMSchedulerLM.from_config(pipe.scheduler.config)
+            pipe.scheduler = PNDMSHCGcheduler.from_config(pipe.scheduler.config)
         elif method_name == 'ddim':
             pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
         elif method_name == 'dpm++':
@@ -98,7 +98,7 @@ class ICLRMultiMethodTrajectoryVisualizer:
             pipe.scheduler.config.algorithm_type = "dpmsolver"
             pipe.scheduler.lm = False
         elif method_name == 'unipc':
-            pipe.scheduler = UniPCMultistepSchedulerLM.from_config(pipe.scheduler.config)
+            pipe.scheduler = UniPCMultistepHCGScheduler.from_config(pipe.scheduler.config)
         else:
             raise ValueError(f"Unsupported method: {method_name}")
 

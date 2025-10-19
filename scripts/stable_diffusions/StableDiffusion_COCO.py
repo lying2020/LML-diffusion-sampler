@@ -34,7 +34,7 @@ sys.path.append(os.getcwd())
 from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, PNDMScheduler, UniPCMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
-from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepHessianFreeScheduler
+from scheduler.scheduling_dpmsolver_multistep_hcg import DPMSolverMultistepHCGScheduler
 
 import project as project
 
@@ -170,7 +170,7 @@ def setup_scheduler(pipe, sampler_type, lamb=5.0, kappa=0.0):
         pipe.scheduler.kappa = kappa
         print(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
 
-        # pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
+        # pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
         # pipe.scheduler.config.solver_order = 3
         # pipe.scheduler.config.algorithm_type = "dpmsolver++"
         # pipe.scheduler.lamb = lamb

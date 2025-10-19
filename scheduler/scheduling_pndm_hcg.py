@@ -51,13 +51,13 @@ def betas_for_alpha_bar(
     return torch.tensor(betas, dtype=torch.float32)
 
 
-class PNDMSchedulerLM(SchedulerMixin, ConfigMixin):
+class PNDMSHCGcheduler(SchedulerMixin, ConfigMixin):
     """
     Enhanced PNDMScheduler with Generator Support.
-    
+
     This is an optimized version of the original PNDMScheduler that adds
     support for generator parameters, making it compatible with DDPMPipeline.
-    
+
     Key enhancements:
     - Added generator parameter support in step() method
     - Maintains full compatibility with original PNDMScheduler
@@ -132,7 +132,7 @@ class PNDMSchedulerLM(SchedulerMixin, ConfigMixin):
                 The device to which the timesteps should be moved to. If `None`, the timesteps are not moved.
         """
         self.num_inference_steps = num_inference_steps
-        
+
         # Generate timesteps based on spacing method
         if self.config.timestep_spacing == "linspace":
             self._timesteps = (
@@ -187,7 +187,7 @@ class PNDMSchedulerLM(SchedulerMixin, ConfigMixin):
     ) -> Union[SchedulerOutput, Tuple]:
         """
         Enhanced step function with generator support.
-        
+
         Args:
             model_output (`torch.Tensor`):
                 The direct output from learned diffusion model.
@@ -213,16 +213,16 @@ class PNDMSchedulerLM(SchedulerMixin, ConfigMixin):
 
         if self.counter < len(self.prk_timesteps) and not self.config.skip_prk_steps:
             return self.step_prk(
-                model_output=model_output, 
-                timestep=timestep, 
-                sample=sample, 
+                model_output=model_output,
+                timestep=timestep,
+                sample=sample,
                 return_dict=return_dict
             )
         else:
             return self.step_plms(
-                model_output=model_output, 
-                timestep=timestep, 
-                sample=sample, 
+                model_output=model_output,
+                timestep=timestep,
+                sample=sample,
                 return_dict=return_dict
             )
 

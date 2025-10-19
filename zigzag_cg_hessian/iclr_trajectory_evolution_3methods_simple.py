@@ -25,7 +25,7 @@ matplotlib.use('Agg')
 from diffusers import DDPMPipeline, DDIMScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
-from scheduler.scheduling_pndm_lm import PNDMSchedulerLM
+from scheduler.scheduling_pndm_hcg import PNDMSHCGcheduler
 
 import project as project
 
@@ -73,7 +73,7 @@ class ICLRTrajectoryEvolution3MethodsSimple:
         if method_name == 'ddim':
             pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
         elif method_name == 'pndm':
-            pipe.scheduler = PNDMSchedulerLM.from_config(pipe.scheduler.config)
+            pipe.scheduler = PNDMSHCGcheduler.from_config(pipe.scheduler.config)
         elif method_name == 'dpm':
             pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
             pipe.scheduler.config.solver_order = 3

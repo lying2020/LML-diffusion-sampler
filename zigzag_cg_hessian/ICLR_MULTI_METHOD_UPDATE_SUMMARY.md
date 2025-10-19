@@ -17,7 +17,7 @@ self.supported_methods = ["pndm", "ddim", "dpm++", "dpm", "unipc"]
 # 为每个方法定义颜色
 self.method_colors = {
     'pndm': '#E74C3C',      # Red
-    'ddim': '#3498DB',      # Blue  
+    'ddim': '#3498DB',      # Blue
     'dpm++': '#9B59B6',     # Purple
     'dpm': '#E67E22',       # Orange
     'unipc': '#2ECC71'      # Green
@@ -28,7 +28,7 @@ self.method_colors = {
 ```python
 def setup_scheduler(self, method_name):
     if method_name == 'pndm':
-        pipe.scheduler = PNDMSchedulerLM.from_config(pipe.scheduler.config)
+        pipe.scheduler = PNDMSHCGcheduler.from_config(pipe.scheduler.config)
     elif method_name == 'ddim':
         pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
     elif method_name == 'dpm++':
@@ -42,7 +42,7 @@ def setup_scheduler(self, method_name):
         pipe.scheduler.config.algorithm_type = "dpmsolver"
         pipe.scheduler.lm = False
     elif method_name == 'unipc':
-        pipe.scheduler = UniPCMultistepSchedulerLM.from_config(pipe.scheduler.config)
+        pipe.scheduler = UniPCMultistepHCGScheduler.from_config(pipe.scheduler.config)
 ```
 
 ### 3. 生成的图表

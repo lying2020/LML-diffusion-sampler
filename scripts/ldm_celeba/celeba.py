@@ -27,7 +27,7 @@ sys.path.append(os.getcwd())
 from diffusers import LDMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistepScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
-from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepHessianFreeScheduler
+from scheduler.scheduling_dpmsolver_multistep_hcg import DPMSolverMultistepHCGScheduler
 
 import project as project
 
@@ -417,7 +417,7 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         project.info(f"  Using UniPC scheduler")
 
     elif sampler_type == 'hessian_free':
-        pipe.scheduler = DPMSolverMultistepHessianFreeScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
         pipe.scheduler.config.solver_order = 3
         pipe.scheduler.config.algorithm_type = "dpmsolver++"
         pipe.scheduler.lamb = lamb

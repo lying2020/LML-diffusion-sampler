@@ -27,22 +27,22 @@ sys.path.append(os.getcwd())
 from diffusers import DDPMPipeline
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 
+import project as project
+hessian_cg_results_dir = os.path.join(project.output_dir, "hessian_cg")
+os.makedirs(hessian_cg_results_dir, exist_ok=True)
+
 class LMLvsHessianComparator:
     """Detailed comparator for LML vs Hessian methods"""
 
-    def __init__(self, model_path: str, device: str = 'cuda', output_dir: str = 'output/test'):
+    def __init__(self, model_path, output_dir=hessian_cg_results_dir):
         self.model_path = model_path
-        self.device = device
         self.output_dir = output_dir
         self.results = {}
 
-        # Create output directory
-        os.makedirs(self.output_dir, exist_ok=True)
-
         # Load model
         print("Loading model...")
-        self.pipe = DDPMPipeline.from_pretrained(model_path, torch_dtype=torch.float32, use_safetensors=False)
-        self.pipe.unet.to(device)
+        self.pipe = DDPMPipeline.from_pretrained(self.model_path, torch_dtype=torch.float32, use_safetensors=False)
+        self.pipe.unet.to('cuda' if torch.cuda.is_available() else 'cpu')
 
     def lml_correct(self, prev_noise, noise_pred, lamb, kappa):
         """Original LML correction method"""
@@ -190,13 +190,11 @@ class LMLvsHessianComparator:
 
         return corrected_noise, residuals
 
-    def test_algorithm(self, algorithm_config: Dict, test_num: int = 50) -> Dict:
+    def test_algorithm(self, algorithm_config, test_num=50):
         """Test a specific algorithm configuration"""
 
         algorithm_name = algorithm_config['name']
-        print(f"\n{'='*60}")
-        print(f"Testing: {algorithm_name}")
-        print(f"{'='*60}")
+        print(f"Testing {algorithm_name}...")
 
         # Configure scheduler
         self.pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(self.pipe.scheduler.config)
@@ -288,7 +286,6 @@ class LMLvsHessianComparator:
         print("="*60)
         print(f"Test configuration:")
         print(f"  - Model: {self.model_path}")
-        print(f"  - Device: {self.device}")
         print(f"  - Test samples: {test_num}")
         print(f"  - Output directory: {self.output_dir}")
         print("="*60)
@@ -513,7 +510,7 @@ class LMLvsHessianComparator:
     def save_results(self):
         """Save results to file"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(self.output_dir, f"lml_vs_hessian_comparison_{timestamp}.json")
+        filename = os.path.join(hessian_cg_results_dir, f"lml_vs_hessian_comparison.json")
 
         # Convert numpy arrays to lists for JSON serialization
         serializable_results = {}
@@ -538,24 +535,17 @@ class LMLvsHessianComparator:
 
 def main():
     parser = argparse.ArgumentParser(description="LML vs Hessian Methods Comparison")
-    parser.add_argument('--model_path', type=str, default='./model/ddpm_ema_cifar10',
+    parser.add_argument('--model_path', type=str, default=os.path.join(project.model_dir, 'ddpm_ema_cifar10'),
                         help='Path to the model')
+    parser.add_argument('--output_dir', type=str, default=hessian_cg_results_dir,
+                        help='Output directory for results')
     parser.add_argument('--test_num', type=int, default=50,
                         help='Number of test images to generate')
-    parser.add_argument('--device', type=str, default='cuda',
-                        help='Device to use')
-    parser.add_argument('--output_dir', type=str, default='output/test',
-                        help='Output directory for results')
 
     args = parser.parse_args()
 
-    # Get absolute path
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_path = os.path.join(project_dir, args.model_path)
-    output_dir = os.path.join(project_dir, args.output_dir)
-
     # Run comparison
-    comparator = LMLvsHessianComparator(model_path, args.device, output_dir)
+    comparator = LMLvsHessianComparator(args.model_path, args.output_dir)
     comparator.run_comparison(args.test_num)
 
 if __name__ == '__main__':

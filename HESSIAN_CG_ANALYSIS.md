@@ -27,6 +27,20 @@ subject to: ε 满足扩散模型的约束
 - `λ` 是正则化参数
 - 需要求解 Hessian 矩阵的逆：`H⁻¹g`
 
+
+## 🔧 技术特性
+
+### Hessian-Free方法
+- **算法**: 使用共轭梯度(CG)求解Hessian逆
+- **优势**: 避免显式计算Hessian矩阵，提高计算效率
+- **应用**: DPM-Solver++ + LML校正 + Hessian-Free优化
+
+### 配置参数
+- **solver_order**: 3 (三阶求解器)
+- **algorithm_type**: "dpmsolver++" (使用DPM-Solver++算法)
+- **lm**: True (启用LML校正)
+- **hessian_method**: "hessian_free" (使用Hessian-Free方法)
+
 ### 2.2 三种 Hessian 计算方法
 
 #### 方法1: Original LML (简化近似)
@@ -220,7 +234,7 @@ def adaptive_damping_function(condition_number, method='adaptive'):
 ### 5.1 在扩散采样中的集成
 
 ```python
-class DPMSolverMultistepHessianFreeScheduler:
+class DPMSolverMultistepHCGScheduler:
     def step(self, model_output, timestep, sample, **kwargs):
         # 1. 标准 DPM 步骤
         prev_sample = self.dpm_solver_step(model_output, timestep, sample)
