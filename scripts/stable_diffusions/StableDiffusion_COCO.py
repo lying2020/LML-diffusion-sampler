@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 
 sys.path.append(os.getcwd())
 
-from diffusers import StableDiffusionPipeline, PNDMScheduler, UniPCMultistepScheduler
+from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, PNDMScheduler, UniPCMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 from scheduler.scheduling_dpmsolver_hessian_free import DPMSolverMultistepHessianFreeScheduler
@@ -100,7 +100,7 @@ def parse_args():
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
     parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
-    parser.add_argument('--run_batch_steps', type=int, default=[5, 10, 20, 50], help='List of inference steps to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[10, 20, 50], help='List of inference steps to test in batch mode')
 
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
@@ -377,7 +377,22 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
 
         # Load pipeline
         print("\n📦 Loading model...")
-        pipe = StableDiffusionPipeline.from_pretrained(model_path, torch_dtype=dtype, safety_checker=None)
+
+        # Choose the appropriate pipeline based on model type
+        if args.model_type == 'stable-diffusion-xl-base-1.0':
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                model_path,
+                torch_dtype=dtype,
+                safety_checker=None,
+                added_cond_kwargs={}
+            )
+        else:
+            pipe = StableDiffusionPipeline.from_pretrained(
+                model_path,
+                torch_dtype=dtype,
+                safety_checker=None
+            )
+
         pipe = pipe.to(args.device)
         print("  ✓ Model loaded successfully")
 

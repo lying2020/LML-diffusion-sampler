@@ -13,6 +13,8 @@ from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 
 from tqdm import tqdm
 
+pixart_model_path = "/home/liying/Documents/PixArt-XL-2-512x512"
+
 def main():
     parser = argparse.ArgumentParser(description="sampling script for T2I-Bench.")
     parser.add_argument('--test_num', type=int, default=10)
@@ -21,7 +23,7 @@ def main():
     parser.add_argument('--guidance', type=float, default=7.5)
     parser.add_argument('--sampler_type', type = str, default='dpm_lm')
     parser.add_argument('--model', type=str, default='sd15', choices=['sd15', 'sd2_base', 'sdxl', 'pixart'])
-    parser.add_argument('--model_dir', type=str, default='XXX')
+    parser.add_argument('--model_dir', type=str, default=pixart_model_path)
     parser.add_argument('--save_dir', type=str, default='results/')
     parser.add_argument('--lamb', type=float, default=0.001)
     parser.add_argument('--kappa', type=float, default=1.0e-8)
