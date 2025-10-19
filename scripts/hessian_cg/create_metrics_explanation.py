@@ -11,6 +11,13 @@ import numpy as np
 import matplotlib.patches as patches
 from matplotlib.patches import FancyBboxPatch
 import seaborn as sns
+import sys
+import os
+sys.path.append(os.getcwd())
+
+import project as project
+hessian_cg_results_dir = os.path.join(project.output_dir, "hessian_cg")
+os.makedirs(hessian_cg_results_dir, exist_ok=True)
 
 def create_metrics_explanation_chart():
     """Create a comprehensive chart explaining all metrics"""
@@ -327,7 +334,7 @@ def create_metrics_explanation_chart():
     plt.subplots_adjust(top=0.95, hspace=0.3, wspace=0.3)
 
     # Save the plot
-    save_path = 'output/test/metrics_definition_explanation.png'
+    save_path = os.path.join(hessian_cg_results_dir, 'metrics_definition_explanation.png')
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"Metrics explanation chart saved to: {save_path}")
 

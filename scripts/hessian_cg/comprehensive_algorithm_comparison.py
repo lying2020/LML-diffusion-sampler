@@ -24,11 +24,17 @@ from scipy import stats
 from sklearn.metrics import pairwise_distances
 import warnings
 warnings.filterwarnings('ignore')
-
+import sys
+import os
 sys.path.append(os.getcwd())
+
 from diffusers import DDPMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistepScheduler, DPMSolverMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
+
+import project as project
+hessian_cg_results_dir = os.path.join(project.output_dir, "hessian_cg")
+os.makedirs(hessian_cg_results_dir, exist_ok=True)
 
 class ComprehensiveAlgorithmComparator:
     """Comprehensive comparator for different diffusion sampling algorithms"""
@@ -760,24 +766,19 @@ class ComprehensiveAlgorithmComparator:
 
 def main():
     parser = argparse.ArgumentParser(description="Comprehensive Algorithm Comparison - Final Version")
-    parser.add_argument('--model_path', type=str, default='./model/ddpm_ema_cifar10',
+    parser.add_argument('--model_path', type=str, default=os.path.join(project.model_dir, 'ddpm_ema_cifar10'),
                         help='Path to the model')
     parser.add_argument('--test_num', type=int, default=100,
                         help='Number of test images to generate')
     parser.add_argument('--device', type=str, default='cuda',
                         help='Device to use')
-    parser.add_argument('--output_dir', type=str, default='output/test',
+    parser.add_argument('--output_dir', type=str, default=hessian_cg_results_dir,
                         help='Output directory for results')
 
     args = parser.parse_args()
 
-    # Get absolute path
-    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    model_path = os.path.join(project_dir, args.model_path)
-    output_dir = os.path.join(project_dir, args.output_dir)
-
     # Run comprehensive comparison
-    comparator = ComprehensiveAlgorithmComparator(model_path, args.device, output_dir)
+    comparator = ComprehensiveAlgorithmComparator(args.model_path, args.device, args.output_dir)
     comparator.run_comprehensive_comparison(args.test_num)
 
 if __name__ == '__main__':
