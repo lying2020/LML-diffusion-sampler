@@ -58,13 +58,13 @@ def save_generation_log(results_save_dir, args, generation_stats):
 
     print(f"  ✓ Generation log saved to: {log_path}")
 
-def count_generated_images(save_dir):
+def count_generated_images(results_save_dir):
     """Count the number of generated images in the save directory"""
     try:
-        png_files = glob.glob(os.path.join(save_dir, "*.png"))
+        png_files = glob.glob(os.path.join(results_save_dir, "*.png"))
         return len(png_files)
     except Exception as e:
-        print(f"Could not count images in {save_dir}: {e}")
+        print(f"Could not count images in {results_save_dir}: {e}")
         return 0
 
 def generate_experiment_summary(results_save_dir, args, experiment_results, start_time, end_time):
@@ -245,6 +245,9 @@ def generate_comparison_grid_from_existing(results_save_dir, num_inference_steps
     Args:
         results_save_dir: 保存目录
         num_inference_steps: 推理步数
+        grid_test_num: 测试数量（行数）
+        grid_samplers: 采样器类型列表
+        grid_title: 对比图组标题
     """
     # 定义采样器类型
     if grid_samplers is None:

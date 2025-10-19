@@ -283,15 +283,6 @@ def generate_images(results_save_dir, args, pipe):
         'generation_times': generation_times
     }
 
-def count_generated_images(results_save_dir):
-    """Count the number of generated images in the save directory"""
-    try:
-        jpg_files = glob.glob(os.path.join(results_save_dir, "*.jpg"))
-        return len(jpg_files)
-    except Exception as e:
-        print(f"  ⚠️  Warning: Could not count images in {results_save_dir}: {e}")
-        return 0
-
 def run_single_experiment(results_save_dir, args, experiment_num, total_experiments):
     """Run a single experiment with enhanced logging"""
 
@@ -370,7 +361,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
         exp_duration = exp_end_time - exp_start_time
 
         # 统计生成的图片数量
-        image_count = count_generated_images(results_save_dir)
+        image_count = project.count_generated_images(results_save_dir)
 
         print(f"\n✅ 实验完成! 耗时: {exp_duration:.1f}秒")
         print(f"生成图片数量: {image_count}")

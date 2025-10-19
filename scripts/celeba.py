@@ -52,6 +52,7 @@ def parse_args():
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='celeba')
     parser.add_argument('--model_path', type=str, default=celeba_model_path)
+    parser.add_argument('--model_type', type=str, default="ldm")
 
     # LML parameters
     parser.add_argument('--lamb', type=float, default=0.004)
