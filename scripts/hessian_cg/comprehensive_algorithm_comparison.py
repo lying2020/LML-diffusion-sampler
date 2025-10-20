@@ -39,7 +39,7 @@ os.makedirs(hessian_cg_results_dir, exist_ok=True)
 class ComprehensiveAlgorithmComparator:
     """Comprehensive comparator for different diffusion sampling algorithms"""
 
-    def __init__(self, model_path: str, device: str = 'cuda', output_dir: str = 'output/test'):
+    def __init__(self, model_path: str, device: str = 'cuda', output_dir: str = hessian_cg_results_dir):
         self.model_path = model_path
         self.device = device
         self.output_dir = output_dir
