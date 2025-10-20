@@ -24,7 +24,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.schedulers.scheduling_utils import KarrasDiffusionSchedulers, SchedulerMixin, SchedulerOutput
 
-def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa, hessian_method='original',
+def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa, hessian_method='hessian_free',
                        model=None, x=None, t=None, device='cuda'):
     """
     Advanced LML correction with different Hessian computation methods
@@ -46,190 +46,154 @@ def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa, hessian_method='ori
     else:
         noise_pred_ema = noise_pred
 
-    if hessian_method == 'original':
-        # Original LML method (simplified approximation)
-        return lm_correct_original(noise_pred, noise_pred_ema, lamb)
-
+    if hessian_method == 'hessian_free':
+        # Hessian-Free method using CG + HVP
+        return hessian_free_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device)
     elif hessian_method == 'explicit':
         # Explicit Hessian computation
-        return lm_correct_explicit_hessian(noise_pred, noise_pred_ema, lamb, model, x, t, device)
-
-    elif hessian_method == 'hessian_free':
-        # Hessian-Free method using CG + HVP
-        return lm_correct_hessian_free(noise_pred, noise_pred_ema, lamb, model, x, t, device)
+        return hessian_explicit_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device)
 
     else:
         raise ValueError(f"Unknown hessian_method: {hessian_method}")
 
-def lm_correct_original(noise_pred, noise_pred_ema, lamb):
-    """Original LML correction method"""
-    # Original implementation
-    norm_squared = (noise_pred * noise_pred).sum(dim=(1, 2, 3))
-    norm_squared = norm_squared.unsqueeze(1).unsqueeze(2).unsqueeze(3)
-    part1 = noise_pred
 
-    norm_squared_ema = (noise_pred_ema * noise_pred_ema).sum(dim=(1, 2, 3))
-    norm_squared_ema = norm_squared_ema.unsqueeze(1).unsqueeze(2).unsqueeze(3)
-
-    inner_product = torch.sum(noise_pred * noise_pred_ema, dim=(1, 2, 3))
-    mp = noise_pred_ema * inner_product.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-    part2 = mp / (lamb + norm_squared_ema)
-
-    inversed_pred = part1 - part2
-
-    # normalize the direction
-    norm = torch.sqrt(norm_squared)
-    norm_squared_lm = (inversed_pred * inversed_pred).sum(dim=(1, 2, 3))
-    norm_squared_lm = norm_squared_lm.unsqueeze(1).unsqueeze(2).unsqueeze(3)
-    norm_lm = torch.sqrt(norm_squared_lm)
-    inversed_pred = inversed_pred * norm / norm_lm
-    return inversed_pred
-
-def lm_correct_explicit_hessian(noise_pred, noise_pred_ema, lamb, model, x, t, device):
+def hessian_explicit_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device):
     """
     LML correction using explicit Hessian computation
     Based on finite difference approximation of Hessian matrix
     """
-    try:
-        batch_size, channels, height, width = noise_pred.shape
 
-        # Compute gradient of log p_t(x) at current point
-        x_grad = x.clone().detach().requires_grad_(True)
-        with torch.enable_grad():
-            # Forward pass to get score function
-            score_pred = model(x_grad, t)
-            if hasattr(score_pred, 'sample'):
-                score_pred = score_pred.sample
+    batch_size, channels, height, width = noise_pred.shape
 
-            # Log probability (simplified)
-            log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
-            log_prob = log_prob.sum()
+    # Compute gradient of log p_t(x) at current point
+    x_grad = x.clone().detach().requires_grad_(True)
+    with torch.enable_grad():
+        # Forward pass to get score function
+        score_pred = model(x_grad, t)
+        if hasattr(score_pred, 'sample'):
+            score_pred = score_pred.sample
 
-        # Compute gradient
-        grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
+        # Log probability (simplified)
+        log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
+        log_prob = log_prob.sum()
 
-        # Compute Hessian using finite differences (simplified version)
-        # For efficiency, we only compute diagonal elements
-        eps = 1e-4
-        hessian_diag = torch.zeros_like(x)
+    # Compute gradient
+    grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
 
-        for i in range(channels):
-            for j in range(height):
-                for k in range(width):
-                    # Perturb single element
-                    x_pert = x.clone()
-                    x_pert[:, i, j, k] += eps
+    # Compute Hessian using finite differences (simplified version)
+    # For efficiency, we only compute diagonal elements
+    eps = 1e-4
+    hessian_diag = torch.zeros_like(x)
 
-                    # Compute gradient at perturbed point
-                    x_pert_grad = x_pert.clone().detach().requires_grad_(True)
-                    with torch.enable_grad():
-                        score_pred_pert = model(x_pert_grad, t)
-                        if hasattr(score_pred_pert, 'sample'):
-                            score_pred_pert = score_pred_pert.sample
-                        log_prob_pert = -0.5 * torch.sum(score_pred_pert ** 2, dim=(1, 2, 3))
-                        log_prob_pert = log_prob_pert.sum()
+    for i in range(channels):
+        for j in range(height):
+            for k in range(width):
+                # Perturb single element
+                x_pert = x.clone()
+                x_pert[:, i, j, k] += eps
 
-                    grad_pert = torch.autograd.grad(log_prob_pert, x_pert_grad, create_graph=False)[0]
-                    hessian_diag[:, i, j, k] = (grad_pert[:, i, j, k] - grad[:, i, j, k]) / eps
+                # Compute gradient at perturbed point
+                x_pert_grad = x_pert.clone().detach().requires_grad_(True)
+                with torch.enable_grad():
+                    score_pred_pert = model(x_pert_grad, t)
+                    if hasattr(score_pred_pert, 'sample'):
+                        score_pred_pert = score_pred_pert.sample
+                    log_prob_pert = -0.5 * torch.sum(score_pred_pert ** 2, dim=(1, 2, 3))
+                    log_prob_pert = log_prob_pert.sum()
 
-        # Apply LML correction using diagonal Hessian approximation
-        # H^{-1} ≈ (H_diag + λI)^{-1}
-        hessian_inv_diag = 1.0 / (hessian_diag + lamb)
+                grad_pert = torch.autograd.grad(log_prob_pert, x_pert_grad, create_graph=False)[0]
+                hessian_diag[:, i, j, k] = (grad_pert[:, i, j, k] - grad[:, i, j, k]) / eps
 
-        # Apply correction
-        corrected_noise = noise_pred * hessian_inv_diag
+    # Apply LML correction using diagonal Hessian approximation
+    # H^{-1} ≈ (H_diag + λI)^{-1}
+    hessian_inv_diag = 1.0 / (hessian_diag + lamb)
 
-        # Normalize
-        norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
-        norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
-        corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
+    # Apply correction
+    corrected_noise = noise_pred * hessian_inv_diag
 
-        return corrected_noise
+    # Normalize
+    norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
+    norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
+    corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
 
-    except Exception as e:
-        print(f"Error in explicit Hessian computation: {e}")
-        # Fallback to original method
-        return lm_correct_original(noise_pred, noise_pred_ema, lamb)
+    return corrected_noise
 
-def lm_correct_hessian_free(noise_pred, noise_pred_ema, lamb, model, x, t, device):
+
+def hessian_free_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device):
     """
     LML correction using Hessian-Free method (CG + HVP)
     Solves H^{-1}g using conjugate gradient without explicit Hessian
     """
-    try:
-        batch_size, channels, height, width = noise_pred.shape
 
-        def hessian_vector_product(v):
-            """Compute Hv using Pearlmutter's method"""
-            # Ensure v requires grad
-            v_grad = v.clone().detach().requires_grad_(True)
-            x_grad = x.clone().detach().requires_grad_(True)
+    batch_size, channels, height, width = noise_pred.shape
 
-            with torch.enable_grad():
-                score_pred = model(x_grad, t)
-                if hasattr(score_pred, 'sample'):
-                    score_pred = score_pred.sample
-                log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
-                log_prob = log_prob.sum()
+    def hessian_vector_product(v):
+        """Compute Hv using Pearlmutter's method"""
+        # Ensure v requires grad
+        v_grad = v.clone().detach().requires_grad_(True)
+        x_grad = x.clone().detach().requires_grad_(True)
 
-            # First gradient
-            grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
+        with torch.enable_grad():
+            score_pred = model(x_grad, t)
+            if hasattr(score_pred, 'sample'):
+                score_pred = score_pred.sample
+            log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
+            log_prob = log_prob.sum()
 
-            # Hv = ∇(∇f · v)
-            grad_dot_v = torch.sum(grad * v_grad)
-            hv = torch.autograd.grad(grad_dot_v, x_grad, retain_graph=True)[0]
-            return hv
+        # First gradient
+        grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
 
-        def conjugate_gradient_solve(b, max_iter=20, tol=1e-4):
-            """Solve Hx = b using CG"""
-            x_cg = torch.zeros_like(b)
-            r = b.clone()
-            p = r.clone()
+        # Hv = ∇(∇f · v)
+        grad_dot_v = torch.sum(grad * v_grad)
+        hv = torch.autograd.grad(grad_dot_v, x_grad, retain_graph=True)[0]
+        return hv
 
-            r_norm_sq = torch.sum(r ** 2)
-            r_norm_0 = torch.sqrt(r_norm_sq)
+    def conjugate_gradient_solve(b, max_iter=20, tol=1e-4):
+        """Solve Hx = b using CG"""
+        x_cg = torch.zeros_like(b)
+        r = b.clone()
+        p = r.clone()
 
-            for i in range(max_iter):
-                Hp = hessian_vector_product(p)
-                p_Hp = torch.sum(p * Hp)
+        r_norm_sq = torch.sum(r ** 2)
+        r_norm_0 = torch.sqrt(r_norm_sq)
 
-                if p_Hp <= 0:
-                    break
+        for i in range(max_iter):
+            Hp = hessian_vector_product(p)
+            p_Hp = torch.sum(p * Hp)
 
-                alpha = r_norm_sq / p_Hp
-                x_cg = x_cg + alpha * p
-                r = r - alpha * Hp
+            if p_Hp <= 0:
+                break
 
-                r_norm_sq_new = torch.sum(r ** 2)
-                r_norm = torch.sqrt(r_norm_sq_new)
+            alpha = r_norm_sq / p_Hp
+            x_cg = x_cg + alpha * p
+            r = r - alpha * Hp
 
-                if r_norm < tol * r_norm_0:
-                    break
+            r_norm_sq_new = torch.sum(r ** 2)
+            r_norm = torch.sqrt(r_norm_sq_new)
 
-                beta = r_norm_sq_new / r_norm_sq
-                p = r + beta * p
-                r_norm_sq = r_norm_sq_new
+            if r_norm < tol * r_norm_0:
+                break
 
-            return x_cg
+            beta = r_norm_sq_new / r_norm_sq
+            p = r + beta * p
+            r_norm_sq = r_norm_sq_new
 
-        # Solve H^{-1} * noise_pred using CG
-        # We want to solve Hx = noise_pred, so x = H^{-1} * noise_pred
-        corrected_noise = conjugate_gradient_solve(noise_pred)
+        return x_cg
 
-        # Add regularization
-        corrected_noise = corrected_noise / (1.0 + lamb)
+    # Solve H^{-1} * noise_pred using CG
+    # We want to solve Hx = noise_pred, so x = H^{-1} * noise_pred
+    corrected_noise = conjugate_gradient_solve(noise_pred)
 
-        # Normalize
-        norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
-        norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
-        corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
+    # Add regularization
+    corrected_noise = corrected_noise / (1.0 + lamb)
 
-        return corrected_noise
+    # Normalize
+    norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
+    norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
+    corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
 
-    except Exception as e:
-        print(f"Error in Hessian-Free computation: {e}")
-        # Fallback to original method
-        return lm_correct_original(noise_pred, noise_pred_ema, lamb)
+    return corrected_noise
+
 
 # Import the rest of the original scheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import (
