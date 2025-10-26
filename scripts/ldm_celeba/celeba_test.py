@@ -42,18 +42,58 @@ import numpy as np
 import tqdm
 
 
+def pil_to_tensor(image_pil):
+    """Convert PIL Image to tensor format expected by process_image"""
+    # Convert PIL to numpy array
+    image_array = np.array(image_pil).astype(np.float32)
+
+    # Convert from [0, 255] to [-1, 1] range
+    image_normalized = (image_array / 127.5) - 1.0
+
+    # Add batch dimension and convert to (B, C, H, W) format
+    image_tensor = torch.from_numpy(image_normalized).permute(2, 0, 1).unsqueeze(0)
+
+    return image_tensor
+
+def process_image(image_tensor):
+    """Process image to PIL Image"""
+    # process image
+    image_processed = image_tensor.permute(0, 2, 3, 1)
+    image_processed = (image_processed + 1.0) * 127.5
+    image_processed = image_processed.clamp(0, 255).cpu().numpy().astype(np.uint8)
+    image_pil = Image.fromarray(image_processed[0])
+
+    return image_pil
 
 # load model and scheduler
-pipeline = DiffusionPipeline.from_pretrained(celeba_model_path)
+# IMPORTANT: Use LDMPipeline instead of DiffusionPipeline for this model
+pipeline = LDMPipeline.from_pretrained(celeba_model_path)
 
-# run pipeline in inference (sample random noise and denoise)
-image = pipeline(num_inference_steps=200)["sample"]
+# # run pipeline in inference (sample random noise and denoise)
+# pipeline_output = pipeline(num_inference_steps=200)
 
-# save image
-image[0].save(os.path.join(celeba_ldm_save_dir, "ldm_generated_image.png"))
+# # LDMPipeline returns ImagePipelineOutput with images attribute
+# if hasattr(pipeline_output, 'images'):
+#     # ImagePipelineOutput object
+#     image_pil = pipeline_output.images[0]
+# elif isinstance(pipeline_output, (list, tuple)):
+#     # List of images
+#     image_pil = pipeline_output[0]
+# else:
+#     # Dict or other format
+#     image_pil = pipeline_output.get("images", [None])[0]
+
+# # Check image data statistics
+# image_array = np.array(image_pil)
+# print(f"Pipeline output - Image shape: {image_array.shape}")
+# print(f"Pipeline output - Min value: {image_array.min()}, Max value: {image_array.max()}")
+# print(f"Pipeline output - Mean value: {image_array.mean():.3f}, Std: {image_array.std():.3f}")
+
+# # Save the PIL image directly (no processing needed)
+# image_pil.save(os.path.join(celeba_ldm_save_dir, "ldm_generated_image.png"))
 
 
-seed = 3
+seed = 5
 
 # load all models
 unet = UNet2DModel.from_pretrained(celeba_model_path, subfolder="unet")
@@ -76,10 +116,13 @@ noise = torch.randn(
 # set inference steps for DDIM
 scheduler.set_timesteps(num_inference_steps=200)
 
+# Note: init_noise_sigma is 1.0 for DDIMScheduler, so no scaling needed here
 image = noise
 for t in tqdm.tqdm(scheduler.timesteps):
     # predict noise residual of previous image
     with torch.no_grad():
+        # CRITICAL: scale model input as done in LDMPipeline line 111
+        image = scheduler.scale_model_input(image, t)
         residual = unet(image, t)["sample"]
 
     # compute previous image x_t according to DDIM formula
@@ -88,14 +131,17 @@ for t in tqdm.tqdm(scheduler.timesteps):
     # x_t-1 -> x_t
     image = prev_image
 
-# decode image with vae
+# decode image with vae (with proper scaling as in LDMPipeline)
+print(f"\nBefore VAE decode - Latent stats: shape={image.shape}, min={image.min():.3f}, max={image.max():.3f}, mean={image.mean():.3f}")
+print(f"VAE scaling_factor: {vqvae.config.scaling_factor}")
+
 with torch.no_grad():
+    # CRITICAL STEP: Adjust latents with inverse of vae scale (line 118 in pipeline)
+    # image = image / vqvae.config.scaling_factor
+    # print(f"After scaling - Latent stats: min={image.min():.3f}, max={image.max():.3f}, mean={image.mean():.3f}")
+
+    # decode the image latents with the VAE
     image = vqvae.decode(image).sample
 
-# process image
-image_processed = image.permute(0, 2, 3, 1)
-image_processed = (image_processed + 1.0) * 127.5
-image_processed = image_processed.clamp(0, 255).cpu().numpy().astype(np.uint8)
-image_pil = PIL.Image.fromarray(image_processed[0])
-
+image_pil = process_image(image)
 image_pil.save(os.path.join(celeba_ldm_save_dir, f"generated_image_{seed}.png"))

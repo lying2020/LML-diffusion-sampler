@@ -238,7 +238,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
                  fontsize=16, fontweight='bold', y=0.98)
 
     # 保存图像
-    output_path = os.path.join(results_save_dir, f'comparison_grid_steps{num_inference_steps}.png')
+    output_path = os.path.join(results_save_dir, f'comparison_grid_steps_{num_inference_steps}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
 

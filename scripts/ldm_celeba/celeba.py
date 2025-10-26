@@ -44,18 +44,20 @@ def parse_args():
     parser.add_argument('--test_num', type=int, default=20)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=200, choices=[5, 10, 20, 40, 70, 100, 200, 400, 600])
+    parser.add_argument('--num_inference_steps', type=int, default=40, choices=[5, 10, 20, 40, 70, 100, 200, 400, 600, 1000])
 
+
+    parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm',
+    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
-    parser.add_argument('--save_dir', type=str, default='celeba')
+    parser.add_argument('--save_dir', type=str, default='celebahq_256')
     parser.add_argument('--model_path', type=str, default=celeba_model_path)
     parser.add_argument('--model_type', type=str, default="ldm")
 
@@ -69,7 +71,7 @@ def parse_args():
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
-    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="CelebA-HQ Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
     parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
@@ -77,7 +79,7 @@ def parse_args():
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
-    parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
+    parser.add_argument('--run_batch', action='store_true', default=True, help='Run batch experiments with multiple samplers and steps')
     parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
     parser.add_argument('--run_batch_steps', type=int, default=[20, 50, 200], help='List of inference steps to test in batch mode')
 
@@ -140,15 +142,17 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         project.info(f"  Using UniPC scheduler")
 
     elif sampler_type == 'hessian_free':
-        pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler.config.algorithm_type = "dpmsolver"
+        # pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
+        # pipe.scheduler.config.algorithm_type = "dpmsolver++"
         pipe.scheduler.config.solver_order = 3
-        pipe.scheduler.config.algorithm_type = "dpmsolver++"
         pipe.scheduler.lamb = lamb
         pipe.scheduler.lm = True
         pipe.scheduler.kappa = kappa
         pipe.scheduler.hessian_method = 'hessian_free'
         # 设置模型用于Hessian计算
-        pipe.scheduler.set_model(pipe.unet)
+        # pipe.scheduler.set_model(pipe.unet)
         project.info(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
 
     else:
@@ -452,6 +456,29 @@ def format_table_with_ranking(table_data):
 
     project.info("="*120)
 
+
+def process_image(image):
+    """
+    Process VAE decoded tensor to PIL Image
+
+    Args:
+        image: torch.Tensor of shape (B, C, H, W) with values in [-1, 1] range
+
+    Returns:
+        PIL.Image ready to save
+    """
+    # image is a tensor of shape (B, C, H, W) with values in [-1, 1]
+    # Convert to (B, H, W, C) format
+    image_processed = image.permute(0, 2, 3, 1)
+    # Convert from [-1, 1] to [0, 255]
+    image_processed = (image_processed + 1.0) * 127.5
+    # Clamp and convert to uint8
+    image_processed = image_processed.clamp(0, 255).cpu().numpy().astype(np.uint8)
+    # Get first image from batch
+    image_pil = Image.fromarray(image_processed[0])
+
+    return image_pil
+
 def generate_images(results_save_dir, args, pipe):
     """Generate images using the specified pipeline"""
 
@@ -567,6 +594,8 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
     pipe = LDMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
     pipe.unet.to(args.device)
     pipe.vqvae.to(args.device)
+    pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
+
     project.success("Model loaded successfully")
 
     # Setup scheduler
