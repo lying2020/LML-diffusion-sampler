@@ -33,28 +33,28 @@ def save_generation_log(results_save_dir, args, generation_stats):
 
     log_data = {
         'timestamp': datetime.now().isoformat(),
-        'sampler_type': args.sampler_type,
-        'sampler_description': get_sampler_description(args.sampler_type),
+        'sampler_type': getattr(args, 'sampler_type', 'unknown'),
+        'sampler_description': get_sampler_description(getattr(args, 'sampler_type', 'unknown')),
         'parameters': {
-            'test_num': args.test_num,
-            'grid_test_num': args.grid_test_num,
-            'grid_test_index': args.grid_test_index,
-            'grid_samplers': args.grid_samplers,
-            'grid_title': args.grid_title,
-            'start_index': args.start_index,
-            'batch_size': args.batch_size,
-            'num_inference_steps': args.num_inference_steps,
-            'guidance_scale': args.guidance,
-            'seed': args.seed,
-            'lamb': args.lamb,
-            'kappa': args.kappa,
-            'dtype': args.dtype,
-            'device': args.device
+            'test_num': getattr(args, 'test_num', 0),
+            'grid_test_num': getattr(args, 'grid_test_num', 0),
+            'grid_test_index': getattr(args, 'grid_test_index', 0),
+            'grid_samplers': getattr(args, 'grid_samplers', []),
+            'grid_title': getattr(args, 'grid_title', ''),
+            'start_index': getattr(args, 'start_index', 0),
+            'batch_size': getattr(args, 'batch_size', 0),
+            'num_inference_steps': getattr(args, 'num_inference_steps', 0),
+            'guidance_scale': getattr(args, 'guidance', 0),
+            'seed': getattr(args, 'seed', 0),
+            'lamb': getattr(args, 'lamb', 0),
+            'kappa': getattr(args, 'kappa', 0),
+            'dtype': getattr(args, 'dtype', 'fp32'),
+            'device': getattr(args, 'device', 'cpu')
         },
         'generation_stats': generation_stats
     }
 
-    log_filename = f"generation_log_{args.sampler_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    log_filename = f"generation_log_{getattr(args, 'sampler_type', 'unknown')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     log_path = os.path.join(results_save_dir, log_filename)
 
     with open(log_path, 'w') as f:

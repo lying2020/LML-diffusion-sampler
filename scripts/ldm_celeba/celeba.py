@@ -44,12 +44,13 @@ def parse_args():
     parser.add_argument('--test_num', type=int, default=20)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=20, choices=[5, 10, 20, 30, 40, 50, 80, 100])
+    parser.add_argument('--num_inference_steps', type=int, default=200, choices=[5, 10, 20, 40, 70, 100, 200, 400, 600])
 
+    parser.add_argument('--guidance', type=float, default=7.5)
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
+    parser.add_argument('--sampler_type', type=str, default='dpm',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
@@ -68,7 +69,7 @@ def parse_args():
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
-    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="CelebA-HQ Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
     parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
@@ -78,7 +79,7 @@ def parse_args():
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
     parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
-    parser.add_argument('--run_batch_steps', type=int, default=[10, 20, 50], help='List of inference steps to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[20, 50, 200], help='List of inference steps to test in batch mode')
 
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
@@ -102,7 +103,8 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
 
     elif sampler_type == 'ddim':
         pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
-        project.info(f"  Using DDIM scheduler")
+        pipe.scheduler.config.eta = 0.0  # 设置eta=0.0，与celeba_test.py保持一致
+        project.info(f"  Using DDIM scheduler (eta=0.0)")
 
     elif sampler_type == 'ddim_lm':
         pipe.scheduler = DDIMLMScheduler.from_config(pipe.scheduler.config)
@@ -548,8 +550,8 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
 
     # Setup paths
     model_path = args.model_path
-    save_dir = os.path.join(project.output_dir, args.save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
-    os.makedirs(save_dir, exist_ok=True)
+    results_save_dir = os.path.join(results_save_dir, "steps"+'_'+str(args.num_inference_steps), args.sampler_type)
+    os.makedirs(results_save_dir, exist_ok=True)
 
     project.info(f"🚀 CelebA-HQ Unified Sampling Script")
     project.info("="*60)
@@ -557,7 +559,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
     project.info(f"Device: {args.device}")
     project.info(f"Data type: {args.dtype}")
     project.info(f"Sampler: {args.sampler_type}")
-    project.info(f"Output: {save_dir}")
+    project.info(f"Output: {results_save_dir}")
     project.info("="*60)
 
     # Load pipeline
@@ -676,15 +678,15 @@ if __name__ == '__main__':
             else:
                 print("❌ 对比图组生成失败")
 
-    # Generate comparison table
-    if experiment_results:
-        table_data = generate_comparison_table(experiment_results)
-        format_table_with_ranking(table_data)
+    # # Generate comparison table
+    # if experiment_results:
+    #     table_data = generate_comparison_table(experiment_results)
+    #     format_table_with_ranking(table_data)
 
-        results_file = os.path.join(results_save_dir, 'celeba_comparison_results.json')
-        with open(results_file, 'w') as f:
-            json.dump(experiment_results, f, indent=2)
-        project.info(f"\n📊 Results saved to: {results_file}")
+    #     results_file = os.path.join(results_save_dir, 'celeba_comparison_results.json')
+    #     with open(results_file, 'w') as f:
+    #         json.dump(experiment_results, f, indent=2)
+    #     project.info(f"\n📊 Results saved to: {results_file}")
 
     end_time = datetime.now()
 
