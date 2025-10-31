@@ -246,7 +246,7 @@ def generate_comparison_table(results_dict):
         'unipc': 'UniPC [91]',
         # 'dpm_lm': 'LML',
         # 'ddim_lm': 'LML',
-        'hessian_free': 'HILDA(Ours)'
+        'hcg': 'HILDA(Ours)'
     }
 
     # Create table data

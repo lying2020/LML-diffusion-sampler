@@ -185,9 +185,9 @@
 
 ## 📁 生成文件
 
-- `ddim_vs_hessian_free_comparison_20250923_224943.png`: 对比可视化图
+- `ddim_vs__comparison_20250923_224943.png`: 对比可视化图
 - `ddim_hessian_sample_statistics_20250923_224944.txt`: 详细样本统计
-- `ddim_vs_hessian_free_comparison_fixed.py`: 分析脚本
+- `ddim_vs__comparison_fixed.py`: 分析脚本
 - `DDIM_VS_HESSIAN_FREE_FINAL_REPORT.md`: 本报告
 
 ## 🚀 未来工作

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Hessian-Free Method Zigzag Comparison: DDIM vs DDPM vs Hessian-Free
-This script specifically compares the lm_correct_hessian_free method with standard methods
+This script specifically compares the lm_correct_ method with standard methods
 """
 
 import numpy as np
@@ -72,7 +72,7 @@ class HessianFreeAnalyzer:
             pipe.scheduler.lamb = 0.0008
             pipe.scheduler.lm = True
             pipe.scheduler.kappa = 1e-8
-            pipe.scheduler.hessian_method = 'hessian_free'
+            pipe.scheduler.hessian_method = 'hcg'
             pipe.scheduler.set_model(pipe.unet)
         elif method_name == 'Original_LML':
             pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
@@ -247,7 +247,7 @@ class HessianFreeAnalyzer:
 
         return results
 
-    def plot_hessian_free_comparison(self, results_dict, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
+    def plot__comparison(self, results_dict, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot specialized comparison focusing on Hessian-Free method"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -324,13 +324,13 @@ class HessianFreeAnalyzer:
 
         # Save the plot
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'hessian_free_zigzag_comparison_{timestamp}.png')
+        save_path = os.path.join(save_dir, f'_zigzag_comparison_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"\n✓ Hessian-Free comparison plot saved to: {save_path}")
 
         plt.show()
 
-    def generate_hessian_free_summary(self, results_dict, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
+    def generate__summary(self, results_dict, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Generate summary table focusing on Hessian-Free method"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -357,20 +357,20 @@ class HessianFreeAnalyzer:
         print("="*80)
 
         # Find Hessian-Free method results
-        hessian_free_result = results_dict.get('Hessian_Free')
-        if hessian_free_result:
+        _result = results_dict.get('Hessian_Free')
+        if _result:
             print(f"• Hessian-Free Method Performance:")
-            print(f"  - Average angle: {hessian_free_result['avg_angle']:.1f}°")
-            print(f"  - Zigzag score: {hessian_free_result['zigzag_score']:.3f}")
-            print(f"  - Orthogonal steps: {hessian_free_result['orthogonal_steps']}/{len(hessian_free_result['angles'])} ({hessian_free_result['orthogonal_steps']/len(hessian_free_result['angles']):.1%})")
-            print(f"  - Explained variance: {hessian_free_result['explained_variance_ratio'].sum():.3f}")
+            print(f"  - Average angle: {_result['avg_angle']:.1f}°")
+            print(f"  - Zigzag score: {_result['zigzag_score']:.3f}")
+            print(f"  - Orthogonal steps: {_result['orthogonal_steps']}/{len(_result['angles'])} ({_result['orthogonal_steps']/len(_result['angles']):.1%})")
+            print(f"  - Explained variance: {_result['explained_variance_ratio'].sum():.3f}")
 
             # Compare with other methods
             print(f"\n• Comparison with other methods:")
             for method in methods:
                 if method != 'Hessian_Free':
                     other_result = results_dict[method]
-                    zigzag_improvement = ((other_result['zigzag_score'] - hessian_free_result['zigzag_score']) / other_result['zigzag_score']) * 100
+                    zigzag_improvement = ((other_result['zigzag_score'] - _result['zigzag_score']) / other_result['zigzag_score']) * 100
                     print(f"  - vs {method}: {zigzag_improvement:+.1f}% zigzag improvement")
 
         # Find best performing method
@@ -383,7 +383,7 @@ class HessianFreeAnalyzer:
 
         # Save summary to file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        summary_path = os.path.join(save_dir, f'hessian_free_analysis_summary_{timestamp}.txt')
+        summary_path = os.path.join(save_dir, f'_analysis_summary_{timestamp}.txt')
 
         with open(summary_path, 'w') as f:
             f.write("HESSIAN-FREE METHOD ZIGZAG ANALYSIS SUMMARY\n")
@@ -404,18 +404,18 @@ class HessianFreeAnalyzer:
             f.write("HESSIAN-FREE METHOD ANALYSIS:\n")
             f.write("="*80 + "\n")
 
-            if hessian_free_result:
+            if _result:
                 f.write(f"• Hessian-Free Method Performance:\n")
-                f.write(f"  - Average angle: {hessian_free_result['avg_angle']:.1f}°\n")
-                f.write(f"  - Zigzag score: {hessian_free_result['zigzag_score']:.3f}\n")
-                f.write(f"  - Orthogonal steps: {hessian_free_result['orthogonal_steps']}/{len(hessian_free_result['angles'])} ({hessian_free_result['orthogonal_steps']/len(hessian_free_result['angles']):.1%})\n")
-                f.write(f"  - Explained variance: {hessian_free_result['explained_variance_ratio'].sum():.3f}\n")
+                f.write(f"  - Average angle: {_result['avg_angle']:.1f}°\n")
+                f.write(f"  - Zigzag score: {_result['zigzag_score']:.3f}\n")
+                f.write(f"  - Orthogonal steps: {_result['orthogonal_steps']}/{len(_result['angles'])} ({_result['orthogonal_steps']/len(_result['angles']):.1%})\n")
+                f.write(f"  - Explained variance: {_result['explained_variance_ratio'].sum():.3f}\n")
 
                 f.write(f"\n• Comparison with other methods:\n")
                 for method in methods:
                     if method != 'Hessian_Free':
                         other_result = results_dict[method]
-                        zigzag_improvement = ((other_result['zigzag_score'] - hessian_free_result['zigzag_score']) / other_result['zigzag_score']) * 100
+                        zigzag_improvement = ((other_result['zigzag_score'] - _result['zigzag_score']) / other_result['zigzag_score']) * 100
                         f.write(f"  - vs {method}: {zigzag_improvement:+.1f}% zigzag improvement\n")
 
             f.write(f"\n• Overall best performance:\n")
@@ -429,7 +429,7 @@ def main():
 
     print("🚀 Hessian-Free Method Zigzag Analysis")
     print("="*80)
-    print("Focusing on lm_correct_hessian_free method comparison")
+    print("Focusing on lm_correct_ method comparison")
     print("Large-scale analysis with 5000+ samples for robust statistical comparison")
     print("="*80)
 
@@ -473,10 +473,10 @@ def main():
         print(f"\n{'='*60}")
         print("Generating Hessian-Free Comparison Plots")
         print(f"{'='*60}")
-        analyzer.plot_hessian_free_comparison(results_dict)
+        analyzer.plot__comparison(results_dict)
 
         # Generate Hessian-Free summary
-        analyzer.generate_hessian_free_summary(results_dict)
+        analyzer.generate__summary(results_dict)
 
         print(f"\n✅ Hessian-Free analysis completed successfully!")
         print(f"   Analyzed {len(methods)} methods")

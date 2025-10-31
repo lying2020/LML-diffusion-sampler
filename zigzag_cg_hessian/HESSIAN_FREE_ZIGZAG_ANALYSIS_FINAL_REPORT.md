@@ -2,7 +2,7 @@
 
 ## 🎯 项目概述
 
-本项目专门针对`lm_correct_hessian_free`方法进行了大规模zigzag分析，通过5000+样本和200个轨迹的统计分析，证明了Hessian-Free方法在缓解zigzag现象方面的卓越表现。
+本项目专门针对`lm_correct_`方法进行了大规模zigzag分析，通过5000+样本和200个轨迹的统计分析，证明了Hessian-Free方法在缓解zigzag现象方面的卓越表现。
 
 ## 📊 Hessian-Free方法实验结果
 
@@ -30,7 +30,7 @@
 
 ## 🔬 Hessian-Free方法技术分析
 
-### 核心算法：lm_correct_hessian_free
+### 核心算法：lm_correct_
 
 Hessian-Free方法的核心是使用共轭梯度(CG)和Hessian-Vector Product(HVP)来求解：
 
@@ -51,15 +51,15 @@ def hessian_vector_product(v):
     """使用Pearlmutter方法计算Hv"""
     v_grad = v.clone().detach().requires_grad_(True)
     x_grad = x.clone().detach().requires_grad_(True)
-    
+
     with torch.enable_grad():
         score_pred = model(x_grad, t)
         log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
         log_prob = log_prob.sum()
-    
+
     # 第一阶梯度
     grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
-    
+
     # Hv = ∇(∇f · v)
     grad_dot_v = torch.sum(grad * v_grad)
     hv = torch.autograd.grad(grad_dot_v, x_grad, retain_graph=True)[0]
@@ -73,25 +73,25 @@ def conjugate_gradient_solve(b, max_iter=20, tol=1e-4):
     x_cg = torch.zeros_like(b)
     r = b.clone()
     p = r.clone()
-    
+
     for i in range(max_iter):
         Hp = hessian_vector_product(p)
         p_Hp = torch.sum(p * Hp)
-        
+
         if p_Hp <= 0:
             break
-            
+
         alpha = r_norm_sq / p_Hp
         x_cg = x_cg + alpha * p
         r = r - alpha * Hp
-        
+
         # 收敛检查
         if torch.sqrt(torch.sum(r ** 2)) < tol * r_norm_0:
             break
-            
+
         beta = r_norm_sq_new / r_norm_sq
         p = r + beta * p
-    
+
     return x_cg
 ```
 
@@ -175,7 +175,7 @@ corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
 
 ### 方法对比
 1. **DDIM**: 标准DDIM采样
-2. **DDPM**: 标准DDPM采样  
+2. **DDPM**: 标准DDPM采样
 3. **Original_LML**: 原始LML修正方法
 4. **Hessian_Free**: Hessian-Free方法（我们的重点）
 
@@ -205,9 +205,9 @@ corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
 
 ## 📁 生成文件
 
-- `hessian_free_zigzag_comparison_20250923_205646.png`: Hessian-Free方法对比图
-- `hessian_free_analysis_summary_20250923_205647.txt`: 数值总结
-- `hessian_free_zigzag_comparison.py`: 分析脚本
+- `_zigzag_comparison_20250923_205646.png`: Hessian-Free方法对比图
+- `_analysis_summary_20250923_205647.txt`: 数值总结
+- `_zigzag_comparison.py`: 分析脚本
 - `HESSIAN_FREE_ZIGZAG_ANALYSIS_FINAL_REPORT.md`: 本报告
 
 ## 🚀 未来工作

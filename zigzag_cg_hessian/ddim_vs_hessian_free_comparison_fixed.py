@@ -60,7 +60,7 @@ class DDIMvsHessianFreeAnalyzer:
             pipe.scheduler.lamb = 0.0008
             pipe.scheduler.lm = True
             pipe.scheduler.kappa = 1e-8
-            pipe.scheduler.hessian_method = 'hessian_free'
+            pipe.scheduler.hessian_method = 'hcg'
             pipe.scheduler.set_model(pipe.unet)
             pipe.scheduler.set_timesteps(self.num_inference_steps)
 
@@ -245,7 +245,7 @@ class DDIMvsHessianFreeAnalyzer:
 
         return results
 
-    def plot_ddim_vs_hessian_free(self, results_dict, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
+    def plot_ddim_vs_(self, results_dict, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot DDIM vs Hessian-Free comparison"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -324,7 +324,7 @@ class DDIMvsHessianFreeAnalyzer:
 
         # Save the plot
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'ddim_vs_hessian_free_comparison_{timestamp}.png')
+        save_path = os.path.join(save_dir, f'ddim_vs__comparison_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"\n✓ DDIM vs Hessian-Free comparison plot saved to: {save_path}")
 
@@ -450,7 +450,7 @@ def main():
         print(f"\n{'='*60}")
         print("Generating DDIM vs Hessian-Free Comparison Plots")
         print(f"{'='*60}")
-        analyzer.plot_ddim_vs_hessian_free(results_dict)
+        analyzer.plot_ddim_vs_(results_dict)
 
         # Generate sample statistics report
         analyzer.generate_sample_statistics_report(results_dict)

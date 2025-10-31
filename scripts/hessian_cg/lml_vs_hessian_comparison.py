@@ -120,7 +120,7 @@ class LMLvsHessianComparator:
 
             return corrected_noise, condition_number.item(), rank.item()
 
-    def hessian_free_correct(self, prev_noise, noise_pred, lamb, kappa, model, x, t, max_iter=10):
+    def _correct(self, prev_noise, noise_pred, lamb, kappa, model, x, t, max_iter=10):
         """Hessian-Free correction using conjugate gradient"""
         if prev_noise is not None:
             noise_pred_ema = kappa * prev_noise + (1 - kappa) * noise_pred
@@ -217,15 +217,15 @@ class LMLvsHessianComparator:
                 )
                 return corrected
             self.pipe.scheduler.lm_correct = explicit_hessian_lm_correct
-        elif algorithm_config['type'] == 'hessian_free':
-            def hessian_free_lm_correct(prev_noise, noise_pred, lamb, kappa):
-                corrected, residuals = self.hessian_free_correct(
+        elif algorithm_config['type'] == 'hcg':
+            def _lm_correct(prev_noise, noise_pred, lamb, kappa):
+                corrected, residuals = self._correct(
                     prev_noise, noise_pred, lamb, kappa,
                     self.pipe.unet, self.pipe.scheduler.prev_sample,
                     self.pipe.scheduler.timestep, max_iter=algorithm_config.get('max_iter', 10)
                 )
                 return corrected
-            self.pipe.scheduler.lm_correct = hessian_free_lm_correct
+            self.pipe.scheduler.lm_correct = _lm_correct
 
         # Generate images
         generation_times = []
@@ -319,7 +319,7 @@ class LMLvsHessianComparator:
             },
             {
                 'name': 'Hessian-Free-Basic',
-                'type': 'hessian_free',
+                'type': 'hcg',
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 10,
@@ -332,7 +332,7 @@ class LMLvsHessianComparator:
             },
             {
                 'name': 'Hessian-Free-Fast',
-                'type': 'hessian_free',
+                'type': 'hcg',
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 5,

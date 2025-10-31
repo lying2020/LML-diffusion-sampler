@@ -24,7 +24,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.schedulers.scheduling_utils import KarrasDiffusionSchedulers, SchedulerMixin, SchedulerOutput
 
-def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa, hessian_method='hessian_free',
+def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa, hessian_method='hcg',
                        model=None, x=None, t=None, device='cuda'):
     """
     Advanced LML correction with different Hessian computation methods
@@ -34,7 +34,7 @@ def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa, hessian_method='hes
         noise_pred: Current noise prediction
         lamb: Regularization parameter
         kappa: EMA parameter
-        hessian_method: 'original', 'explicit', or 'hessian_free'
+        hessian_method: 'original', 'explicit', or 'hcg'
         model: Model for Hessian computation (if needed)
         x: Current sample (if needed)
         t: Current timestep (if needed)
@@ -46,9 +46,9 @@ def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa, hessian_method='hes
     else:
         noise_pred_ema = noise_pred
 
-    if hessian_method == 'hessian_free':
+    if hessian_method == 'hcg':
         # Hessian-Free method using CG + HVP
-        return hessian_free_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device)
+        return _correct(noise_pred, noise_pred_ema, lamb, model, x, t, device)
     elif hessian_method == 'explicit':
         # Explicit Hessian computation
         return hessian_explicit_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device)
@@ -119,7 +119,7 @@ def hessian_explicit_correct(noise_pred, noise_pred_ema, lamb, model, x, t, devi
     return corrected_noise
 
 
-def hessian_free_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device):
+def _correct(noise_pred, noise_pred_ema, lamb, model, x, t, device):
     """
     LML correction using Hessian-Free method (CG + HVP)
     Solves H^{-1}g using conjugate gradient without explicit Hessian

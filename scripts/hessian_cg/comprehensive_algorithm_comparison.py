@@ -131,7 +131,7 @@ class ComprehensiveAlgorithmComparator:
 
             return corrected_noise, condition_number.item(), rank.item()
 
-    def advanced_hessian_free_correct(self, prev_noise, noise_pred, lamb, kappa, model, x, t, max_iter=10):
+    def advanced__correct(self, prev_noise, noise_pred, lamb, kappa, model, x, t, max_iter=10):
         """Advanced Hessian-Free correction with adaptive damping"""
         if prev_noise is not None:
             noise_pred_ema = kappa * prev_noise + (1 - kappa) * noise_pred
@@ -368,7 +368,7 @@ class ComprehensiveAlgorithmComparator:
                 return corrected
 
             self.pipe.scheduler.lm_correct = explicit_hessian_lm_correct
-        elif algorithm_config['type'] == 'hessian_free':
+        elif algorithm_config['type'] == 'hcg':
             self.pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(self.pipe.scheduler.config)
             self.pipe.scheduler.config.solver_order = 3
             self.pipe.scheduler.config.algorithm_type = "dpmsolver"
@@ -377,15 +377,15 @@ class ComprehensiveAlgorithmComparator:
             self.pipe.scheduler.kappa = algorithm_config.get('kappa', 5e-8)
 
             # Override lm_correct for Hessian-Free
-            def hessian_free_lm_correct(prev_noise, noise_pred, lamb, kappa):
-                corrected, residuals, condition_numbers, adaptive_lambdas = self.advanced_hessian_free_correct(
+            def _lm_correct(prev_noise, noise_pred, lamb, kappa):
+                corrected, residuals, condition_numbers, adaptive_lambdas = self.advanced__correct(
                     prev_noise, noise_pred, lamb, kappa,
                     self.pipe.unet, self.pipe.scheduler.prev_sample,
                     self.pipe.scheduler.timestep, max_iter=algorithm_config.get('max_iter', 10)
                 )
                 return corrected
 
-            self.pipe.scheduler.lm_correct = hessian_free_lm_correct
+            self.pipe.scheduler.lm_correct = _lm_correct
 
         # Generate images
         generation_times = []
@@ -561,7 +561,7 @@ class ComprehensiveAlgorithmComparator:
             },
             {
                 'name': 'Hessian-Free-Basic',
-                'type': 'hessian_free',
+                'type': 'hcg',
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 10,
@@ -572,7 +572,7 @@ class ComprehensiveAlgorithmComparator:
             },
             {
                 'name': 'Hessian-Free-Fast',
-                'type': 'hessian_free',
+                'type': 'hcg',
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 5,

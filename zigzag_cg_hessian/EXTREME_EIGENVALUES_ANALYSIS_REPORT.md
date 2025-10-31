@@ -206,10 +206,10 @@ class ExtremeEigenvaluesPCA:
 
 ## 📁 生成文件
 
-- `ddim_vs_hessian_free_extreme_eigenvalues_20250923_235401.png`: 极端特征值对比图
+- `ddim_vs__extreme_eigenvalues_20250923_235401.png`: 极端特征值对比图
 - `iclr_extreme_eigenvalues_20250923_235605.png`: ICLR格式极端特征值图
 - `extreme_eigenvalues_analysis_20250923_235402.txt`: 详细数值分析
-- `ddim_vs_hessian_free_extreme_eigenvalues.py`: 分析脚本
+- `ddim_vs__extreme_eigenvalues.py`: 分析脚本
 - `iclr_extreme_eigenvalues_visualization.py`: ICLR格式可视化脚本
 - `EXTREME_EIGENVALUES_ANALYSIS_REPORT.md`: 本报告
 

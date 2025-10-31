@@ -24,7 +24,7 @@ def get_sampler_description(sampler_type):
         'dpm_lm': 'DPM-Solver with Levenberg-Marquardt Langevin correction',
         'pndm': 'Pseudo Numerical methods for Diffusion Models',
         'unipc': 'Unified Predictor-Corrector framework',
-        'hessian_free': 'DPM-Solver with Hessian-Free HVP correction using CG'
+        'hcg': 'DPM-Solver with Hessian-Free HVP correction using CG'
     }
     return descriptions.get(sampler_type, 'Unknown sampler type')
 
@@ -162,7 +162,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         'dpm++': 'DPM-Solver++',
         'unipc': 'UniPC',
         'dpm_lm': 'LML',
-        'hessian_free': 'HILDA (Ours)'
+        'hcg': 'HILDA (Ours)'
     }
 
     # 为每个采样器生成图像
@@ -223,9 +223,9 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
             #            transform=ax.transAxes, fontsize=10, rotation=90)
 
     # 添加分隔线（在LML或HILDA列后）
-    if 'dpm_lm' in sampler_types or 'hessian_free' in sampler_types:
-        # 优先使用hessian_free，如果没有则使用dpm_lm
-        lml_index = sampler_types.index('hessian_free') if 'hessian_free' in sampler_types else sampler_types.index('dpm_lm')
+    if 'dpm_lm' in sampler_types or 'hcg' in sampler_types:
+        # 优先使用，如果没有则使用dpm_lm
+        lml_index = sampler_types.index('hcg') if 'hcg' in sampler_types else sampler_types.index('dpm_lm')
         if lml_index < len(sampler_types) - 1:
             # 在LML/HILDA列后添加垂直分隔线
             for row in range(grid_test_num):
@@ -261,7 +261,7 @@ def generate_comparison_grid_from_existing(results_save_dir, args):
     """
     # 定义采样器类型
     if args.grid_samplers is None:
-        sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hessian_free']
+        sampler_types = ['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_lm', 'hcg']
     else:
         sampler_types = args.grid_samplers
 

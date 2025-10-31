@@ -53,7 +53,7 @@ def parse_args():
 
     # Sampler selection
     parser.add_argument('--sampler_type', type=str, default='dpm_lm',
-                        choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'])
+                        choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
@@ -75,12 +75,12 @@ def parse_args():
     parser.add_argument('--grid_title', type=str, default="CelebA-HQ Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
     parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
-    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hessian_free'],
+    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hcg'],
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
-    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free'], help='List of samplers to test in batch mode')
+    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hcg'], help='List of samplers to test in batch mode')
     parser.add_argument('--run_batch_steps', type=int, default=[20, 50, 200], help='List of inference steps to test in batch mode')
 
     # Additional options
@@ -141,7 +141,7 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
         project.info(f"  Using UniPC scheduler")
 
-    elif sampler_type == 'hessian_free':
+    elif sampler_type == 'hcg':
         # pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
         # pipe.scheduler.config.algorithm_type = "dpmsolver"
         # # 设置模型用于Hessian计算
@@ -153,7 +153,7 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         pipe.scheduler.lamb = lamb
         pipe.scheduler.lm = True
         pipe.scheduler.kappa = kappa
-        pipe.scheduler.hessian_method = 'hessian_free'
+        pipe.scheduler.hessian_method = 'hcg'
         project.info(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
 
     else:
@@ -204,7 +204,7 @@ def generate_images(results_save_dir, args, pipe):
         torch.manual_seed(seed)
 
         # Generate images
-        # 确保hessian_free方法有正确的模型设置
+        # 确保方法有正确的模型设置
         if hasattr(pipe.scheduler, 'set_model') and pipe.scheduler.model is None:
             pipe.scheduler.set_model(pipe.unet)
 
@@ -348,7 +348,7 @@ if __name__ == '__main__':
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = args.run_batch_samplers  #['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hessian_free']
+        SAMPLER_TYPES = args.run_batch_samplers  #['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hcg']
         INFERENCE_STEPS = args.run_batch_steps  # [5, 10, 20, 30]
 
     total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)

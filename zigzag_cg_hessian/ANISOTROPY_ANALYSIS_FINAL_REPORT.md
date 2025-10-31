@@ -179,10 +179,10 @@
 
 ## 📁 生成文件
 
-- `ddim_vs_hessian_free_anisotropy_20250924_135614.png`: 各向异性对比图
+- `ddim_vs__anisotropy_20250924_135614.png`: 各向异性对比图
 - `iclr_anisotropy_analysis_20250924_135833.png`: ICLR格式各向异性图
 - `anisotropy_analysis_20250924_135615.txt`: 详细数值分析
-- `ddim_vs_hessian_free_anisotropy_analysis.py`: 分析脚本
+- `ddim_vs__anisotropy_analysis.py`: 分析脚本
 - `iclr_anisotropy_visualization.py`: ICLR格式可视化脚本
 - `ANISOTROPY_ANALYSIS_FINAL_REPORT.md`: 本报告
 

@@ -142,9 +142,9 @@ def hessian_vector_product(v):
 
 ## 📁 生成文件
 
-- `ddpm_vs_hessian_free_comparison_20250923_210244.png`: 对比可视化图
+- `ddpm_vs__comparison_20250923_210244.png`: 对比可视化图
 - `angle_analysis_report_20250923_210245.txt`: 详细角度分析
-- `ddpm_vs_hessian_free_comparison.py`: 分析脚本
+- `ddpm_vs__comparison.py`: 分析脚本
 - `DDPM_VS_HESSIAN_FREE_FINAL_REPORT.md`: 本报告
 
 ## 🚀 未来工作

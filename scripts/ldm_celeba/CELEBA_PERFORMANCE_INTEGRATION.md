@@ -59,7 +59,7 @@ python scripts/celeba.py --performance_only --performance_output_dir output/cele
 
 ```bash
 # 运行单个实验（不包含性能分析）
-python scripts/celeba.py --sampler_type hessian_free --num_inference_steps 20
+python scripts/celeba.py --sampler_type hcg --num_inference_steps 20
 ```
 
 ## 输出文件
@@ -115,13 +115,13 @@ python scripts/celeba.py --sampler_type hessian_free --num_inference_steps 20
 步数 10:
 ----------------------------------------
   ddim        : 0.1234s/img, 8.10 img/s, 20 images
-  hessian_free: 0.1456s/img, 6.87 img/s, 20 images
+  hcg: 0.1456s/img, 6.87 img/s, 20 images
   pndm        : 0.1345s/img, 7.43 img/s, 20 images
 
 步数 20:
 ----------------------------------------
   ddim        : 0.2345s/img, 4.26 img/s, 20 images
-  hessian_free: 0.2567s/img, 3.90 img/s, 20 images
+  hcg: 0.2567s/img, 3.90 img/s, 20 images
   pndm        : 0.2456s/img, 4.07 img/s, 20 images
 
 📈 统计信息:
@@ -133,5 +133,5 @@ python scripts/celeba.py --sampler_type hessian_free --num_inference_steps 20
 总耗时: 28.45 秒
 
 🚀 最快方法: ddim (步数10) - 8.10 img/s
-🐌 最慢方法: hessian_free (步数20) - 3.90 img/s
+🐌 最慢方法: hcg (步数20) - 3.90 img/s
 ```

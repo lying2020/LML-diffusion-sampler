@@ -18,138 +18,272 @@ import math
 from typing import List, Optional, Tuple, Union
 import numpy as np
 import torch
-import torch.nn as nn
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.schedulers.scheduling_utils import KarrasDiffusionSchedulers, SchedulerMixin, SchedulerOutput
 
-def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa, hessian_method='hessian_free',
-                       model=None, x=None, t=None, device='cuda'):
+
+def lanczos_eigenvalue_estimation(
+    hessian_vector_product_fn,
+    x_shape: Tuple,
+    k: int = 10,
+    num_vectors: int = 5,
+    device: str = 'cuda'
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Advanced LML correction with different Hessian computation methods
+    Estimate maximum and minimum eigenvalues using Lanczos algorithm with multiple random vectors.
 
     Args:
-        prev_noise: Previous noise prediction
-        noise_pred: Current noise prediction
-        lamb: Regularization parameter
-        kappa: EMA parameter
-        hessian_method: 'original', 'explicit', or 'hessian_free'
-        model: Model for Hessian computation (if needed)
-        x: Current sample (if needed)
-        t: Current timestep (if needed)
+        hessian_vector_product_fn: Function that computes H*v for any vector v
+        x_shape: Shape of the input tensor
+        k: Number of Lanczos iterations
+        num_vectors: Number of random vectors for robust estimation
         device: Device to use
-    """
 
-    if prev_noise is not None:
-        noise_pred_ema = kappa * prev_noise + (1 - kappa) * noise_pred
+    Returns:
+        alpha_t: Maximum eigenvalue estimate (λ_max)
+        beta_t: Minimum eigenvalue estimate (λ_min)
+    """
+    batch_size = x_shape[0]
+    total_dim = int(np.prod(x_shape[1:]))
+
+    max_eigenvals = []
+    min_eigenvals = []
+
+    # Use a representative sample from the batch (first element) for eigenvalue estimation
+    # This is more efficient and the eigenvalues are typically similar across batch elements
+    for vec_idx in range(num_vectors):
+        # Initialize random vector (flattened)
+        v_flat = torch.randn(total_dim, device=device, dtype=torch.float32)
+        v_flat = v_flat / torch.norm(v_flat)
+        v = v_flat.view(x_shape[0:1] + x_shape[1:])  # Expand to batch shape
+
+        # Lanczos algorithm
+        q = [v_flat.cpu().numpy()]
+        alpha = []
+        beta = []
+
+        # First iteration
+        v_full = v_flat.view(x_shape[0:1] + x_shape[1:])
+        w = hessian_vector_product_fn(v_full)
+        w_flat = w.view(batch_size, -1).mean(dim=0).cpu().numpy()  # Average over batch
+
+        alpha_0 = np.dot(w_flat, v_flat.cpu().numpy())
+        alpha.append(alpha_0)
+        w_flat = w_flat - alpha_0 * v_flat.cpu().numpy()
+
+        beta_0 = np.linalg.norm(w_flat)
+        beta.append(beta_0)
+
+        if beta_0 > 1e-8:
+            q.append(w_flat / (beta_0 + 1e-8))
+        else:
+            # Early termination if breakdown
+            q.append(v_flat.cpu().numpy())
+
+        # Additional iterations
+        for i in range(1, min(k, total_dim)):
+            v_prev = q[-2]
+            v_curr = q[-1]
+
+            # Expand to full shape for HVP
+            v_curr_full = torch.tensor(v_curr, device=device, dtype=torch.float32).view(x_shape[0:1] + x_shape[1:])
+            w = hessian_vector_product_fn(v_curr_full)
+            w_flat = w.view(batch_size, -1).mean(dim=0).cpu().numpy()
+
+            alpha_i = np.dot(w_flat, v_curr)
+            alpha.append(alpha_i)
+
+            w_flat = w_flat - alpha_i * v_curr - beta[-1] * v_prev
+
+            beta_i = np.linalg.norm(w_flat)
+            beta.append(beta_i)
+
+            if beta_i > 1e-8:
+                q.append(w_flat / (beta_i + 1e-8))
+            else:
+                break
+
+        # Build tridiagonal matrix and compute eigenvalues
+        n = len(alpha)
+        T = np.zeros((n, n))
+        for i in range(n):
+            T[i, i] = alpha[i]
+            if i < n - 1 and len(beta) > i:
+                T[i, i+1] = beta[i]
+                T[i+1, i] = beta[i]
+
+        # Compute eigenvalues
+        eigenvals = np.linalg.eigvalsh(T)
+        eigenvals = np.sort(eigenvals)[::-1]  # Descending order
+
+        if len(eigenvals) > 0:
+            max_eigenvals.append(float(eigenvals[0]))
+            min_eigenvals.append(float(eigenvals[-1]))
+
+    if len(max_eigenvals) == 0:
+        # Fallback values
+        alpha_t = torch.tensor(1.0, dtype=torch.float32, device=device)
+        beta_t = torch.tensor(0.1, dtype=torch.float32, device=device)
     else:
-        noise_pred_ema = noise_pred
+        # Return robust estimates (mean across multiple vectors)
+        alpha_t = torch.tensor(np.mean(max_eigenvals), dtype=torch.float32, device=device)
+        beta_t = torch.tensor(np.mean(min_eigenvals), dtype=torch.float32, device=device)
 
-    if hessian_method == 'hessian_free':
-        # Hessian-Free method using CG + HVP
-        return hessian_free_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device)
-    elif hessian_method == 'explicit':
-        # Explicit Hessian computation
-        return hessian_explicit_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device)
+    # Ensure positive definiteness
+    beta_t = torch.clamp(beta_t, min=1e-6)
+    alpha_t = torch.clamp(alpha_t, min=beta_t.item())
 
-    else:
-        raise ValueError(f"Unknown hessian_method: {hessian_method}")
+    return alpha_t, beta_t
 
 
-def hessian_explicit_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device):
+def adaptive_damping_lambda(
+    alpha_t: torch.Tensor,
+    beta_t: torch.Tensor,
+    kappa_target: float = 10.0
+) -> torch.Tensor:
+    f"""
+    Compute adaptive damping parameter lambda_t based on condition number.
+
+    According to the lemma:
+    lambda_t = max(0, (alpha_t - kappa_* * beta_t) / (kappa_* - 1))
+
+    This ensures kappa(H_sym + lambda_t I) ≤ kappa_*
+
+    Args:
+        alpha_t: Maximum eigenvalue (lambda_max)
+        beta_t: Minimum eigenvalue (lambda_min)
+        kappa_target: Target condition number \kappa_* (>1)
+
+    Returns:
+        lambda_t: Adaptive damping parameter
     """
-    LML correction using explicit Hessian computation
-    Based on finite difference approximation of Hessian matrix
-    """
+    if kappa_target <= 1.0:
+        raise ValueError(f"kappa_target must be > 1, got {kappa_target}")
 
+    # Current condition number
+    kappa_current = alpha_t / (beta_t + 1e-8)
+
+    if kappa_current <= kappa_target:
+        # No damping needed
+        return torch.tensor(0.0, dtype=alpha_t.dtype, device=alpha_t.device)
+
+    # Compute adaptive damping
+    numerator = alpha_t - kappa_target * beta_t
+    denominator = kappa_target - 1.0
+
+    lambda_t = torch.maximum(
+        torch.tensor(0.0, dtype=alpha_t.dtype, device=alpha_t.device),
+        numerator / denominator
+    )
+
+    return lambda_t
+
+
+def hcg_correct(
+    noise_pred: torch.Tensor,
+    model,
+    x: torch.Tensor,
+    t: int,
+    device: str = 'cuda',
+    kappa_target: float = 10.0,
+    lanczos_k: int = 10,
+    cg_max_iter: int = 20,
+    cg_tol: float = 1e-4,
+    use_spectral_scaling: bool = True,
+) -> torch.Tensor:
+    """
+    Hessian-Conjugate Gradient correction using adaptive damping.
+
+    Solves c_t * (H + lambda_t I)^{-1} * noise_pred where:
+    - H is the Hessian of -log p_t(x)
+    - lambda_t is adaptive damping based on condition number
+    - c_t = 1/(alpha_t + lambda_t) is the spectral radius scaling factor
+
+    Args:
+        noise_pred: Noise prediction to correct
+        model: Model for Hessian computation
+        x: Current sample
+        t: Current timestep
+        device: Device to use
+        kappa_target: Target condition number κ_*
+        lanczos_k: Number of Lanczos iterations for eigenvalue estimation
+        cg_max_iter: Maximum CG iterations
+        cg_tol: CG tolerance
+        use_spectral_scaling: Whether to apply spectral radius scaling c_t
+
+    Returns:
+        corrected_noise: Corrected noise prediction
+    """
     batch_size, channels, height, width = noise_pred.shape
 
-    # Compute gradient of log p_t(x) at current point
-    x_grad = x.clone().detach().requires_grad_(True)
-    with torch.enable_grad():
-        # Forward pass to get score function
-        score_pred = model(x_grad, t)
-        if hasattr(score_pred, 'sample'):
-            score_pred = score_pred.sample
-
-        # Log probability (simplified)
-        log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
-        log_prob = log_prob.sum()
-
-    # Compute gradient
-    grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
-
-    # Compute Hessian using finite differences (simplified version)
-    # For efficiency, we only compute diagonal elements
-    eps = 1e-4
-    hessian_diag = torch.zeros_like(x)
-
-    for i in range(channels):
-        for j in range(height):
-            for k in range(width):
-                # Perturb single element
-                x_pert = x.clone()
-                x_pert[:, i, j, k] += eps
-
-                # Compute gradient at perturbed point
-                x_pert_grad = x_pert.clone().detach().requires_grad_(True)
-                with torch.enable_grad():
-                    score_pred_pert = model(x_pert_grad, t)
-                    if hasattr(score_pred_pert, 'sample'):
-                        score_pred_pert = score_pred_pert.sample
-                    log_prob_pert = -0.5 * torch.sum(score_pred_pert ** 2, dim=(1, 2, 3))
-                    log_prob_pert = log_prob_pert.sum()
-
-                grad_pert = torch.autograd.grad(log_prob_pert, x_pert_grad, create_graph=False)[0]
-                hessian_diag[:, i, j, k] = (grad_pert[:, i, j, k] - grad[:, i, j, k]) / eps
-
-    # Apply LML correction using diagonal Hessian approximation
-    # H^{-1} ≈ (H_diag + λI)^{-1}
-    hessian_inv_diag = 1.0 / (hessian_diag + lamb)
-
-    # Apply correction
-    corrected_noise = noise_pred * hessian_inv_diag
-
-    # Normalize
-    norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
-    norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
-    corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
-
-    return corrected_noise
-
-
-def hessian_free_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device):
-    """
-    LML correction using Hessian-Free method (CG + HVP)
-    Solves H^{-1}g using conjugate gradient without explicit Hessian
-    """
-
-    batch_size, channels, height, width = noise_pred.shape
-
-    def hessian_vector_product(v):
-        """Compute Hv using Pearlmutter's method"""
+    def hessian_vector_product(v: torch.Tensor) -> torch.Tensor:
+        """
+        Compute H*v using Pearlmutter's method.
+        H is the Hessian of -log p_t(x), symmetrized.
+        """
         # Ensure v requires grad
         v_grad = v.clone().detach().requires_grad_(True)
         x_grad = x.clone().detach().requires_grad_(True)
 
         with torch.enable_grad():
+            # Forward pass to get score function
             score_pred = model(x_grad, t)
             if hasattr(score_pred, 'sample'):
                 score_pred = score_pred.sample
+
+            # Log probability: -0.5 * ||score||^2
             log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
             log_prob = log_prob.sum()
 
-        # First gradient
+        # First gradient: ∇log_prob
         grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
 
-        # Hv = ∇(∇f · v)
+        # Hv = ∇(∇f · v) for H = -∇²log p
+        # We compute Hv where H is the Hessian of -log p
         grad_dot_v = torch.sum(grad * v_grad)
-        hv = torch.autograd.grad(grad_dot_v, x_grad, retain_graph=True)[0]
-        return hv
+        Hv = torch.autograd.grad(grad_dot_v, x_grad, retain_graph=True)[0]
 
-    def conjugate_gradient_solve(b, max_iter=20, tol=1e-4):
-        """Solve Hx = b using CG"""
+        # Symmetrize: H_sym = 0.5 * (H + H^T)
+        # Since we can't compute H^T directly, we use the approximation
+        # that Hv computed above is already close to H_sym * v for symmetric H
+        return Hv
+
+    # Step 1: Estimate eigenvalues using Lanczos
+    try:
+        alpha_t, beta_t = lanczos_eigenvalue_estimation(
+            hessian_vector_product_fn=hessian_vector_product,
+            x_shape=x.shape,
+            k=lanczos_k,
+            num_vectors=3,  # Use fewer vectors for efficiency
+            device=device
+        )
+    except Exception as e:
+        # Fallback: use diagonal approximation
+        # This is a simplified fallback - in practice you might want better handling
+        print(f"Warning: Lanczos estimation failed, using fallback: {e}")
+        alpha_t = torch.tensor(1.0, dtype=torch.float32, device=device)
+        beta_t = torch.tensor(0.1, dtype=torch.float32, device=device)
+
+    # Step 2: Compute adaptive damping λ_t
+    lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+
+    # Step 3: Compute spectral radius scaling factor c_t = 1/(α_t + λ_t)
+    if use_spectral_scaling:
+        c_t = 1.0 / (alpha_t + lambda_t + 1e-8)
+    else:
+        c_t = 1.0
+
+    # Step 4: Solve (H + λ_t I)^{-1} * noise_pred using CG
+    def regularized_hessian_vector_product(v: torch.Tensor) -> torch.Tensor:
+        """Compute (H + λ_t I) * v"""
+        Hv = hessian_vector_product(v)
+        # Add regularization: (H + λ_t I)v = Hv + λ_t * v
+        return Hv + lambda_t * v
+
+    def conjugate_gradient_solve(b: torch.Tensor) -> torch.Tensor:
+        """Solve (H + λ_t I) * x = b using CG"""
         x_cg = torch.zeros_like(b)
         r = b.clone()
         p = r.clone()
@@ -157,11 +291,14 @@ def hessian_free_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device):
         r_norm_sq = torch.sum(r ** 2)
         r_norm_0 = torch.sqrt(r_norm_sq)
 
-        for i in range(max_iter):
-            Hp = hessian_vector_product(p)
+        if r_norm_0 < 1e-10:
+            return x_cg
+
+        for i in range(cg_max_iter):
+            Hp = regularized_hessian_vector_product(p)
             p_Hp = torch.sum(p * Hp)
 
-            if p_Hp <= 0:
+            if p_Hp <= 1e-10:
                 break
 
             alpha = r_norm_sq / p_Hp
@@ -171,26 +308,26 @@ def hessian_free_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device):
             r_norm_sq_new = torch.sum(r ** 2)
             r_norm = torch.sqrt(r_norm_sq_new)
 
-            if r_norm < tol * r_norm_0:
+            if r_norm < cg_tol * r_norm_0:
                 break
 
-            beta = r_norm_sq_new / r_norm_sq
-            p = r + beta * p
-            r_norm_sq = r_norm_sq_new
+            if i < cg_max_iter - 1:
+                beta = r_norm_sq_new / (r_norm_sq + 1e-10)
+                p = r + beta * p
+                r_norm_sq = r_norm_sq_new
 
         return x_cg
 
-    # Solve H^{-1} * noise_pred using CG
-    # We want to solve Hx = noise_pred, so x = H^{-1} * noise_pred
+    # Solve (H + λ_t I)^{-1} * noise_pred
     corrected_noise = conjugate_gradient_solve(noise_pred)
 
-    # Add regularization
-    corrected_noise = corrected_noise / (1.0 + lamb)
+    # Step 5: Apply spectral radius scaling: c_t * corrected_noise
+    corrected_noise = c_t * corrected_noise
 
-    # Normalize
-    norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
+    # Step 6: Normalize to preserve magnitude
+    norm_original = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
     norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
-    corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
+    corrected_noise = corrected_noise * norm_original / (norm_corrected + 1e-8)
 
     return corrected_noise
 
@@ -236,13 +373,21 @@ def betas_for_alpha_bar(num_diffusion_timesteps, max_beta=0.999, alpha_transform
     return torch.tensor(betas, dtype=torch.float32)
 
 
-# Import the rest of the original scheduler
-from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
+class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
+    """
+    DPM-Solver with Hessian-Conjugate Gradient (HCG) correction using adaptive damping.
 
-class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
+    This scheduler extends DPM-Solver with adaptive Hessian correction that:
+    1. Estimates Hessian eigenvalues using Lanczos algorithm
+    2. Computes adaptive damping λ_t based on target condition number
+    3. Uses conjugate gradient to solve (H + λ_t I)^{-1} * g
+    4. Applies spectral radius scaling c_t = 1/(α_t + λ_t)
+
+    For more details, see the original DPM-Solver paper: https://arxiv.org/abs/2206.00927
     """
-    Advanced DPM-Solver with multiple Hessian computation methods
-    """
+
+    _compatibles = [e.name for e in KarrasDiffusionSchedulers]
+    order = 1
 
     @register_to_config
     def __init__(
@@ -265,40 +410,280 @@ class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
         variance_type: Optional[str] = None,
         timestep_spacing: str = "linspace",
         steps_offset: int = 0,
-        lamb: float = 1.0,
-        lm: bool = False,
-        kappa: float = 0.0,
-        hessian_method: str = 'original',  # New parameter
+        use_hcg: bool = True,
+        kappa_target: float = 10.0,
+        lanczos_k: int = 10,
+        cg_max_iter: int = 20,
+        cg_tol: float = 1e-4,
+        use_spectral_scaling: bool = True,
     ):
-        super().__init__(
-            num_train_timesteps=num_train_timesteps,
-            beta_start=beta_start,
-            beta_end=beta_end,
-            beta_schedule=beta_schedule,
-            trained_betas=trained_betas,
-            solver_order=solver_order,
-            prediction_type=prediction_type,
-            thresholding=thresholding,
-            dynamic_thresholding_ratio=dynamic_thresholding_ratio,
-            sample_max_value=sample_max_value,
-            algorithm_type=algorithm_type,
-            solver_type=solver_type,
-            lower_order_final=lower_order_final,
-            use_karras_sigmas=use_karras_sigmas,
-            lambda_min_clipped=lambda_min_clipped,
-            variance_type=variance_type,
-            timestep_spacing=timestep_spacing,
-            steps_offset=steps_offset,
-            lamb=lamb,
-            lm=lm,
-            kappa=kappa,
-        )
-        self.hessian_method = hessian_method
+        if trained_betas is not None:
+            self.betas = torch.tensor(trained_betas, dtype=torch.float32)
+        elif beta_schedule == "linear":
+            self.betas = torch.linspace(beta_start, beta_end, num_train_timesteps, dtype=torch.float32)
+        elif beta_schedule == "scaled_linear":
+            # this schedule is very specific to the latent diffusion model.
+            self.betas = (
+                torch.linspace(beta_start**0.5, beta_end**0.5, num_train_timesteps, dtype=torch.float32) ** 2
+            )
+        elif beta_schedule == "squaredcos_cap_v2":
+            # Glide cosine schedule
+            self.betas = betas_for_alpha_bar(num_train_timesteps)
+        else:
+            raise NotImplementedError(f"{beta_schedule} does is not implemented for {self.__class__}")
+
+        self.use_hcg = use_hcg
+        self.kappa_target = kappa_target
+        self.lanczos_k = lanczos_k
+        self.cg_max_iter = cg_max_iter
+        self.cg_tol = cg_tol
+        self.use_spectral_scaling = use_spectral_scaling
+
         self.model = None  # Will be set during sampling
+        self.prev_noise = None
+
+        self.alphas = 1.0 - self.betas
+        self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+        # Currently we only support VP-type noise schedule
+        self.alpha_t = torch.sqrt(self.alphas_cumprod)
+        self.sigma_t = torch.sqrt(1 - self.alphas_cumprod)
+        self.lambda_t = torch.log(self.alpha_t) - torch.log(self.sigma_t)
+
+        # standard deviation of the initial noise distribution
+        self.init_noise_sigma = 1.0
+
+        # settings for DPM-Solver
+        if algorithm_type not in ["dpmsolver", "dpmsolver++", "sde-dpmsolver", "sde-dpmsolver++"]:
+            if algorithm_type == "deis":
+                self.register_to_config(algorithm_type="dpmsolver++")
+            else:
+                raise NotImplementedError(f"{algorithm_type} does is not implemented for {self.__class__}")
+
+        if solver_type not in ["midpoint", "heun"]:
+            if solver_type in ["logrho", "bh1", "bh2"]:
+                self.register_to_config(solver_type="midpoint")
+            else:
+                raise NotImplementedError(f"{solver_type} does is not implemented for {self.__class__}")
+
+        # setable values
+        self.num_inference_steps = None
+        timesteps = np.linspace(0, num_train_timesteps - 1, num_train_timesteps, dtype=np.float32)[::-1].copy()
+        self.timesteps = torch.from_numpy(timesteps)
+        self.model_outputs = [None] * solver_order
+        self.lower_order_nums = 0
 
     def set_model(self, model):
         """Set the model for Hessian computation"""
         self.model = model
+
+    def set_timesteps(self, num_inference_steps: int = None, device: Union[str, torch.device] = None):
+        """
+        Sets the timesteps used for the diffusion chain. Supporting function to be run before inference.
+
+        Args:
+            num_inference_steps (`int`):
+                the number of diffusion steps used when generating samples with a pre-trained model.
+            device (`str` or `torch.device`, optional):
+                the device to which the timesteps should be moved to. If `None`, the timesteps are not moved.
+        """
+        # Clipping the minimum of all lambda(t) for numerical stability.
+        # This is critical for cosine (squaredcos_cap_v2) noise schedule.
+        clipped_idx = torch.searchsorted(torch.flip(self.lambda_t, [0]), self.config.lambda_min_clipped)
+        last_timestep = ((self.config.num_train_timesteps - clipped_idx).numpy()).item()
+
+        # "linspace", "leading", "trailing" corresponds to annotation of Table 2. of https://arxiv.org/abs/2305.08891
+        if self.config.timestep_spacing == "linspace":
+            timesteps = (
+                np.linspace(0, last_timestep - 1, num_inference_steps + 1).round()[::-1][:-1].copy().astype(np.int64)
+            )
+        elif self.config.timestep_spacing == "leading":
+            step_ratio = last_timestep // (num_inference_steps + 1)
+            # creates integer timesteps by multiplying by ratio
+            # casting to int to avoid issues when num_inference_step is power of 3
+            timesteps = (np.arange(0, num_inference_steps + 1) * step_ratio).round()[::-1][:-1].copy().astype(np.int64)
+            timesteps += self.config.steps_offset
+        elif self.config.timestep_spacing == "trailing":
+            step_ratio = self.config.num_train_timesteps / num_inference_steps
+            # creates integer timesteps by multiplying by ratio
+            # casting to int to avoid issues when num_inference_step is power of 3
+            timesteps = np.arange(last_timestep, 0, -step_ratio).round().copy().astype(np.int64)
+            timesteps -= 1
+        else:
+            raise ValueError(
+                f"{self.config.timestep_spacing} is not supported. Please make sure to choose one of 'linspace', 'leading' or 'trailing'."
+            )
+
+        sigmas = np.array(((1 - self.alphas_cumprod) / self.alphas_cumprod) ** 0.5)
+        if self.config.use_karras_sigmas:
+            log_sigmas = np.log(sigmas)
+            sigmas = self._convert_to_karras(in_sigmas=sigmas, num_inference_steps=num_inference_steps)
+            timesteps = np.array([self._sigma_to_t(sigma, log_sigmas) for sigma in sigmas]).round()
+            timesteps = np.flip(timesteps).copy().astype(np.int64)
+
+        self.sigmas = torch.from_numpy(sigmas)
+
+        # when num_inference_steps == num_train_timesteps, we can end up with
+        # duplicates in timesteps.
+        _, unique_indices = np.unique(timesteps, return_index=True)
+        timesteps = timesteps[np.sort(unique_indices)]
+
+        self.timesteps = torch.from_numpy(timesteps).to(device)
+
+        self.num_inference_steps = len(timesteps)
+
+        self.model_outputs = [
+            None,
+        ] * self.config.solver_order
+        self.lower_order_nums = 0
+        self.prev_noise = None
+
+    # Copied from diffusers.schedulers.scheduling_ddpm.DDPMScheduler._threshold_sample
+    def _threshold_sample(self, sample: torch.FloatTensor) -> torch.FloatTensor:
+        """
+        "Dynamic thresholding: At each sampling step we set s to a certain percentile absolute pixel value in xt0 (the
+        prediction of x_0 at timestep t), and if s > 1, then we threshold xt0 to the range [-s, s] and then divide by
+        s. Dynamic thresholding pushes saturated pixels (those near -1 and 1) inwards, thereby actively preventing
+        pixels from saturation at each step. We find that dynamic thresholding results in significantly better
+        photorealism as well as better image-text alignment, especially when using very large guidance weights."
+
+        https://arxiv.org/abs/2205.11487
+        """
+        dtype = sample.dtype
+        batch_size, channels, height, width = sample.shape
+
+        if dtype not in (torch.float32, torch.float64):
+            sample = sample.float()  # upcast for quantile calculation, and clamp not implemented for cpu half
+
+        # Flatten sample for doing quantile calculation along each image
+        sample = sample.reshape(batch_size, channels * height * width)
+
+        abs_sample = sample.abs()  # "a certain percentile absolute pixel value"
+
+        s = torch.quantile(abs_sample, self.config.dynamic_thresholding_ratio, dim=1)
+        s = torch.clamp(
+            s, min=1, max=self.config.sample_max_value
+        )  # When clamped to min=1, equivalent to standard clipping to [-1, 1]
+
+        s = s.unsqueeze(1)  # (batch_size, 1) because clamp will broadcast along dim=0
+        sample = torch.clamp(sample, -s, s) / s  # "we threshold xt0 to the range [-s, s] and then divide by s"
+
+        sample = sample.reshape(batch_size, channels, height, width)
+        sample = sample.to(dtype)
+
+        return sample
+
+    # Copied from diffusers.schedulers.scheduling_euler_discrete.EulerDiscreteScheduler._sigma_to_t
+    def _sigma_to_t(self, sigma, log_sigmas):
+        # get log sigma
+        log_sigma = np.log(sigma)
+
+        # get distribution
+        dists = log_sigma - log_sigmas[:, np.newaxis]
+
+        # get sigmas range
+        low_idx = np.cumsum((dists >= 0), axis=0).argmax(axis=0).clip(max=log_sigmas.shape[0] - 2)
+        high_idx = low_idx + 1
+
+        low = log_sigmas[low_idx]
+        high = log_sigmas[high_idx]
+
+        # interpolate sigmas
+        w = (low - log_sigma) / (low - high)
+        w = np.clip(w, 0, 1)
+
+        # transform interpolation to time range
+        t = (1 - w) * low_idx + w * high_idx
+        t = t.reshape(sigma.shape)
+        return t
+
+    # Copied from diffusers.schedulers.scheduling_euler_discrete.EulerDiscreteScheduler._convert_to_karras
+    def _convert_to_karras(self, in_sigmas: torch.FloatTensor, num_inference_steps) -> torch.FloatTensor:
+        """Constructs the noise schedule of Karras et al. (2022)."""
+
+        sigma_min: float = in_sigmas[-1].item()
+        sigma_max: float = in_sigmas[0].item()
+
+        rho = 7.0  # 7.0 is the value used in the paper
+        ramp = np.linspace(0, 1, num_inference_steps)
+        min_inv_rho = sigma_min ** (1 / rho)
+        max_inv_rho = sigma_max ** (1 / rho)
+        sigmas = (max_inv_rho + ramp * (min_inv_rho - max_inv_rho)) ** rho
+        return sigmas
+
+    def convert_model_output(
+        self, model_output: torch.FloatTensor, timestep: int, sample: torch.FloatTensor
+    ) -> torch.FloatTensor:
+        """
+        Convert the model output to the corresponding type that the algorithm (DPM-Solver / DPM-Solver++) needs.
+
+        DPM-Solver is designed to discretize an integral of the noise prediction model, and DPM-Solver++ is designed to
+        discretize an integral of the data prediction model. So we need to first convert the model output to the
+        corresponding type to match the algorithm.
+
+        Note that the algorithm type and the model type is decoupled. That is to say, we can use either DPM-Solver or
+        DPM-Solver++ for both noise prediction model and data prediction model.
+
+        Args:
+            model_output (`torch.FloatTensor`): direct output from learned diffusion model.
+            timestep (`int`): current discrete timestep in the diffusion chain.
+            sample (`torch.FloatTensor`):
+                current instance of sample being created by diffusion process.
+
+        Returns:
+            `torch.FloatTensor`: the converted model output.
+        """
+
+        # DPM-Solver++ needs to solve an integral of the data prediction model.
+        if self.config.algorithm_type in ["dpmsolver++", "sde-dpmsolver++"]:
+            if self.config.prediction_type == "epsilon":
+                # DPM-Solver and DPM-Solver++ only need the "mean" output.
+                if self.config.variance_type in ["learned", "learned_range"]:
+                    model_output = model_output[:, :3]
+                alpha_t, sigma_t = self.alpha_t[timestep], self.sigma_t[timestep]
+                x0_pred = (sample - sigma_t * model_output) / alpha_t
+            elif self.config.prediction_type == "sample":
+                x0_pred = model_output
+            elif self.config.prediction_type == "v_prediction":
+                alpha_t, sigma_t = self.alpha_t[timestep], self.sigma_t[timestep]
+                x0_pred = alpha_t * sample - sigma_t * model_output
+            else:
+                raise ValueError(
+                    f"prediction_type given as {self.config.prediction_type} must be one of `epsilon`, `sample`, or"
+                    " `v_prediction` for the DPMSolverMultistepScheduler."
+                )
+
+            if self.config.thresholding:
+                x0_pred = self._threshold_sample(x0_pred)
+
+            return x0_pred
+
+        # DPM-Solver needs to solve an integral of the noise prediction model.
+        elif self.config.algorithm_type in ["dpmsolver", "sde-dpmsolver"]:
+            if self.config.prediction_type == "epsilon":
+                # DPM-Solver and DPM-Solver++ only need the "mean" output.
+                if self.config.variance_type in ["learned", "learned_range"]:
+                    epsilon = model_output[:, :3]
+                else:
+                    epsilon = model_output
+            elif self.config.prediction_type == "sample":
+                alpha_t, sigma_t = self.alpha_t[timestep], self.sigma_t[timestep]
+                epsilon = (sample - alpha_t * model_output) / sigma_t
+            elif self.config.prediction_type == "v_prediction":
+                alpha_t, sigma_t = self.alpha_t[timestep], self.sigma_t[timestep]
+                epsilon = alpha_t * model_output + sigma_t * sample
+            else:
+                raise ValueError(
+                    f"prediction_type given as {self.config.prediction_type} must be one of `epsilon`, `sample`, or"
+                    " `v_prediction` for the DPMSolverMultistepScheduler."
+                )
+
+            if self.config.thresholding:
+                alpha_t, sigma_t = self.alpha_t[timestep], self.sigma_t[timestep]
+                x0_pred = (sample - sigma_t * epsilon) / alpha_t
+                x0_pred = self._threshold_sample(x0_pred)
+                epsilon = (sample - alpha_t * x0_pred) / sigma_t
+
+            return epsilon
 
     def dpm_solver_first_order_update(
         self,
@@ -307,10 +692,22 @@ class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
         prev_timestep: int,
         sample: torch.FloatTensor,
         noise: Optional[torch.FloatTensor] = None,
-        lamb: float = 1.0,
-        lm=True,
     ) -> torch.FloatTensor:
-        """Enhanced first-order update with advanced Hessian methods"""
+        """
+        One step for the first-order DPM-Solver (equivalent to DDIM).
+
+        See https://arxiv.org/abs/2206.00927 for the detailed derivation.
+
+        Args:
+            model_output (`torch.FloatTensor`): direct output from learned diffusion model.
+            timestep (`int`): current discrete timestep in the diffusion chain.
+            prev_timestep (`int`): previous discrete timestep in the diffusion chain.
+            sample (`torch.FloatTensor`):
+                current instance of sample being created by diffusion process.
+
+        Returns:
+            `torch.FloatTensor`: the sample tensor at the previous timestep.
+        """
         lambda_t, lambda_s = self.lambda_t[prev_timestep], self.lambda_t[timestep]
         alpha_t, alpha_s = self.alpha_t[prev_timestep], self.alpha_t[timestep]
         sigma_t, sigma_s = self.sigma_t[prev_timestep], self.sigma_t[timestep]
@@ -318,42 +715,384 @@ class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
 
         if self.config.algorithm_type == "dpmsolver++":
             noise = - (alpha_t * (torch.exp(-h) - 1.0)) * model_output
-            if lm is True:
-                x_t = (sigma_t / sigma_s) * sample + lm_correct_advanced(
-                    prev_noise=self.prev_noise,
+            if self.use_hcg and self.model is not None:
+                x_t = (sigma_t / sigma_s) * sample + hcg_correct(
                     noise_pred=noise,
-                    lamb=self.lamb,
-                    kappa=self.kappa,
-                    hessian_method=self.hessian_method,
                     model=self.model,
                     x=sample,
                     t=timestep,
-                    device=sample.device
+                    device=sample.device,
+                    kappa_target=self.kappa_target,
+                    lanczos_k=self.lanczos_k,
+                    cg_max_iter=self.cg_max_iter,
+                    cg_tol=self.cg_tol,
+                    use_spectral_scaling=self.use_spectral_scaling,
                 )
             else:
                 x_t = (sigma_t / sigma_s) * sample + noise
             self.prev_noise = noise
         elif self.config.algorithm_type == "dpmsolver":
             noise = - (sigma_t * (torch.exp(h) - 1.0)) * model_output
-            if lm is True:
-                x_t = (alpha_t / alpha_s) * sample + lm_correct_advanced(
-                    prev_noise=self.prev_noise,
+            if self.use_hcg and self.model is not None:
+                x_t = (alpha_t / alpha_s) * sample + hcg_correct(
                     noise_pred=noise,
-                    lamb=self.lamb,
-                    kappa=self.kappa,
-                    hessian_method=self.hessian_method,
                     model=self.model,
                     x=sample,
                     t=timestep,
-                    device=sample.device
+                    device=sample.device,
+                    kappa_target=self.kappa_target,
+                    lanczos_k=self.lanczos_k,
+                    cg_max_iter=self.cg_max_iter,
+                    cg_tol=self.cg_tol,
+                    use_spectral_scaling=self.use_spectral_scaling,
                 )
             else:
                 x_t = (alpha_t / alpha_s) * sample + noise
             self.prev_noise = noise
-        else:
-            # Handle other algorithm types
-            x_t = super().dpm_solver_first_order_update(
-                model_output, timestep, prev_timestep, sample, noise, lamb, lm
+        elif self.config.algorithm_type == "sde-dpmsolver++":
+            assert noise is not None
+            x_t = (
+                (sigma_t / sigma_s * torch.exp(-h)) * sample
+                + (alpha_t * (1 - torch.exp(-2.0 * h))) * model_output
+                + sigma_t * torch.sqrt(1.0 - torch.exp(-2 * h)) * noise
+            )
+        elif self.config.algorithm_type == "sde-dpmsolver":
+            assert noise is not None
+            x_t = (
+                (alpha_t / alpha_s) * sample
+                - 2.0 * (sigma_t * (torch.exp(h) - 1.0)) * model_output
+                + sigma_t * torch.sqrt(torch.exp(2 * h) - 1.0) * noise
+            )
+        return x_t
+
+    def multistep_dpm_solver_second_order_update(
+        self,
+        model_output_list: List[torch.FloatTensor],
+        timestep_list: List[int],
+        prev_timestep: int,
+        sample: torch.FloatTensor,
+        noise: Optional[torch.FloatTensor] = None,
+    ) -> torch.FloatTensor:
+        """
+        One step for the second-order multistep DPM-Solver.
+
+        Args:
+            model_output_list (`List[torch.FloatTensor]`):
+                direct outputs from learned diffusion model at current and latter timesteps.
+            timestep (`int`): current and latter discrete timestep in the diffusion chain.
+            prev_timestep (`int`): previous discrete timestep in the diffusion chain.
+            sample (`torch.FloatTensor`):
+                current instance of sample being created by diffusion process.
+
+        Returns:
+            `torch.FloatTensor`: the sample tensor at the previous timestep.
+        """
+        t, s0, s1 = prev_timestep, timestep_list[-1], timestep_list[-2]
+        m0, m1 = model_output_list[-1], model_output_list[-2]
+        lambda_t, lambda_s0, lambda_s1 = self.lambda_t[t], self.lambda_t[s0], self.lambda_t[s1]
+        alpha_t, alpha_s0 = self.alpha_t[t], self.alpha_t[s0]
+        sigma_t, sigma_s0 = self.sigma_t[t], self.sigma_t[s0]
+        h, h_0 = lambda_t - lambda_s0, lambda_s0 - lambda_s1
+        r0 = h_0 / h
+        D0, D1 = m0, (1.0 / r0) * (m0 - m1)
+
+        if self.config.algorithm_type == "dpmsolver++":
+            if self.config.solver_type == "midpoint":
+                noise = - (alpha_t * (torch.exp(-h) - 1.0)) * D0 - 0.5 * (alpha_t * (torch.exp(-h) - 1.0)) * D1
+                if self.use_hcg and self.model is not None:
+                    x_t = (sigma_t / sigma_s0) * sample + hcg_correct(
+                        noise_pred=noise,
+                        model=self.model,
+                        x=sample,
+                        t=timestep_list[-1],
+                        device=sample.device,
+                        kappa_target=self.kappa_target,
+                        lanczos_k=self.lanczos_k,
+                        cg_max_iter=self.cg_max_iter,
+                        cg_tol=self.cg_tol,
+                        use_spectral_scaling=self.use_spectral_scaling,
+                    )
+                else:
+                    x_t = (sigma_t / sigma_s0) * sample + noise
+                self.prev_noise = noise
+            elif self.config.solver_type == "heun":
+                noise = - (alpha_t * (torch.exp(-h) - 1.0)) * D0 + (alpha_t * ((torch.exp(-h) - 1.0) / h + 1.0)) * D1
+                if self.use_hcg and self.model is not None:
+                    x_t = (sigma_t / sigma_s0) * sample + hcg_correct(
+                        noise_pred=noise,
+                        model=self.model,
+                        x=sample,
+                        t=timestep_list[-1],
+                        device=sample.device,
+                        kappa_target=self.kappa_target,
+                        lanczos_k=self.lanczos_k,
+                        cg_max_iter=self.cg_max_iter,
+                        cg_tol=self.cg_tol,
+                        use_spectral_scaling=self.use_spectral_scaling,
+                    )
+                else:
+                    x_t = (sigma_t / sigma_s0) * sample + noise
+                self.prev_noise = noise
+        elif self.config.algorithm_type == "dpmsolver":
+            if self.config.solver_type == "midpoint":
+                noise = - (sigma_t * (torch.exp(h) - 1.0)) * D0 - 0.5 * (sigma_t * (torch.exp(h) - 1.0)) * D1
+                if self.use_hcg and self.model is not None:
+                    x_t = (alpha_t / alpha_s0) * sample + hcg_correct(
+                        noise_pred=noise,
+                        model=self.model,
+                        x=sample,
+                        t=timestep_list[-1],
+                        device=sample.device,
+                        kappa_target=self.kappa_target,
+                        lanczos_k=self.lanczos_k,
+                        cg_max_iter=self.cg_max_iter,
+                        cg_tol=self.cg_tol,
+                        use_spectral_scaling=self.use_spectral_scaling,
+                    )
+                else:
+                    x_t = (alpha_t / alpha_s0) * sample + noise
+                self.prev_noise = noise
+            elif self.config.solver_type == "heun":
+                noise = - (sigma_t * (torch.exp(h) - 1.0)) * D0 - (sigma_t * ((torch.exp(h) - 1.0) / h - 1.0)) * D1
+                if self.use_hcg and self.model is not None:
+                    x_t = (alpha_t / alpha_s0) * sample + hcg_correct(
+                        noise_pred=noise,
+                        model=self.model,
+                        x=sample,
+                        t=timestep_list[-1],
+                        device=sample.device,
+                        kappa_target=self.kappa_target,
+                        lanczos_k=self.lanczos_k,
+                        cg_max_iter=self.cg_max_iter,
+                        cg_tol=self.cg_tol,
+                        use_spectral_scaling=self.use_spectral_scaling,
+                    )
+                else:
+                    x_t = (alpha_t / alpha_s0) * sample + noise
+                self.prev_noise = noise
+        elif self.config.algorithm_type == "sde-dpmsolver++":
+            assert noise is not None
+            if self.config.solver_type == "midpoint":
+                x_t = (
+                    (sigma_t / sigma_s0 * torch.exp(-h)) * sample
+                    + (alpha_t * (1 - torch.exp(-2.0 * h))) * D0
+                    + 0.5 * (alpha_t * (1 - torch.exp(-2.0 * h))) * D1
+                    + sigma_t * torch.sqrt(1.0 - torch.exp(-2 * h)) * noise
+                )
+            elif self.config.solver_type == "heun":
+                x_t = (
+                    (sigma_t / sigma_s0 * torch.exp(-h)) * sample
+                    + (alpha_t * (1 - torch.exp(-2.0 * h))) * D0
+                    + (alpha_t * ((1.0 - torch.exp(-2.0 * h)) / (-2.0 * h) + 1.0)) * D1
+                    + sigma_t * torch.sqrt(1.0 - torch.exp(-2 * h)) * noise
+                )
+        elif self.config.algorithm_type == "sde-dpmsolver":
+            assert noise is not None
+            if self.config.solver_type == "midpoint":
+                x_t = (
+                    (alpha_t / alpha_s0) * sample
+                    - 2.0 * (sigma_t * (torch.exp(h) - 1.0)) * D0
+                    - (sigma_t * (torch.exp(h) - 1.0)) * D1
+                    + sigma_t * torch.sqrt(torch.exp(2 * h) - 1.0) * noise
+                )
+            elif self.config.solver_type == "heun":
+                x_t = (
+                    (alpha_t / alpha_s0) * sample
+                    - 2.0 * (sigma_t * (torch.exp(h) - 1.0)) * D0
+                    - 2.0 * (sigma_t * ((torch.exp(h) - 1.0) / h - 1.0)) * D1
+                    + sigma_t * torch.sqrt(torch.exp(2 * h) - 1.0) * noise
+                )
+        return x_t
+
+    def multistep_dpm_solver_third_order_update(
+        self,
+        model_output_list: List[torch.FloatTensor],
+        timestep_list: List[int],
+        prev_timestep: int,
+        sample: torch.FloatTensor,
+    ) -> torch.FloatTensor:
+        """
+        One step for the third-order multistep DPM-Solver.
+
+        Args:
+            model_output_list (`List[torch.FloatTensor]`):
+                direct outputs from learned diffusion model at current and latter timesteps.
+            timestep (`int`): current and latter discrete timestep in the diffusion chain.
+            prev_timestep (`int`): previous discrete timestep in the diffusion chain.
+            sample (`torch.FloatTensor`):
+                current instance of sample being created by diffusion process.
+
+        Returns:
+            `torch.FloatTensor`: the sample tensor at the previous timestep.
+        """
+        t, s0, s1, s2 = prev_timestep, timestep_list[-1], timestep_list[-2], timestep_list[-3]
+        m0, m1, m2 = model_output_list[-1], model_output_list[-2], model_output_list[-3]
+        lambda_t, lambda_s0, lambda_s1, lambda_s2 = (
+            self.lambda_t[t],
+            self.lambda_t[s0],
+            self.lambda_t[s1],
+            self.lambda_t[s2],
+        )
+        alpha_t, alpha_s0 = self.alpha_t[t], self.alpha_t[s0]
+        sigma_t, sigma_s0 = self.sigma_t[t], self.sigma_t[s0]
+        h, h_0, h_1 = lambda_t - lambda_s0, lambda_s0 - lambda_s1, lambda_s1 - lambda_s2
+        r0, r1 = h_0 / h, h_1 / h
+        D0 = m0
+        D1_0, D1_1 = (1.0 / r0) * (m0 - m1), (1.0 / r1) * (m1 - m2)
+        D1 = D1_0 + (r0 / (r0 + r1)) * (D1_0 - D1_1)
+        D2 = (1.0 / (r0 + r1)) * (D1_0 - D1_1)
+
+        if self.config.algorithm_type == "dpmsolver++":
+            noise = - (alpha_t * (torch.exp(-h) - 1.0)) * D0 + (alpha_t * ((torch.exp(-h) - 1.0) / h + 1.0)) * D1 - (alpha_t * ((torch.exp(-h) - 1.0 + h) / h**2 - 0.5)) * D2
+            if self.use_hcg and self.model is not None:
+                x_t = (sigma_t / sigma_s0) * sample + hcg_correct(
+                    noise_pred=noise,
+                    model=self.model,
+                    x=sample,
+                    t=timestep_list[-1],
+                    device=sample.device,
+                    kappa_target=self.kappa_target,
+                    lanczos_k=self.lanczos_k,
+                    cg_max_iter=self.cg_max_iter,
+                    cg_tol=self.cg_tol,
+                    use_spectral_scaling=self.use_spectral_scaling,
+                )
+            else:
+                x_t = (sigma_t / sigma_s0) * sample + noise
+            self.prev_noise = noise
+        elif self.config.algorithm_type == "dpmsolver":
+            noise = - (sigma_t * (torch.exp(h) - 1.0)) * D0 - (sigma_t * ((torch.exp(h) - 1.0) / h - 1.0)) * D1 - (sigma_t * ((torch.exp(h) - 1.0 - h) / h**2 - 0.5)) * D2
+            if self.use_hcg and self.model is not None:
+                x_t = (alpha_t / alpha_s0) * sample + hcg_correct(
+                    noise_pred=noise,
+                    model=self.model,
+                    x=sample,
+                    t=timestep_list[-1],
+                    device=sample.device,
+                    kappa_target=self.kappa_target,
+                    lanczos_k=self.lanczos_k,
+                    cg_max_iter=self.cg_max_iter,
+                    cg_tol=self.cg_tol,
+                    use_spectral_scaling=self.use_spectral_scaling,
+                )
+            else:
+                x_t = (alpha_t / alpha_s0) * sample + noise
+            self.prev_noise = noise
+        return x_t
+
+    def step(
+        self,
+        model_output: torch.FloatTensor,
+        timestep: int,
+        sample: torch.FloatTensor,
+        generator=None,
+        return_dict: bool = True,
+    ) -> Union[SchedulerOutput, Tuple]:
+        """
+        Step function propagating the sample with the multistep DPM-Solver.
+
+        Args:
+            model_output (`torch.FloatTensor`): direct output from learned diffusion model.
+            timestep (`int`): current discrete timestep in the diffusion chain.
+            sample (`torch.FloatTensor`):
+                current instance of sample being created by diffusion process.
+            return_dict (`bool`): option for returning tuple rather than SchedulerOutput class
+
+        Returns:
+            [`~scheduling_utils.SchedulerOutput`] or `tuple`: [`~scheduling_utils.SchedulerOutput`] if `return_dict` is
+            True, otherwise a `tuple`. When returning a tuple, the first element is the sample tensor.
+        """
+        if self.num_inference_steps is None:
+            raise ValueError(
+                "Number of inference steps is 'None', you need to run 'set_timesteps' after creating the scheduler"
             )
 
-        return x_t
+        if isinstance(timestep, torch.Tensor):
+            timestep = timestep.to(self.timesteps.device)
+        step_index = (self.timesteps == timestep).nonzero()
+        if len(step_index) == 0:
+            step_index = len(self.timesteps) - 1
+        else:
+            step_index = step_index.item()
+        prev_timestep = 0 if step_index == len(self.timesteps) - 1 else self.timesteps[step_index + 1]
+        lower_order_final = (
+            (step_index == len(self.timesteps) - 1) and self.config.lower_order_final and len(self.timesteps) < 15
+        )
+        lower_order_second = (
+            (step_index == len(self.timesteps) - 2) and self.config.lower_order_final and len(self.timesteps) < 15
+        )
+
+        model_output = self.convert_model_output(model_output, timestep, sample)
+        for i in range(self.config.solver_order - 1):
+            self.model_outputs[i] = self.model_outputs[i + 1]
+        self.model_outputs[-1] = model_output
+
+        if self.config.algorithm_type in ["sde-dpmsolver", "sde-dpmsolver++"]:
+            noise = randn_tensor(
+                model_output.shape, generator=generator, device=model_output.device, dtype=model_output.dtype
+            )
+        else:
+            noise = None
+
+        if self.config.solver_order == 1 or self.lower_order_nums < 1 or lower_order_final:
+            prev_sample = self.dpm_solver_first_order_update(
+                model_output, timestep, prev_timestep, sample, noise=noise
+            )
+        elif self.config.solver_order == 2 or self.lower_order_nums < 2 or lower_order_second:
+            timestep_list = [self.timesteps[step_index - 1], timestep]
+            prev_sample = self.multistep_dpm_solver_second_order_update(
+                self.model_outputs, timestep_list, prev_timestep, sample, noise=noise
+            )
+        else:
+            timestep_list = [self.timesteps[step_index - 2], self.timesteps[step_index - 1], timestep]
+            prev_sample = self.multistep_dpm_solver_third_order_update(
+                self.model_outputs, timestep_list, prev_timestep, sample
+            )
+
+        if self.lower_order_nums < self.config.solver_order:
+            self.lower_order_nums += 1
+
+        if not return_dict:
+            return (prev_sample,)
+
+        return SchedulerOutput(prev_sample=prev_sample)
+
+    def scale_model_input(self, sample: torch.FloatTensor, *args, **kwargs) -> torch.FloatTensor:
+        """
+        Ensures interchangeability with schedulers that need to scale the denoising model input depending on the
+        current timestep.
+
+        Args:
+            sample (`torch.FloatTensor`): input sample
+
+        Returns:
+            `torch.FloatTensor`: scaled input sample
+        """
+        return sample
+
+    # Copied from diffusers.schedulers.scheduling_ddpm.DDPMScheduler.add_noise
+    def add_noise(
+        self,
+        original_samples: torch.FloatTensor,
+        noise: torch.FloatTensor,
+        timesteps: torch.IntTensor,
+    ) -> torch.FloatTensor:
+        # Make sure alphas_cumprod and timestep have same device and dtype as original_samples
+        alphas_cumprod = self.alphas_cumprod.to(device=original_samples.device, dtype=original_samples.dtype)
+        timesteps = timesteps.to(original_samples.device)
+
+        sqrt_alpha_prod = alphas_cumprod[timesteps] ** 0.5
+        sqrt_alpha_prod = sqrt_alpha_prod.flatten()
+        while len(sqrt_alpha_prod.shape) < len(original_samples.shape):
+            sqrt_alpha_prod = sqrt_alpha_prod.unsqueeze(-1)
+
+        sqrt_one_minus_alpha_prod = (1 - alphas_cumprod[timesteps]) ** 0.5
+        sqrt_one_minus_alpha_prod = sqrt_one_minus_alpha_prod.flatten()
+        while len(sqrt_one_minus_alpha_prod.shape) < len(original_samples.shape):
+            sqrt_one_minus_alpha_prod = sqrt_one_minus_alpha_prod.unsqueeze(-1)
+
+        noisy_samples = sqrt_alpha_prod * original_samples + sqrt_one_minus_alpha_prod * noise
+        return noisy_samples
+
+    def __len__(self):
+        return self.config.num_train_timesteps

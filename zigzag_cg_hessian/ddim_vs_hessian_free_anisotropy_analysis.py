@@ -77,7 +77,7 @@ class AnisotropyAnalyzer:
             pipe.scheduler.lamb = 0.0008
             pipe.scheduler.lm = True
             pipe.scheduler.kappa = 1e-8
-            pipe.scheduler.hessian_method = 'hessian_free'
+            pipe.scheduler.hessian_method = 'hcg'
             pipe.scheduler.set_model(pipe.unet)
             pipe.scheduler.set_timesteps(self.num_inference_steps)
 
@@ -417,7 +417,7 @@ class AnisotropyAnalyzer:
 
         # Save the plot
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'ddim_vs_hessian_free_anisotropy_{timestamp}.png')
+        save_path = os.path.join(save_dir, f'ddim_vs__anisotropy_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"\n✓ DDIM vs Hessian-Free anisotropy comparison plot saved to: {save_path}")
 

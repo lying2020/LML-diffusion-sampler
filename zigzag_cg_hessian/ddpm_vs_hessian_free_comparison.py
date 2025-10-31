@@ -70,7 +70,7 @@ class DDPMvsHessianFreeAnalyzer:
             pipe.scheduler.lamb = 0.0008
             pipe.scheduler.lm = True
             pipe.scheduler.kappa = 1e-8
-            pipe.scheduler.hessian_method = 'hessian_free'
+            pipe.scheduler.hessian_method = 'hcg'
             pipe.scheduler.set_model(pipe.unet)
 
         print(f"✓ {method_name} pipeline loaded successfully")
@@ -236,7 +236,7 @@ class DDPMvsHessianFreeAnalyzer:
 
         return results
 
-    def plot_ddpm_vs_hessian_free(self, results_dict, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
+    def plot_ddpm_vs_(self, results_dict, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
         """Plot simplified DDPM vs Hessian-Free comparison"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -315,7 +315,7 @@ class DDPMvsHessianFreeAnalyzer:
 
         # Save the plot
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'ddpm_vs_hessian_free_comparison_{timestamp}.png')
+        save_path = os.path.join(save_dir, f'ddpm_vs__comparison_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"\n✓ DDPM vs Hessian-Free comparison plot saved to: {save_path}")
 
@@ -326,7 +326,7 @@ class DDPMvsHessianFreeAnalyzer:
         os.makedirs(save_dir, exist_ok=True)
 
         ddpm_result = results_dict['DDPM']
-        hessian_free_result = results_dict['Hessian_Free']
+        _result = results_dict['Hessian_Free']
 
         print("\n" + "="*80)
         print("ANGLE ANALYSIS: Why Hessian-Free has Higher Average Angle")
@@ -340,11 +340,11 @@ class DDPMvsHessianFreeAnalyzer:
         print(f"  - Zigzag score: {ddpm_result['zigzag_score']:.3f}")
 
         print(f"\nHessian-Free Results:")
-        print(f"  - Average angle: {hessian_free_result['avg_angle']:.1f}°")
-        print(f"  - Angle std: {hessian_free_result['std_angle']:.1f}°")
-        print(f"  - Min angle: {hessian_free_result['min_angle']:.1f}°")
-        print(f"  - Max angle: {hessian_free_result['max_angle']:.1f}°")
-        print(f"  - Zigzag score: {hessian_free_result['zigzag_score']:.3f}")
+        print(f"  - Average angle: {_result['avg_angle']:.1f}°")
+        print(f"  - Angle std: {_result['std_angle']:.1f}°")
+        print(f"  - Min angle: {_result['min_angle']:.1f}°")
+        print(f"  - Max angle: {_result['max_angle']:.1f}°")
+        print(f"  - Zigzag score: {_result['zigzag_score']:.3f}")
 
         print(f"\n" + "="*80)
         print("EXPLANATION: Why Hessian-Free has Higher Average Angle")
@@ -357,7 +357,7 @@ class DDPMvsHessianFreeAnalyzer:
 
         print("\n2. ANGLE DISTRIBUTION ANALYSIS:")
         ddpm_angles = np.array(ddpm_result['angles'])
-        hessian_angles = np.array(hessian_free_result['angles'])
+        hessian_angles = np.array(_result['angles'])
 
         print(f"   - DDPM: {np.sum(ddpm_angles < 30)}/{len(ddpm_angles)} steps with small angles (<30°)")
         print(f"   - Hessian-Free: {np.sum(hessian_angles < 30)}/{len(hessian_angles)} steps with small angles (<30°)")
@@ -391,11 +391,11 @@ class DDPMvsHessianFreeAnalyzer:
             f.write(f"  - Zigzag score: {ddpm_result['zigzag_score']:.3f}\n\n")
 
             f.write(f"Hessian-Free Results:\n")
-            f.write(f"  - Average angle: {hessian_free_result['avg_angle']:.1f}°\n")
-            f.write(f"  - Angle std: {hessian_free_result['std_angle']:.1f}°\n")
-            f.write(f"  - Min angle: {hessian_free_result['min_angle']:.1f}°\n")
-            f.write(f"  - Max angle: {hessian_free_result['max_angle']:.1f}°\n")
-            f.write(f"  - Zigzag score: {hessian_free_result['zigzag_score']:.3f}\n\n")
+            f.write(f"  - Average angle: {_result['avg_angle']:.1f}°\n")
+            f.write(f"  - Angle std: {_result['std_angle']:.1f}°\n")
+            f.write(f"  - Min angle: {_result['min_angle']:.1f}°\n")
+            f.write(f"  - Max angle: {_result['max_angle']:.1f}°\n")
+            f.write(f"  - Zigzag score: {_result['zigzag_score']:.3f}\n\n")
 
             f.write("EXPLANATION: Why Hessian-Free has Higher Average Angle\n")
             f.write("="*80 + "\n\n")
@@ -467,7 +467,7 @@ def main():
         print(f"\n{'='*60}")
         print("Generating DDPM vs Hessian-Free Comparison Plots")
         print(f"{'='*60}")
-        analyzer.plot_ddpm_vs_hessian_free(results_dict)
+        analyzer.plot_ddpm_vs_(results_dict)
 
         # Generate detailed angle analysis
         analyzer.generate_angle_analysis_report(results_dict)
