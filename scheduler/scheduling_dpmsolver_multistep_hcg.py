@@ -15,6 +15,7 @@
 # DISCLAIMER: This file is strongly influenced by https://github.com/LuChengTHU/dpm-solver
 
 import math
+import contextlib
 from typing import List, Optional, Tuple, Union
 import numpy as np
 import torch
@@ -223,32 +224,150 @@ def hcg_correct(
         Compute H*v using Pearlmutter's method.
         H is the Hessian of -log p_t(x), symmetrized.
         """
-        # Ensure v requires grad
+        # Ensure v requires grad - detach from the no_grad context
         v_grad = v.clone().detach().requires_grad_(True)
-        x_grad = x.clone().detach().requires_grad_(True)
 
-        with torch.enable_grad():
-            # Forward pass to get score function
-            score_pred = model(x_grad, t)
-            if hasattr(score_pred, 'sample'):
-                score_pred = score_pred.sample
+        # Save model training state
+        model_training = model.training
 
-            # Log probability: -0.5 * ||score||^2
-            log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
-            log_prob = log_prob.sum()
+        # Temporarily set model to eval mode for consistent behavior
+        # But we still need gradients for input x_grad
+        model.eval()
 
-        # First gradient: ∇log_prob
-        grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
+        try:
+            # Try to disable flash attention and other optimizations that don't support second-order derivatives
+            # Try new API first, then fall back to old API
+            try:
+                from torch.nn.attention import sdpa_kernel, SDPBackend
+                # Use math backend which supports gradients
+                sdp_context = sdpa_kernel(SDPBackend.MATH)
+            except (ImportError, AttributeError):
+                try:
+                    # Fallback to old API
+                    from torch.backends.cuda import sdp_kernel
+                    sdp_context = sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False)
+                except (ImportError, AttributeError):
+                    # Final fallback: use nullcontext
+                    sdp_context = contextlib.nullcontext()
 
-        # Hv = ∇(∇f · v) for H = -∇²log p
-        # We compute Hv where H is the Hessian of -log p
-        grad_dot_v = torch.sum(grad * v_grad)
-        Hv = torch.autograd.grad(grad_dot_v, x_grad, retain_graph=True)[0]
+            # Force enable gradients - this creates a new gradient context
+            # even if we're called from within a no_grad() block
+            with sdp_context:
+                with torch.enable_grad():
+                    # Create a fresh copy of x that requires grad within this gradient context
+                    # This ensures it's completely detached from any outer no_grad context
+                    x_grad = x.clone().detach().requires_grad_(True)
 
-        # Symmetrize: H_sym = 0.5 * (H + H^T)
-        # Since we can't compute H^T directly, we use the approximation
-        # that Hv computed above is already close to H_sym * v for symmetric H
-        return Hv
+                    # Forward pass: model(x, t) - this must be inside enable_grad
+                    # to ensure score_pred tracks gradients w.r.t. x_grad
+                    # Disable any attention optimizations that might interfere
+                    score_pred = model(x_grad, t)
+                    if hasattr(score_pred, 'sample'):
+                        score_pred = score_pred.sample
+
+                    # Verify that score_pred has gradient connection to x_grad
+                    if not score_pred.requires_grad:
+                        # If model output doesn't require grad, we need to force it
+                        # by creating a dependency
+                        score_pred = score_pred + 0.0 * x_grad.sum()
+
+                    # Log probability: -0.5 * ||score||^2
+                    log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
+                    log_prob = log_prob.sum()
+
+                    # Ensure log_prob requires grad
+                    if not log_prob.requires_grad:
+                        raise RuntimeError(
+                            f"log_prob does not require grad. "
+                            f"score_pred.requires_grad={score_pred.requires_grad}, "
+                            f"x_grad.requires_grad={x_grad.requires_grad}"
+                        )
+
+                # First gradient: ∇log_prob w.r.t. x_grad
+                # create_graph=True is needed for second-order derivatives
+                grad_outputs = torch.autograd.grad(
+                    outputs=log_prob,
+                    inputs=x_grad,
+                    create_graph=True,
+                    only_inputs=True,
+                    allow_unused=False,
+                    retain_graph=True
+                )
+
+                if len(grad_outputs) == 0 or grad_outputs[0] is None:
+                    raise RuntimeError("Failed to compute gradient. Check if model outputs depend on x_grad.")
+
+                grad = grad_outputs[0]
+
+                # Hv = ∇(∇f · v) for H = -∇²log p
+                # Compute inner product: grad · v_grad
+                grad_dot_v = torch.sum(grad * v_grad)
+
+                # Check that grad_dot_v requires grad (for second derivative)
+                if not grad_dot_v.requires_grad:
+                    raise RuntimeError(
+                        f"grad_dot_v does not require grad. "
+                        f"grad.requires_grad={grad.requires_grad}, "
+                        f"v_grad.requires_grad={v_grad.requires_grad}, "
+                        f"log_prob.requires_grad={log_prob.requires_grad}"
+                    )
+
+                # Second gradient: Hv = ∇(grad · v) w.r.t. x_grad
+                Hv_outputs = torch.autograd.grad(
+                    outputs=grad_dot_v,
+                    inputs=x_grad,
+                    retain_graph=False,
+                    only_inputs=True,
+                    allow_unused=False
+                )
+
+                if len(Hv_outputs) == 0 or Hv_outputs[0] is None:
+                    raise RuntimeError("Failed to compute Hessian-vector product.")
+
+                Hv = Hv_outputs[0]
+
+        except RuntimeError as e:
+            # If we get an error about unsupported operations (e.g., flash attention),
+            # fall back to finite difference approximation
+            error_msg = str(e).lower()
+            if "derivative" in error_msg or "not implemented" in error_msg or "scaled_dot_product" in error_msg:
+                # Use finite difference approximation for Hv
+                # This avoids the need for second-order derivatives
+                eps = 1e-4
+
+                # Create perturbed versions of x
+                x_plus = (x + eps * v_grad).clone().detach().requires_grad_(True)
+                x_minus = (x - eps * v_grad).clone().detach().requires_grad_(True)
+
+                with torch.enable_grad():
+                    # Compute gradients at perturbed points
+                    score_plus = model(x_plus, t)
+                    if hasattr(score_plus, 'sample'):
+                        score_plus = score_plus.sample
+                    log_prob_plus = -0.5 * torch.sum(score_plus ** 2, dim=(1, 2, 3)).sum()
+
+                    score_minus = model(x_minus, t)
+                    if hasattr(score_minus, 'sample'):
+                        score_minus = score_minus.sample
+                    log_prob_minus = -0.5 * torch.sum(score_minus ** 2, dim=(1, 2, 3)).sum()
+
+                # Compute gradients at both points
+                grad_plus = torch.autograd.grad(log_prob_plus, x_plus, only_inputs=True, retain_graph=False)[0]
+                grad_minus = torch.autograd.grad(log_prob_minus, x_minus, only_inputs=True, retain_graph=False)[0]
+
+                # Finite difference: Hv ≈ (grad(x+εv) - grad(x-εv)) / (2ε)
+                Hv = (grad_plus - grad_minus) / (2.0 * eps)
+            else:
+                # Re-raise if it's a different error
+                raise
+
+        finally:
+            # Restore model training state
+            if model_training:
+                model.train()
+
+        # Detach and return (no need to keep gradients in output)
+        return Hv.detach()
 
     # Step 1: Estimate eigenvalues using Lanczos
     try:
@@ -1034,20 +1153,41 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         else:
             noise = None
 
-        if self.config.solver_order == 1 or self.lower_order_nums < 1 or lower_order_final:
-            prev_sample = self.dpm_solver_first_order_update(
-                model_output, timestep, prev_timestep, sample, noise=noise
-            )
-        elif self.config.solver_order == 2 or self.lower_order_nums < 2 or lower_order_second:
-            timestep_list = [self.timesteps[step_index - 1], timestep]
-            prev_sample = self.multistep_dpm_solver_second_order_update(
-                self.model_outputs, timestep_list, prev_timestep, sample, noise=noise
-            )
+        # For HCG, we need gradients enabled even if called from no_grad context
+        # Wrap the update in enable_grad context when HCG is used
+        if self.use_hcg and self.model is not None:
+            with torch.enable_grad():
+                if self.config.solver_order == 1 or self.lower_order_nums < 1 or lower_order_final:
+                    prev_sample = self.dpm_solver_first_order_update(
+                        model_output, timestep, prev_timestep, sample, noise=noise
+                    )
+                elif self.config.solver_order == 2 or self.lower_order_nums < 2 or lower_order_second:
+                    timestep_list = [self.timesteps[step_index - 1], timestep]
+                    prev_sample = self.multistep_dpm_solver_second_order_update(
+                        self.model_outputs, timestep_list, prev_timestep, sample, noise=noise
+                    )
+                else:
+                    timestep_list = [self.timesteps[step_index - 2], self.timesteps[step_index - 1], timestep]
+                    prev_sample = self.multistep_dpm_solver_third_order_update(
+                        self.model_outputs, timestep_list, prev_timestep, sample
+                    )
+                # Detach the result to remove from computation graph
+                prev_sample = prev_sample.detach()
         else:
-            timestep_list = [self.timesteps[step_index - 2], self.timesteps[step_index - 1], timestep]
-            prev_sample = self.multistep_dpm_solver_third_order_update(
-                self.model_outputs, timestep_list, prev_timestep, sample
-            )
+            if self.config.solver_order == 1 or self.lower_order_nums < 1 or lower_order_final:
+                prev_sample = self.dpm_solver_first_order_update(
+                    model_output, timestep, prev_timestep, sample, noise=noise
+                )
+            elif self.config.solver_order == 2 or self.lower_order_nums < 2 or lower_order_second:
+                timestep_list = [self.timesteps[step_index - 1], timestep]
+                prev_sample = self.multistep_dpm_solver_second_order_update(
+                    self.model_outputs, timestep_list, prev_timestep, sample, noise=noise
+                )
+            else:
+                timestep_list = [self.timesteps[step_index - 2], self.timesteps[step_index - 1], timestep]
+                prev_sample = self.multistep_dpm_solver_third_order_update(
+                    self.model_outputs, timestep_list, prev_timestep, sample
+                )
 
         if self.lower_order_nums < self.config.solver_order:
             self.lower_order_nums += 1

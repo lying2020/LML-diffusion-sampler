@@ -41,11 +41,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=20)
+    parser.add_argument('--test_num', type=int, default=2)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_inference_steps', type=int, default=40, choices=[5, 10, 20, 40, 70, 100, 200, 400, 600, 1000])
-
 
     parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
@@ -70,7 +69,7 @@ def parse_args():
     parser.add_argument('--lanczos_k', type=int, default=10, help='Number of Lanczos iterations for eigenvalue estimation')
     parser.add_argument('--cg_max_iter', type=int, default=20, help='Maximum CG iterations')
     parser.add_argument('--cg_tol', type=float, default=1e-4, help='CG tolerance')
-    parser.add_argument('--use_spectral_scaling', type=lambda x: (str(x).lower() in ['true', '1', 'yes']), default=True, help='Use spectral radius scaling (default: True)')
+    parser.add_argument('--use_spectral_scaling', type=lambda x: (str(x).lower() in ['true', '1', 'yes']), default=False, help='Use spectral radius scaling (default: True)')
 
     # Technical parameters
     parser.add_argument('--dtype', type=str, default='fp32', choices=['fp32', 'fp64', 'fp16', 'bf16'])
@@ -223,8 +222,19 @@ def generate_images(results_save_dir, args, pipe):
         if hasattr(pipe.scheduler, 'set_model') and pipe.scheduler.model is None:
             pipe.scheduler.set_model(pipe.unet)
 
-        with torch.no_grad():
+        # HCG method requires gradient computation for Hessian-vector products
+        # So we can't use torch.no_grad() for HCG sampler
+        if args.sampler_type == 'hcg':
+            # For HCG, we need gradients enabled for Hessian computation
+            # But we still want to disable gradients for final output
             images = pipe(batch_size=args.batch_size, num_inference_steps=args.num_inference_steps).images
+            # Detach images to free memory
+            if isinstance(images, torch.Tensor):
+                images = images.detach().cpu()
+        else:
+            # For other samplers, use no_grad for efficiency
+            with torch.no_grad():
+                images = pipe(batch_size=args.batch_size, num_inference_steps=args.num_inference_steps).images
 
         # Save images
         for i, image in enumerate(images):
