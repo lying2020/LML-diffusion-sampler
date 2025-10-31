@@ -4,7 +4,7 @@
 
 ### 1. 指标计算更新
 - **平均夹角**: 现在按步骤计算，以step为x轴，平均夹角为y轴
-- **离散曲率**: 现在按步骤计算，以step为x轴，平均曲率为y轴  
+- **离散曲率**: 现在按步骤计算，以step为x轴，平均曲率为y轴
 - **最终距离**: 现在计算到终点的距离，以step为x轴，所有样本平均后的距离为y轴
 
 ### 2. 图表更新
@@ -25,7 +25,7 @@ def compute_zigzag_metrics(self, projected_trajectories):
     step_angles = [[] for _ in range(max_length - 1)]
     step_curvatures = [[] for _ in range(max_length - 1)]
     step_distances = [[] for _ in range(max_length)]
-    
+
     # 按步骤收集数据
     for traj in projected_trajectories:
         # 计算相邻步骤的角度和曲率
@@ -44,7 +44,7 @@ def plot_trajectory_evolution(self, all_results):
 ```python
 def plot_convergence_analysis(self, projected_trajectories, sampler_type, metrics):
     # 1. 平均夹角随步骤变化
-    # 2. 平均曲率随步骤变化  
+    # 2. 平均曲率随步骤变化
     # 3. 平均距离随步骤变化（到终点的距离）
     # 4. 角度分布直方图
 ```
