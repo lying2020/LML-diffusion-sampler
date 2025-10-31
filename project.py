@@ -145,6 +145,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
     print(f"\n🎨 生成对比图组...")
     print(f"采样器: {sampler_types}")
     print(f"行数: {grid_test_num}, 列数: {len(sampler_types)}")
+    print(f"测试图片索引: {grid_test_index}")
 
     # 创建图像网格
     fig = plt.figure(figsize=(len(sampler_types) * 2.5, grid_test_num * 2.5))
@@ -179,10 +180,11 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
             print(f"  ⚠️  未找到 {sampler_type} 的图像文件")
             continue
 
+        grid_test_num = min(grid_test_num, len(image_files))
         # 按文件名排序，取前test_num个
         image_files.sort()
         selected_images = image_files[:grid_test_num]
-        if grid_test_index:
+        if grid_test_index and max(grid_test_index) < grid_test_num:
             selected_images = [image_files[i] for i in grid_test_index]
         all_images[sampler_type] = selected_images
 

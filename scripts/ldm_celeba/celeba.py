@@ -117,14 +117,14 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
 
     elif sampler_type == 'dpm++':
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
-        pipe.scheduler.config.solver_order = 3
         pipe.scheduler.config.algorithm_type = "dpmsolver++"
+        pipe.scheduler.config.solver_order = 3
         project.info(f"  Using DPM-Solver++ scheduler")
 
     elif sampler_type == 'dpm_lm':
         pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
-        pipe.scheduler.config.solver_order = 3
         pipe.scheduler.config.algorithm_type = "dpmsolver"
+        pipe.scheduler.config.solver_order = 3
         pipe.scheduler.lamb = lamb
         pipe.scheduler.lm = True
         pipe.scheduler.kappa = kappa
@@ -132,8 +132,8 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
 
     elif sampler_type == 'dpm':
         pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
-        pipe.scheduler.config.solver_order = 3
         pipe.scheduler.config.algorithm_type = "dpmsolver"
+        pipe.scheduler.config.solver_order = 3
         pipe.scheduler.lm = False
         project.info(f"  Using DPM-Solver scheduler")
 
@@ -142,17 +142,18 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         project.info(f"  Using UniPC scheduler")
 
     elif sampler_type == 'hessian_free':
-        pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
-        pipe.scheduler.config.algorithm_type = "dpmsolver"
-        # pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
-        # pipe.scheduler.config.algorithm_type = "dpmsolver++"
+        # pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+        # pipe.scheduler.config.algorithm_type = "dpmsolver"
+        # # 设置模型用于Hessian计算
+        pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler.config.algorithm_type = "dpmsolver++"
+        pipe.scheduler.set_model(pipe.unet)
+        # 设置LML参数 和 Hessian-Free方法的公共参数
         pipe.scheduler.config.solver_order = 3
         pipe.scheduler.lamb = lamb
         pipe.scheduler.lm = True
         pipe.scheduler.kappa = kappa
         pipe.scheduler.hessian_method = 'hessian_free'
-        # 设置模型用于Hessian计算
-        # pipe.scheduler.set_model(pipe.unet)
         project.info(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
 
     else:
