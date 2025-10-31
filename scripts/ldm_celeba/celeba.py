@@ -52,7 +52,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
+    parser.add_argument('--sampler_type', type=str, default='hcg',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
@@ -65,13 +65,20 @@ def parse_args():
     parser.add_argument('--lamb', type=float, default=0.004)
     parser.add_argument('--kappa', type=float, default=1.0e-8)
 
+    # HCG (Hessian-Conjugate Gradient) parameters
+    parser.add_argument('--kappa_target', type=float, default=10.0, help='Target condition number for adaptive damping')
+    parser.add_argument('--lanczos_k', type=int, default=10, help='Number of Lanczos iterations for eigenvalue estimation')
+    parser.add_argument('--cg_max_iter', type=int, default=20, help='Maximum CG iterations')
+    parser.add_argument('--cg_tol', type=float, default=1e-4, help='CG tolerance')
+    parser.add_argument('--use_spectral_scaling', type=lambda x: (str(x).lower() in ['true', '1', 'yes']), default=True, help='Use spectral radius scaling (default: True)')
+
     # Technical parameters
     parser.add_argument('--dtype', type=str, default='fp32', choices=['fp32', 'fp64', 'fp16', 'bf16'])
     parser.add_argument('--device', type=str, default='cuda')
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', default=False, help='Run evaluation metrics')
-    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="CelebA-HQ Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
     parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
@@ -141,23 +148,31 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
         project.info(f"  Using UniPC scheduler")
 
-    elif sampler_type == 'hcg':
-        # pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
-        # pipe.scheduler.config.algorithm_type = "dpmsolver"
-        # # 设置模型用于Hessian计算
-        pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
-        pipe.scheduler.config.algorithm_type = "dpmsolver++"
-        pipe.scheduler.set_model(pipe.unet)
-        # 设置LML参数 和 Hessian-Free方法的公共参数
-        pipe.scheduler.config.solver_order = 3
-        pipe.scheduler.lamb = lamb
-        pipe.scheduler.lm = True
-        pipe.scheduler.kappa = kappa
-        pipe.scheduler.hessian_method = 'hcg'
-        project.info(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
-
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
+
+def setup_scheduler_hcg(pipe, kappa_target=10.0, lanczos_k=10, cg_max_iter=20,
+                    cg_tol=1e-4, use_spectral_scaling=True):
+    """Setup the HCG scheduler"""
+    # 使用新的 DPMSolverMultistepHCGScheduler
+    pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
+    pipe.scheduler.config.algorithm_type = "dpmsolver++"
+    pipe.scheduler.config.solver_order = 3
+
+    # 设置模型用于Hessian计算（必需）
+    pipe.scheduler.set_model(pipe.unet)
+
+    # 设置HCG参数
+    pipe.scheduler.use_hcg = True
+    pipe.scheduler.kappa_target = kappa_target
+    pipe.scheduler.lanczos_k = lanczos_k
+    pipe.scheduler.cg_max_iter = cg_max_iter
+    pipe.scheduler.cg_tol = cg_tol
+    pipe.scheduler.use_spectral_scaling = use_spectral_scaling
+
+    project.info(f"  Using DPM-Solver++ with HCG (Hessian-Conjugate Gradient) correction")
+    project.info(f"    kappa_target={kappa_target}, lanczos_k={lanczos_k}, cg_max_iter={cg_max_iter}")
+    project.info(f"    cg_tol={cg_tol}, use_spectral_scaling={use_spectral_scaling}")
 
 def process_image(image):
     """
@@ -302,7 +317,16 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
 
     # Setup scheduler
     project.info(f"\n⚙️ Setting up scheduler...")
-    setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
+    if args.sampler_type == 'hcg':
+        setup_scheduler_hcg(
+            pipe, kappa_target=args.kappa_target,
+            lanczos_k=args.lanczos_k,
+            cg_max_iter=args.cg_max_iter,
+            cg_tol=args.cg_tol,
+            use_spectral_scaling=args.use_spectral_scaling
+        )
+    else:
+        setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
 
     # Generate images
     generation_stats = generate_images(

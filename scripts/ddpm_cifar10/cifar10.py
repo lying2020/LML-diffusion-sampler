@@ -23,7 +23,7 @@ from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMSche
 
 from scheduler.scheduling_pndm_hcg import PNDMSHCGcheduler
 from scheduler.scheduling_unipc_multistep_hcg import UniPCMultistepHCGScheduler
-from scheduler.scheduling_dpmsolver_multistep_hcg import DPMSolverMultistepHCGScheduler
+from scheduler.scheduling_dpmsolver_multistep_hcg_v0 import DPMSolverMultistepHCGScheduler
 
 import project as project
 

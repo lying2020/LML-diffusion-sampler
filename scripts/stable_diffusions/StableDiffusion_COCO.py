@@ -34,7 +34,7 @@ sys.path.append(os.getcwd())
 from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, PNDMScheduler, UniPCMultistepScheduler
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
-from scheduler.scheduling_dpmsolver_multistep_hcg import DPMSolverMultistepHCGScheduler
+from scheduler.scheduling_dpmsolver_multistep_hcg_v0 import DPMSolverMultistepHCGScheduler
 
 import project as project
 
