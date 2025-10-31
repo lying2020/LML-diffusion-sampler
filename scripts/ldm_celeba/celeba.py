@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='hcg',
+    parser.add_argument('--sampler_type', type=str, default='dpm++',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
@@ -159,7 +159,7 @@ def setup_scheduler_hcg(pipe, kappa_target=10.0, lanczos_k=10, cg_max_iter=20,
     pipe.scheduler.config.solver_order = 3
 
     # 设置模型用于Hessian计算（必需）
-    pipe.scheduler.set_model(pipe.unet)
+    # pipe.scheduler.set_model(pipe.unet)
 
     # 设置HCG参数
     pipe.scheduler.use_hcg = True
@@ -219,12 +219,12 @@ def generate_images(results_save_dir, args, pipe):
 
         # Generate images
         # 确保方法有正确的模型设置
-        if hasattr(pipe.scheduler, 'set_model') and pipe.scheduler.model is None:
-            pipe.scheduler.set_model(pipe.unet)
+        # if hasattr(pipe.scheduler, 'set_model') and pipe.scheduler.model is None:
+        #     pipe.scheduler.set_model(pipe.unet)
 
         # HCG method requires gradient computation for Hessian-vector products
         # So we can't use torch.no_grad() for HCG sampler
-        if args.sampler_type == 'hcg':
+        if args.sampler_type == 'hcg' and pipe.scheduler.model is not None:
             # For HCG, we need gradients enabled for Hessian computation
             # But we still want to disable gradients for final output
             images = pipe(batch_size=args.batch_size, num_inference_steps=args.num_inference_steps).images
@@ -239,6 +239,7 @@ def generate_images(results_save_dir, args, pipe):
         # Save images
         for i, image in enumerate(images):
             filename = f"celeba_{args.sampler_type}_inference{args.num_inference_steps}_seed{seed}_{i}.png"
+            project.info(f"  ✓ Saved to: {filename}")
             filepath = os.path.join(results_save_dir, filename)
             image.save(filepath)
             all_images.append(image)
