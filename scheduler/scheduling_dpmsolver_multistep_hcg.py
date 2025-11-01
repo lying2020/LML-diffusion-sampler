@@ -295,7 +295,8 @@ def hcg_correct(
                     # Forward pass: model(x, t) - this must be inside enable_grad
                     # to ensure score_pred tracks gradients w.r.t. x_grad
                     # Disable any attention optimizations that might interfere
-                    score_pred = model(x_grad, t)
+                    with profile("model_forward_pass", get_profiler()):
+                        score_pred = model(x_grad, t)
                     if hasattr(score_pred, 'sample'):
                         score_pred = score_pred.sample
 
@@ -319,14 +320,15 @@ def hcg_correct(
 
                 # First gradient: ∇log_prob w.r.t. x_grad
                 # create_graph=True is needed for second-order derivatives
-                grad_outputs = torch.autograd.grad(
-                    outputs=log_prob,
-                    inputs=x_grad,
-                    create_graph=True,
-                    only_inputs=True,
-                    allow_unused=False,
-                    retain_graph=True
-                )
+                with profile("first_gradient", get_profiler()):
+                    grad_outputs = torch.autograd.grad(
+                        outputs=log_prob,
+                        inputs=x_grad,
+                        create_graph=True,
+                        only_inputs=True,
+                        allow_unused=False,
+                        retain_graph=True
+                    )
 
                 if len(grad_outputs) == 0 or grad_outputs[0] is None:
                     raise RuntimeError("Failed to compute gradient. Check if model outputs depend on x_grad.")
@@ -347,13 +349,14 @@ def hcg_correct(
                     )
 
                 # Second gradient: Hv = ∇(grad · v) w.r.t. x_grad
-                Hv_outputs = torch.autograd.grad(
-                    outputs=grad_dot_v,
-                    inputs=x_grad,
-                    retain_graph=False,
-                    only_inputs=True,
-                    allow_unused=False
-                )
+                with profile("second_gradient", get_profiler()):
+                    Hv_outputs = torch.autograd.grad(
+                        outputs=grad_dot_v,
+                        inputs=x_grad,
+                        retain_graph=False,
+                        only_inputs=True,
+                        allow_unused=False
+                    )
 
                 if len(Hv_outputs) == 0 or Hv_outputs[0] is None:
                     raise RuntimeError("Failed to compute Hessian-vector product.")
@@ -367,30 +370,31 @@ def hcg_correct(
             if "derivative" in error_msg or "not implemented" in error_msg or "scaled_dot_product" in error_msg:
                 # Use finite difference approximation for Hv
                 # This avoids the need for second-order derivatives
-                eps = 1e-4
+                with profile("finite_difference_hvp", get_profiler()):
+                    eps = 1e-4
 
-                # Create perturbed versions of x
-                x_plus = (x + eps * v_grad).clone().detach().requires_grad_(True)
-                x_minus = (x - eps * v_grad).clone().detach().requires_grad_(True)
+                    # Create perturbed versions of x
+                    x_plus = (x + eps * v_grad).clone().detach().requires_grad_(True)
+                    x_minus = (x - eps * v_grad).clone().detach().requires_grad_(True)
 
-                with torch.enable_grad():
-                    # Compute gradients at perturbed points
-                    score_plus = model(x_plus, t)
-                    if hasattr(score_plus, 'sample'):
-                        score_plus = score_plus.sample
-                    log_prob_plus = -0.5 * torch.sum(score_plus ** 2, dim=(1, 2, 3)).sum()
+                    with torch.enable_grad():
+                        # Compute gradients at perturbed points
+                        score_plus = model(x_plus, t)
+                        if hasattr(score_plus, 'sample'):
+                            score_plus = score_plus.sample
+                        log_prob_plus = -0.5 * torch.sum(score_plus ** 2, dim=(1, 2, 3)).sum()
 
-                    score_minus = model(x_minus, t)
-                    if hasattr(score_minus, 'sample'):
-                        score_minus = score_minus.sample
-                    log_prob_minus = -0.5 * torch.sum(score_minus ** 2, dim=(1, 2, 3)).sum()
+                        score_minus = model(x_minus, t)
+                        if hasattr(score_minus, 'sample'):
+                            score_minus = score_minus.sample
+                        log_prob_minus = -0.5 * torch.sum(score_minus ** 2, dim=(1, 2, 3)).sum()
 
-                # Compute gradients at both points
-                grad_plus = torch.autograd.grad(log_prob_plus, x_plus, only_inputs=True, retain_graph=False)[0]
-                grad_minus = torch.autograd.grad(log_prob_minus, x_minus, only_inputs=True, retain_graph=False)[0]
+                    # Compute gradients at both points
+                    grad_plus = torch.autograd.grad(log_prob_plus, x_plus, only_inputs=True, retain_graph=False)[0]
+                    grad_minus = torch.autograd.grad(log_prob_minus, x_minus, only_inputs=True, retain_graph=False)[0]
 
-                # Finite difference: Hv ≈ (grad(x+εv) - grad(x-εv)) / (2ε)
-                Hv = (grad_plus - grad_minus) / (2.0 * eps)
+                    # Finite difference: Hv ≈ (grad(x+εv) - grad(x-εv)) / (2ε)
+                    Hv = (grad_plus - grad_minus) / (2.0 * eps)
             else:
                 # Re-raise if it's a different error
                 raise
@@ -426,38 +430,46 @@ def hcg_correct(
             alpha_t = torch.tensor(1.0, dtype=torch.float32, device=device)
             beta_t = torch.tensor(0.1, dtype=torch.float32, device=device)
 
-    # Step 2: Compute adaptive damping λ_t
-    with profile("adaptive_damping_lambda"):
-        lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
-        lambda_t = lambda_scale * lambda_t_base
+    # Step 2: Compute adaptive damping λ_t (simple computation, no profiling needed)
+    lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+    lambda_t = lambda_scale * lambda_t_base
 
-        # Compute current condition numbers for analysis
-        alpha_t_val = alpha_t.item() if isinstance(alpha_t, torch.Tensor) else alpha_t
-        beta_t_val = beta_t.item() if isinstance(beta_t, torch.Tensor) else beta_t
-        lambda_t_val = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
+    # Compute current condition numbers for analysis
+    alpha_t_val = alpha_t.item() if isinstance(alpha_t, torch.Tensor) else alpha_t
+    beta_t_val = beta_t.item() if isinstance(beta_t, torch.Tensor) else beta_t
+    lambda_t_val = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
 
-        # κ(H_sym) = α_t / β_t (original condition number)
-        kappa_original = alpha_t_val / (beta_t_val + 1e-8)
+    # κ(H_sym) = α_t / β_t (original condition number)
+    kappa_original = alpha_t_val / (beta_t_val + 1e-8)
 
-        # κ(A_t) = (α_t + λ_t) / (β_t + λ_t) (regularized condition number, per ICLR doc)
-        # This is the condition number that actually affects CG convergence
-        kappa_regularized = (alpha_t_val + lambda_t_val) / (beta_t_val + lambda_t_val + 1e-8)
+    # κ(A_t) = (α_t + λ_t) / (β_t + λ_t) (regularized condition number, per ICLR doc)
+    # This is the condition number that actually affects CG convergence
+    kappa_regularized = (alpha_t_val + lambda_t_val) / (beta_t_val + lambda_t_val + 1e-8)
 
-        # Log statistics if requested (for understanding lambda_t range)
-        if log_lambda_stats:
-            lambda_t_item = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
-            print(f"[HCG lambda stats] t={t}, alpha_t={alpha_t_val:.6f}, beta_t={beta_t_val:.6f}, "
-                  f"kappa_original={kappa_original:.2f}, kappa_regularized={kappa_regularized:.2f}, "
-                  f"lambda_t_base={lambda_t_base.item():.6f}, lambda_t_scaled={lambda_t_item:.6f}, "
-                  f"lambda_scale={lambda_scale:.4f}")
+    # Log statistics if requested (for understanding lambda_t range)
+    if log_lambda_stats:
+        lambda_t_item = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
+        print(f"[HCG lambda stats] t={t}, alpha_t={alpha_t_val:.6f}, beta_t={beta_t_val:.6f}, "
+              f"kappa_original={kappa_original:.2f}, kappa_regularized={kappa_regularized:.2f}, "
+              f"lambda_t_base={lambda_t_base.item():.6f}, lambda_t_scaled={lambda_t_item:.6f}, "
+              f"lambda_scale={lambda_scale:.4f}")
 
     # Step 3: Compute spectral radius scaling factor c_t = β_t + λ_t (per ICLR doc Lemma)
     # This ensures spec(M_t) ⊂ [1/κ_*, 1] where M_t(x) = c_t (H_sym(x) + λ_t I)^{-1}
-    with profile("spectral_scaling"):
-        if use_spectral_scaling:
-            c_t = beta_t + lambda_t # c_t = 1.0 / (alpha_t + lambda_t + 1e-8)  # c_t = beta_t + lambda_t
-        else:
-            c_t = 1.0
+    #
+    # Theoretical basis:
+    # - M_t = c_t * (H_sym + λ_t I)^{-1}
+    # - With c_t = β_t + λ_t, we have:
+    #   - λ_max(M_t) = c_t / (β_t + λ_t) = 1
+    #   - λ_min(M_t) = c_t / (α_t + λ_t) = (β_t + λ_t) / (α_t + λ_t) = 1/κ(A_t) ≥ 1/κ_*
+    # - This guarantees spec(M_t) ⊂ [1/κ_*, 1] as required by the Lemma
+    #
+    # Note: Using c_t = 1/(α_t + λ_t) would NOT satisfy this guarantee.
+    # (Simple computation, no profiling needed)
+    if use_spectral_scaling:
+        c_t = beta_t + lambda_t  # Per ICLR doc Lemma: ensures spec(M_t) ⊂ [1/κ_*, 1]
+    else:
+        c_t = 1.0
 
     # Step 4: Solve (H + λ_t I)^{-1} * noise_pred using CG
     def regularized_hessian_vector_product(v: torch.Tensor) -> torch.Tensor:
