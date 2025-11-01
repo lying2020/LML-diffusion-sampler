@@ -48,9 +48,232 @@ except ImportError:
         return None
 
 
+
+def hessian_vector_product(model, x_sample: torch.Tensor, t_timestep: int, v: torch.Tensor) -> torch.Tensor:
+    """
+    Compute H*v using Pearlmutter's method.
+    H is the Hessian of -log p_t(x), symmetrized.
+    """
+    # Ensure v requires grad - detach from the no_grad context
+    v_grad = v.clone().detach().requires_grad_(True)
+
+    # Save model training state
+    model_training = model.training
+
+    # Temporarily set model to eval mode for consistent behavior
+    # But we still need gradients for input x_grad
+    model.eval()
+
+    try:
+        # Try to disable flash attention and other optimizations that don't support second-order derivatives
+        # Try new API first, then fall back to old API
+        try:
+            from torch.nn.attention import sdpa_kernel, SDPBackend
+            # Use math backend which supports gradients
+            sdp_context = sdpa_kernel(SDPBackend.MATH)
+        except (ImportError, AttributeError):
+            try:
+                # Fallback to old API
+                from torch.backends.cuda import sdp_kernel
+                sdp_context = sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False)
+            except (ImportError, AttributeError):
+                # Final fallback: use nullcontext
+                sdp_context = contextlib.nullcontext()
+
+        # Force enable gradients - this creates a new gradient context
+        # even if we're called from within a no_grad() block
+        with sdp_context:
+            with torch.enable_grad():
+                # Create a fresh copy of x that requires grad within this gradient context
+                # This ensures it's completely detached from any outer no_grad context
+                x_grad = x_sample.clone().detach().requires_grad_(True)
+
+                # Forward pass: model(x, t) - this must be inside enable_grad
+                # to ensure score_pred tracks gradients w.r.t. x_grad
+                # Disable any attention optimizations that might interfere
+                with profile("model_forward_pass", get_profiler()):
+                    score_pred = model(x_grad, t_timestep)
+                if hasattr(score_pred, 'sample'):
+                    score_pred = score_pred.sample
+
+                # Verify that score_pred has gradient connection to x_grad
+                if not score_pred.requires_grad:
+                    # If model output doesn't require grad, we need to force it
+                    # by creating a dependency
+                    score_pred = score_pred + 0.0 * x_grad.sum()
+
+                # Log probability: -0.5 * ||score||^2
+                log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
+                log_prob = log_prob.sum()
+
+                # Ensure log_prob requires grad
+                if not log_prob.requires_grad:
+                    raise RuntimeError(
+                        f"log_prob does not require grad. "
+                        f"score_pred.requires_grad={score_pred.requires_grad}, "
+                        f"x_grad.requires_grad={x_grad.requires_grad}"
+                    )
+
+            # First gradient: ∇log_prob w.r.t. x_grad
+            # create_graph=True is needed for second-order derivatives
+            with profile("first_gradient", get_profiler()):
+                grad_outputs = torch.autograd.grad(
+                    outputs=log_prob,
+                    inputs=x_grad,
+                    create_graph=True,
+                    only_inputs=True,
+                    allow_unused=False,
+                    retain_graph=True
+                )
+
+            if len(grad_outputs) == 0 or grad_outputs[0] is None:
+                raise RuntimeError("Failed to compute gradient. Check if model outputs depend on x_grad.")
+
+            grad = grad_outputs[0]
+
+            # Hv = ∇(∇f · v) for H = -∇²log p
+            # Compute inner product: grad · v_grad
+            grad_dot_v = torch.sum(grad * v_grad)
+
+            # Check that grad_dot_v requires grad (for second derivative)
+            if not grad_dot_v.requires_grad:
+                raise RuntimeError(
+                    f"grad_dot_v does not require grad. "
+                    f"grad.requires_grad={grad.requires_grad}, "
+                    f"v_grad.requires_grad={v_grad.requires_grad}, "
+                    f"log_prob.requires_grad={log_prob.requires_grad}"
+                )
+
+            # Second gradient: Hv = ∇(grad · v) w.r.t. x_grad
+            with profile("second_gradient", get_profiler()):
+                Hv_outputs = torch.autograd.grad(
+                    outputs=grad_dot_v,
+                    inputs=x_grad,
+                    retain_graph=False,
+                    only_inputs=True,
+                    allow_unused=False
+                )
+
+            if len(Hv_outputs) == 0 or Hv_outputs[0] is None:
+                raise RuntimeError("Failed to compute Hessian-vector product.")
+
+            Hv = Hv_outputs[0]
+
+    except RuntimeError as e:
+        # If we get an error about unsupported operations (e.g., flash attention),
+        # fall back to finite difference approximation
+        error_msg = str(e).lower()
+        if "derivative" in error_msg or "not implemented" in error_msg or "scaled_dot_product" in error_msg:
+            # Use finite difference approximation for Hv
+            # This avoids the need for second-order derivatives
+            with profile("finite_difference_hvp", get_profiler()):
+                eps = 1e-4
+
+                # Create perturbed versions of x
+                x_plus = (x_sample + eps * v_grad).clone().detach().requires_grad_(True)
+                x_minus = (x_sample - eps * v_grad).clone().detach().requires_grad_(True)
+
+                with torch.enable_grad():
+                    # Compute gradients at perturbed points
+                    score_plus = model(x_plus, t)
+                    if hasattr(score_plus, 'sample'):
+                        score_plus = score_plus.sample
+                    log_prob_plus = -0.5 * torch.sum(score_plus ** 2, dim=(1, 2, 3)).sum()
+
+                    score_minus = model(x_minus, t)
+                    if hasattr(score_minus, 'sample'):
+                        score_minus = score_minus.sample
+                    log_prob_minus = -0.5 * torch.sum(score_minus ** 2, dim=(1, 2, 3)).sum()
+
+                # Compute gradients at both points
+                grad_plus = torch.autograd.grad(log_prob_plus, x_plus, only_inputs=True, retain_graph=False)[0]
+                grad_minus = torch.autograd.grad(log_prob_minus, x_minus, only_inputs=True, retain_graph=False)[0]
+
+                # Finite difference: Hv ≈ (grad(x+εv) - grad(x-εv)) / (2ε)
+                Hv = (grad_plus - grad_minus) / (2.0 * eps)
+        else:
+            # Re-raise if it's a different error
+            raise
+
+    finally:
+        # Restore model training state
+        if model_training:
+            model.train()
+
+    # Detach and return (no need to keep gradients in output)
+    return Hv.detach()
+
+# Step 4: Solve (H + λ_t I)^{-1} * noise_pred using CG
+def regularized_hessian_vector_product(model, x_sample, t_timestep, v: torch.Tensor, lambda_t: float) -> torch.Tensor:
+    """Compute (H + λ_t I) * v"""
+    with profile("hessian_vector_product", get_profiler()):
+        Hv = hessian_vector_product(model, x_sample, t_timestep, v)
+    # Add regularization: (H + λ_t I)v = Hv + λ_t * v
+    return Hv + lambda_t * v
+
+def conjugate_gradient_solve(model, x_sample, t_timestep, prev_solution: Optional[torch.Tensor] = None, lambda_t: float = 0.0004, b: torch.Tensor = None, cg_max_iter: int = 20, cg_tol: float = 1e-4) -> Tuple[torch.Tensor, int, float]:
+    """
+    Solve (H + λ_t I) * x = b using CG with optional initial guess
+
+    Returns:
+        x_cg: Solution
+        num_iterations: Number of CG iterations used
+        final_residual: Final residual norm (normalized by initial residual)
+    """
+    with profile("conjugate_gradient_solve", get_profiler()):
+        # Use previous solution as initial guess if available (can improve convergence)
+        if prev_solution is not None and prev_solution.shape == b.shape:
+            x_cg = prev_solution.clone()
+            # Compute initial residual
+            Hx = regularized_hessian_vector_product(model, x_sample, t_timestep, x_cg, lambda_t=lambda_t)
+            r = b - Hx
+        else:
+            x_cg = torch.zeros_like(b)
+            r = b.clone()
+        p = r.clone()
+
+        r_norm_sq = torch.sum(r ** 2)
+        r_norm_0 = torch.sqrt(r_norm_sq)
+
+        if r_norm_0 < 1e-10:
+            return x_cg, 0, 0.0
+
+        num_iterations = 0
+        r_norm = r_norm_0  # Initialize r_norm to avoid UnboundLocalError
+        for i in range(cg_max_iter):
+            Hp = regularized_hessian_vector_product(model, x_sample, t_timestep, p, lambda_t=lambda_t)
+            p_Hp = torch.sum(p * Hp)
+
+            if p_Hp <= 1e-10:
+                # If p_Hp is too small, compute final residual before breaking
+                r_norm_sq_final = torch.sum(r ** 2)
+                r_norm = torch.sqrt(r_norm_sq_final)
+                break
+
+            alpha = r_norm_sq / p_Hp
+            x_cg = x_cg + alpha * p
+            r = r - alpha * Hp
+
+            r_norm_sq_new = torch.sum(r ** 2)
+            r_norm = torch.sqrt(r_norm_sq_new)
+            num_iterations = i + 1
+
+            if r_norm < cg_tol * r_norm_0:
+                break
+
+            if i < cg_max_iter - 1:
+                beta = r_norm_sq_new / (r_norm_sq + 1e-10)
+                p = r + beta * p
+                r_norm_sq = r_norm_sq_new
+
+        final_residual_ratio = r_norm / (r_norm_0 + 1e-10)
+        return x_cg, num_iterations, final_residual_ratio.item()
+
+
 def lanczos_eigenvalue_estimation(
-    hessian_vector_product_fn,
-    x_shape: Tuple,
+    model,
+    x_sample,
+    t_timestep: int,
     k: int = 10,
     num_vectors: int = 5,
     device: str = 'cuda'
@@ -59,8 +282,8 @@ def lanczos_eigenvalue_estimation(
     Estimate maximum and minimum eigenvalues using Lanczos algorithm with multiple random vectors.
 
     Args:
-        hessian_vector_product_fn: Function that computes H*v for any vector v
-        x_shape: Shape of the input tensor
+        model: Model for Hessian computation
+        x: Current sample tensor
         k: Number of Lanczos iterations
         num_vectors: Number of random vectors for robust estimation
         device: Device to use
@@ -69,6 +292,7 @@ def lanczos_eigenvalue_estimation(
         alpha_t: Maximum eigenvalue estimate (λ_max)
         beta_t: Minimum eigenvalue estimate (λ_min)
     """
+    x_shape = x_sample.shape
     batch_size = x_shape[0]
     total_dim = int(np.prod(x_shape[1:]))
 
@@ -90,7 +314,7 @@ def lanczos_eigenvalue_estimation(
 
         # First iteration
         v_full = v_flat.view(x_shape[0:1] + x_shape[1:])
-        w = hessian_vector_product_fn(v_full)
+        w = hessian_vector_product(model, x_sample, t_timestep, v_full)
         w_flat = w.view(batch_size, -1).mean(dim=0).cpu().numpy()  # Average over batch
 
         alpha_0 = np.dot(w_flat, v_flat.cpu().numpy())
@@ -113,7 +337,7 @@ def lanczos_eigenvalue_estimation(
 
             # Expand to full shape for HVP
             v_curr_full = torch.tensor(v_curr, device=device, dtype=torch.float32).view(x_shape[0:1] + x_shape[1:])
-            w = hessian_vector_product_fn(v_curr_full)
+            w = hessian_vector_product(model, x_sample, t_timestep, v_curr_full)
             w_flat = w.view(batch_size, -1).mean(dim=0).cpu().numpy()
 
             alpha_i = np.dot(w_flat, v_curr)
@@ -214,8 +438,8 @@ def adaptive_damping_lambda(
 def hcg_correct(
     noise_pred: torch.Tensor,
     model,
-    x: torch.Tensor,
-    t: int,
+    x_sample: torch.Tensor,
+    t_timestep: int,
     device: str = 'cuda',
     kappa_target: float = 10.0,
     lanczos_k: int = 10,
@@ -271,160 +495,6 @@ def hcg_correct(
     """
     batch_size, channels, height, width = noise_pred.shape
 
-    def hessian_vector_product(v: torch.Tensor) -> torch.Tensor:
-        """
-        Compute H*v using Pearlmutter's method.
-        H is the Hessian of -log p_t(x), symmetrized.
-        """
-        # Ensure v requires grad - detach from the no_grad context
-        v_grad = v.clone().detach().requires_grad_(True)
-
-        # Save model training state
-        model_training = model.training
-
-        # Temporarily set model to eval mode for consistent behavior
-        # But we still need gradients for input x_grad
-        model.eval()
-
-        try:
-            # Try to disable flash attention and other optimizations that don't support second-order derivatives
-            # Try new API first, then fall back to old API
-            try:
-                from torch.nn.attention import sdpa_kernel, SDPBackend
-                # Use math backend which supports gradients
-                sdp_context = sdpa_kernel(SDPBackend.MATH)
-            except (ImportError, AttributeError):
-                try:
-                    # Fallback to old API
-                    from torch.backends.cuda import sdp_kernel
-                    sdp_context = sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False)
-                except (ImportError, AttributeError):
-                    # Final fallback: use nullcontext
-                    sdp_context = contextlib.nullcontext()
-
-            # Force enable gradients - this creates a new gradient context
-            # even if we're called from within a no_grad() block
-            with sdp_context:
-                with torch.enable_grad():
-                    # Create a fresh copy of x that requires grad within this gradient context
-                    # This ensures it's completely detached from any outer no_grad context
-                    x_grad = x.clone().detach().requires_grad_(True)
-
-                    # Forward pass: model(x, t) - this must be inside enable_grad
-                    # to ensure score_pred tracks gradients w.r.t. x_grad
-                    # Disable any attention optimizations that might interfere
-                    with profile("model_forward_pass", get_profiler()):
-                        score_pred = model(x_grad, t)
-                    if hasattr(score_pred, 'sample'):
-                        score_pred = score_pred.sample
-
-                    # Verify that score_pred has gradient connection to x_grad
-                    if not score_pred.requires_grad:
-                        # If model output doesn't require grad, we need to force it
-                        # by creating a dependency
-                        score_pred = score_pred + 0.0 * x_grad.sum()
-
-                    # Log probability: -0.5 * ||score||^2
-                    log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
-                    log_prob = log_prob.sum()
-
-                    # Ensure log_prob requires grad
-                    if not log_prob.requires_grad:
-                        raise RuntimeError(
-                            f"log_prob does not require grad. "
-                            f"score_pred.requires_grad={score_pred.requires_grad}, "
-                            f"x_grad.requires_grad={x_grad.requires_grad}"
-                        )
-
-                # First gradient: ∇log_prob w.r.t. x_grad
-                # create_graph=True is needed for second-order derivatives
-                with profile("first_gradient", get_profiler()):
-                    grad_outputs = torch.autograd.grad(
-                        outputs=log_prob,
-                        inputs=x_grad,
-                        create_graph=True,
-                        only_inputs=True,
-                        allow_unused=False,
-                        retain_graph=True
-                    )
-
-                if len(grad_outputs) == 0 or grad_outputs[0] is None:
-                    raise RuntimeError("Failed to compute gradient. Check if model outputs depend on x_grad.")
-
-                grad = grad_outputs[0]
-
-                # Hv = ∇(∇f · v) for H = -∇²log p
-                # Compute inner product: grad · v_grad
-                grad_dot_v = torch.sum(grad * v_grad)
-
-                # Check that grad_dot_v requires grad (for second derivative)
-                if not grad_dot_v.requires_grad:
-                    raise RuntimeError(
-                        f"grad_dot_v does not require grad. "
-                        f"grad.requires_grad={grad.requires_grad}, "
-                        f"v_grad.requires_grad={v_grad.requires_grad}, "
-                        f"log_prob.requires_grad={log_prob.requires_grad}"
-                    )
-
-                # Second gradient: Hv = ∇(grad · v) w.r.t. x_grad
-                with profile("second_gradient", get_profiler()):
-                    Hv_outputs = torch.autograd.grad(
-                        outputs=grad_dot_v,
-                        inputs=x_grad,
-                        retain_graph=False,
-                        only_inputs=True,
-                        allow_unused=False
-                    )
-
-                if len(Hv_outputs) == 0 or Hv_outputs[0] is None:
-                    raise RuntimeError("Failed to compute Hessian-vector product.")
-
-                Hv = Hv_outputs[0]
-
-        except RuntimeError as e:
-            # If we get an error about unsupported operations (e.g., flash attention),
-            # fall back to finite difference approximation
-            error_msg = str(e).lower()
-            if "derivative" in error_msg or "not implemented" in error_msg or "scaled_dot_product" in error_msg:
-                # Use finite difference approximation for Hv
-                # This avoids the need for second-order derivatives
-                with profile("finite_difference_hvp", get_profiler()):
-                    eps = 1e-4
-
-                    # Create perturbed versions of x
-                    x_plus = (x + eps * v_grad).clone().detach().requires_grad_(True)
-                    x_minus = (x - eps * v_grad).clone().detach().requires_grad_(True)
-
-                    with torch.enable_grad():
-                        # Compute gradients at perturbed points
-                        score_plus = model(x_plus, t)
-                        if hasattr(score_plus, 'sample'):
-                            score_plus = score_plus.sample
-                        log_prob_plus = -0.5 * torch.sum(score_plus ** 2, dim=(1, 2, 3)).sum()
-
-                        score_minus = model(x_minus, t)
-                        if hasattr(score_minus, 'sample'):
-                            score_minus = score_minus.sample
-                        log_prob_minus = -0.5 * torch.sum(score_minus ** 2, dim=(1, 2, 3)).sum()
-
-                    # Compute gradients at both points
-                    grad_plus = torch.autograd.grad(log_prob_plus, x_plus, only_inputs=True, retain_graph=False)[0]
-                    grad_minus = torch.autograd.grad(log_prob_minus, x_minus, only_inputs=True, retain_graph=False)[0]
-
-                    # Finite difference: Hv ≈ (grad(x+εv) - grad(x-εv)) / (2ε)
-                    Hv = (grad_plus - grad_minus) / (2.0 * eps)
-            else:
-                # Re-raise if it's a different error
-                raise
-
-        finally:
-            # Restore model training state
-            if model_training:
-                model.train()
-
-        # Detach and return (no need to keep gradients in output)
-        return Hv.detach()
-
     # Step 1: Estimate eigenvalues using Lanczos (with caching if enabled)
     beta_min = 1e-5  # Minimum eigenvalue lower bound for numerical stability
 
@@ -444,8 +514,9 @@ def hcg_correct(
                 # Reduce num_vectors for efficiency (from 3 to 1-2)
                 num_vectors = 2 if lanczos_k >= 5 else 1  # Fewer vectors when k is small
                 alpha_t, beta_t = lanczos_eigenvalue_estimation(
-                    hessian_vector_product_fn=hessian_vector_product,
-                    x_shape=x.shape,
+                    model=model,
+                    x_sample=x_sample,
+                    t_timestep=t_timestep,
                     k=lanczos_k,
                     num_vectors=num_vectors,
                     device=device
@@ -464,8 +535,9 @@ def hcg_correct(
         noise_pred_ema = noise_pred
 
     # Step 2: Compute adaptive damping λ_t (simple computation, no profiling needed)
-    lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+    lambda_t_base = 0.0
     if use_adaptive_lambda:
+        lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
         lambda_t = lambda_scale * lambda_t_base
     else:
         lambda_t = lambda_base
@@ -485,7 +557,7 @@ def hcg_correct(
     # Log statistics if requested (for understanding lambda_t range)
     if log_lambda_stats:
         lambda_t_item = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
-        print(f"[HCG lambda stats] t={t}, alpha_t={alpha_t_val:.6f}, beta_t={beta_t_val:.6f}, "
+        print(f"[HCG lambda stats] t={t_timestep}, alpha_t={alpha_t_val:.6f}, beta_t={beta_t_val:.6f}, "
               f"kappa_original={kappa_original:.2f}, kappa_regularized={kappa_regularized:.2f}, "
               f"lambda_t={lambda_t_item:.6f}, "
               f"use_adaptive_lambda={use_adaptive_lambda}, lambda_base={lambda_base:.4f}, lambda_scale={lambda_scale:.4f}")
@@ -507,78 +579,12 @@ def hcg_correct(
     else:
         c_t = spectral_scaling
 
-    # Step 4: Solve (H + λ_t I)^{-1} * noise_pred using CG
-    def regularized_hessian_vector_product(v: torch.Tensor) -> torch.Tensor:
-        """Compute (H + λ_t I) * v"""
-        with profile("hessian_vector_product", get_profiler()):
-            Hv = hessian_vector_product(v)
-        # Add regularization: (H + λ_t I)v = Hv + λ_t * v
-        return Hv + lambda_t * v
-
-    def conjugate_gradient_solve(b: torch.Tensor, prev_solution: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, int, float]:
-        """
-        Solve (H + λ_t I) * x = b using CG with optional initial guess
-
-        Returns:
-            x_cg: Solution
-            num_iterations: Number of CG iterations used
-            final_residual: Final residual norm (normalized by initial residual)
-        """
-        with profile("conjugate_gradient_solve", get_profiler()):
-            # Use previous solution as initial guess if available (can improve convergence)
-            if prev_solution is not None and prev_solution.shape == b.shape:
-                x_cg = prev_solution.clone()
-                # Compute initial residual
-                Hx = regularized_hessian_vector_product(x_cg)
-                r = b - Hx
-            else:
-                x_cg = torch.zeros_like(b)
-                r = b.clone()
-            p = r.clone()
-
-            r_norm_sq = torch.sum(r ** 2)
-            r_norm_0 = torch.sqrt(r_norm_sq)
-
-            if r_norm_0 < 1e-10:
-                return x_cg, 0, 0.0
-
-            num_iterations = 0
-            r_norm = r_norm_0  # Initialize r_norm to avoid UnboundLocalError
-            for i in range(cg_max_iter):
-                Hp = regularized_hessian_vector_product(p)
-                p_Hp = torch.sum(p * Hp)
-
-                if p_Hp <= 1e-10:
-                    # If p_Hp is too small, compute final residual before breaking
-                    r_norm_sq_final = torch.sum(r ** 2)
-                    r_norm = torch.sqrt(r_norm_sq_final)
-                    break
-
-                alpha = r_norm_sq / p_Hp
-                x_cg = x_cg + alpha * p
-                r = r - alpha * Hp
-
-                r_norm_sq_new = torch.sum(r ** 2)
-                r_norm = torch.sqrt(r_norm_sq_new)
-                num_iterations = i + 1
-
-                if r_norm < cg_tol * r_norm_0:
-                    break
-
-                if i < cg_max_iter - 1:
-                    beta = r_norm_sq_new / (r_norm_sq + 1e-10)
-                    p = r + beta * p
-                    r_norm_sq = r_norm_sq_new
-
-            final_residual_ratio = r_norm / (r_norm_0 + 1e-10)
-            return x_cg, num_iterations, final_residual_ratio.item()
-
     # Solve (H + λ_t I)^{-1} * noise_pred (with warm start if available)
     # Use noise_pred_ema if EMA smoothing is enabled
     cg_input = noise_pred_ema if use_ema_smoothing else noise_pred
     cg_prev_solution = prev_cg_solution if use_cg_warm_start else None
     corrected_noise, cg_iterations, cg_final_residual = conjugate_gradient_solve(
-        cg_input, prev_solution=cg_prev_solution
+        model=model, x_sample=x_sample, t_timestep=t_timestep, prev_solution=cg_prev_solution, lambda_t=lambda_t, b=cg_input, cg_max_iter=cg_max_iter, cg_tol=cg_tol
     )
 
     # Step 5: Apply spectral radius scaling: c_t * corrected_noise
@@ -839,8 +845,8 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         corrected_noise, eigenvalues, cg_solution, stats = hcg_correct(
             noise_pred=noise,
             model=self.model,
-            x=sample,
-            t=timestep,
+            x_sample=sample,
+            t_timestep=timestep,
             device=sample.device,
             kappa_target=self.kappa_target,
             lanczos_k=self.lanczos_k,
