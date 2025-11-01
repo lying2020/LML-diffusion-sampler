@@ -436,7 +436,7 @@ configs = {
         'lanczos_k': 10,      # Lanczos 迭代次数
         'cg_max_iter': 20,    # CG 最大迭代次数
         'cg_tol': 1e-4,       # CG 容忍度
-        'use_spectral_scaling': True  # 启用谱半径缩放
+        'use_spectral_radius': True  # 启用谱半径缩放
     }
 }
 ```
@@ -456,7 +456,7 @@ scheduler = DPMSolverMultistepHCGScheduler(
     lanczos_k=10,                    # Lanczos 迭代次数
     cg_max_iter=20,                  # CG 最大迭代次数
     cg_tol=1e-4,                     # CG 容忍度
-    use_spectral_scaling=True,        # 启用谱半径缩放
+    use_spectral_radius=True,        # 启用谱半径缩放
 )
 
 # 设置模型（必需，用于计算 Hessian）
@@ -825,7 +825,7 @@ def hcg_correct(noise_pred, model, x, t, kappa_target=10.0, ...):
 - **`lanczos_k`**: Lanczos 迭代次数（通常 5-20）
 - **`cg_max_iter`**: CG 最大迭代次数（通常 10-30）
 - **`cg_tol`**: CG 收敛容忍度（通常 1e-4 到 1e-3）
-- **`use_spectral_scaling`**: 是否使用谱半径缩放（默认 True）
+- **`use_spectral_radius`**: 是否使用谱半径缩放（默认 True）
 
 ### 3.5 特点
 
@@ -891,7 +891,7 @@ if self.use_hcg and self.model is not None:
         lanczos_k=self.lanczos_k,
         cg_max_iter=self.cg_max_iter,
         cg_tol=self.cg_tol,
-        use_spectral_scaling=self.use_spectral_scaling
+        use_spectral_radius=self.use_spectral_radius
     )
     x_t = (sigma_t / sigma_s) * sample + corrected_noise
 else:

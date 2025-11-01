@@ -160,7 +160,7 @@ corrected_noise = c_t * (H + λ_t I)^{-1} * noise_pred
 ```python
 # Step 3: Compute spectral radius scaling factor c_t = β_t + λ_t (per ICLR doc Lemma)
 # This ensures spec(M_t) ⊂ [1/κ_*, 1] where M_t(x) = c_t (H_sym(x) + λ_t I)^{-1}
-if use_spectral_scaling:
+if use_spectral_radius:
     c_t = beta_t + lambda_t  # ✅ 正确：符合 ICLR 文档
 else:
     c_t = 1.0

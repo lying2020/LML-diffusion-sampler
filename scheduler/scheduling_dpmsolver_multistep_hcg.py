@@ -221,7 +221,7 @@ def hcg_correct(
     lanczos_k: int = 10,
     cg_max_iter: int = 20,
     cg_tol: float = 1e-4,
-    use_spectral_scaling: bool = True,
+    use_spectral_radius: bool = True,
     spectral_scaling: float = 1.0,
     use_adaptive_lambda: bool = True,
     lambda_base: float = 0.004,
@@ -229,6 +229,15 @@ def hcg_correct(
     log_lambda_stats: bool = False,
     cached_eigenvalues: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # New: optional cached eigenvalues
     prev_cg_solution: Optional[torch.Tensor] = None,  # New: previous CG solution for warm start
+    # Additional control variables for debugging
+    use_cg_warm_start: bool = True,  # Control whether to use CG warm start
+    use_normalization: bool = True,  # Control whether to normalize after correction
+    use_ema_smoothing: bool = False,  # Control whether to use EMA smoothing (like LML)
+    ema_kappa: float = 1e-8,  # EMA smoothing factor (like LML's kappa)
+    prev_noise: Optional[torch.Tensor] = None,  # Previous noise for EMA (like LML)
+    skip_lanczos: bool = False,  # Skip Lanczos, use fixed eigenvalues for fast testing
+    fixed_alpha: float = 1.0,  # Fixed alpha_t when skip_lanczos=True
+    fixed_beta: float = 0.1,  # Fixed beta_t when skip_lanczos=True
 ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor, dict]:
     """
     Hessian-Conjugate Gradient correction using adaptive damping.
@@ -248,7 +257,7 @@ def hcg_correct(
         lanczos_k: Number of Lanczos iterations for eigenvalue estimation
         cg_max_iter: Maximum CG iterations
         cg_tol: CG tolerance
-        use_spectral_scaling: Whether to apply spectral radius scaling c_t
+        use_spectral_radius: Whether to apply spectral radius scaling c_t
         spectral_scaling: Spectral radius scaling factor c_t
         use_adaptive_lambda: Whether to use adaptive lambda_t
         lambda_base: Base lambda_t
@@ -419,7 +428,11 @@ def hcg_correct(
     # Step 1: Estimate eigenvalues using Lanczos (with caching if enabled)
     beta_min = 1e-5  # Minimum eigenvalue lower bound for numerical stability
 
-    if cached_eigenvalues is not None:
+    if skip_lanczos:
+        # For debugging: use fixed eigenvalues
+        alpha_t = torch.tensor(fixed_alpha, dtype=torch.float32, device=device)
+        beta_t = torch.tensor(fixed_beta, dtype=torch.float32, device=device)
+    elif cached_eigenvalues is not None:
         # Use cached eigenvalues if provided, but ensure they meet minimum bounds
         alpha_t, beta_t = cached_eigenvalues
         # Ensure cached values also respect the minimum bound
@@ -443,6 +456,12 @@ def hcg_correct(
             print(f"Warning: Lanczos estimation failed, using fallback: {e}")
             alpha_t = torch.tensor(1.0, dtype=torch.float32, device=device)
             beta_t = torch.tensor(max(0.1, beta_min), dtype=torch.float32, device=device)  # Ensure beta_t >= beta_min
+
+    # Optional: Apply EMA smoothing (like LML)
+    if use_ema_smoothing and prev_noise is not None:
+        noise_pred_ema = ema_kappa * prev_noise + (1 - ema_kappa) * noise_pred
+    else:
+        noise_pred_ema = noise_pred
 
     # Step 2: Compute adaptive damping λ_t (simple computation, no profiling needed)
     lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
@@ -483,7 +502,7 @@ def hcg_correct(
     #
     # Note: Using c_t = 1/(α_t + λ_t) would NOT satisfy this guarantee.
     # (Simple computation, no profiling needed)
-    if use_spectral_scaling:
+    if use_spectral_radius:
         c_t = beta_t + lambda_t  # Per ICLR doc Lemma: ensures spec(M_t) ⊂ [1/κ_*, 1]
     else:
         c_t = spectral_scaling
@@ -555,17 +574,21 @@ def hcg_correct(
             return x_cg, num_iterations, final_residual_ratio.item()
 
     # Solve (H + λ_t I)^{-1} * noise_pred (with warm start if available)
+    # Use noise_pred_ema if EMA smoothing is enabled
+    cg_input = noise_pred_ema if use_ema_smoothing else noise_pred
+    cg_prev_solution = prev_cg_solution if use_cg_warm_start else None
     corrected_noise, cg_iterations, cg_final_residual = conjugate_gradient_solve(
-        noise_pred, prev_solution=prev_cg_solution
+        cg_input, prev_solution=cg_prev_solution
     )
 
     # Step 5: Apply spectral radius scaling: c_t * corrected_noise
     corrected_noise = c_t * corrected_noise
 
-    # Step 6: Normalize to preserve magnitude
-    norm_original = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
-    norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
-    corrected_noise = corrected_noise * norm_original / (norm_corrected + 1e-8)
+    # Step 6: Normalize to preserve magnitude (optional, controlled by use_normalization)
+    if use_normalization:
+        norm_original = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
+        norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
+        corrected_noise = corrected_noise * norm_original / (norm_corrected + 1e-8)
 
     # Compute theoretical minimum CG iterations k_pred (per ICLR doc convergence bound)
     # k_pred = 0.5 * sqrt(κ(A_t)) * log(2/τ)
@@ -675,7 +698,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         lanczos_k: int = 5,  # Reduced from 10 for faster computation
         cg_max_iter: int = 5,  # Reduced from 20 for faster computation
         cg_tol: float = 1e-3,  # Balanced: tighter than 1e-2 for better convergence, but not as strict as 1e-4
-        use_spectral_scaling: bool = True,
+        use_spectral_radius: bool = True,
         spectral_scaling: float = 1.0,
         use_adaptive_lambda: bool = True,
         lambda_base: float = 0.004,
@@ -683,6 +706,14 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         log_lambda_stats: bool = False,
         enable_eigenvalue_cache: bool = True,  # New: enable eigenvalue caching
         eigenvalue_cache_interval: int = 4,  # New: re-estimate every N steps (ICLR doc recommends r=2 or 4)
+        # Additional control variables for debugging
+        use_cg_warm_start: bool = True,  # Control whether to use CG warm start
+        use_normalization: bool = True,  # Control whether to normalize after correction
+        use_ema_smoothing: bool = False,  # Control whether to use EMA smoothing (like LML)
+        ema_kappa: float = 1e-8,  # EMA smoothing factor (like LML's kappa)
+        skip_lanczos: bool = False,  # Skip Lanczos, use fixed eigenvalues for fast testing
+        fixed_alpha: float = 1.0,  # Fixed alpha_t when skip_lanczos=True
+        fixed_beta: float = 0.1,  # Fixed beta_t when skip_lanczos=True
     ):
         if trained_betas is not None:
             self.betas = torch.tensor(trained_betas, dtype=torch.float32)
@@ -704,12 +735,21 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         self.lanczos_k = lanczos_k
         self.cg_max_iter = cg_max_iter
         self.cg_tol = cg_tol
-        self.use_spectral_scaling = use_spectral_scaling
+        self.use_spectral_radius = use_spectral_radius
         self.spectral_scaling = spectral_scaling
         self.use_adaptive_lambda = use_adaptive_lambda
         self.lambda_base = lambda_base
         self.lambda_scale = lambda_scale
         self.log_lambda_stats = log_lambda_stats
+
+        # Additional control variables for debugging
+        self.use_cg_warm_start = use_cg_warm_start
+        self.use_normalization = use_normalization
+        self.use_ema_smoothing = use_ema_smoothing
+        self.ema_kappa = ema_kappa
+        self.skip_lanczos = skip_lanczos
+        self.fixed_alpha = fixed_alpha
+        self.fixed_beta = fixed_beta
 
         self.model = None  # Will be set during sampling
         self.prev_noise = None
@@ -806,7 +846,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             lanczos_k=self.lanczos_k,
             cg_max_iter=self.cg_max_iter,
             cg_tol=self.cg_tol,
-            use_spectral_scaling=self.use_spectral_scaling,
+            use_spectral_radius=self.use_spectral_radius,
             spectral_scaling=self.spectral_scaling,
             use_adaptive_lambda=self.use_adaptive_lambda,
             lambda_base=self.lambda_base,
@@ -814,6 +854,15 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             log_lambda_stats=self.log_lambda_stats,
             cached_eigenvalues=cached_eigs,
             prev_cg_solution=self.prev_cg_solution,
+            # Additional control variables
+            use_cg_warm_start=getattr(self, 'use_cg_warm_start', True),
+            use_normalization=getattr(self, 'use_normalization', True),
+            use_ema_smoothing=getattr(self, 'use_ema_smoothing', False),
+            ema_kappa=getattr(self, 'ema_kappa', 1e-8),
+            prev_noise=self.prev_noise,
+            skip_lanczos=getattr(self, 'skip_lanczos', False),
+            fixed_alpha=getattr(self, 'fixed_alpha', 1.0),
+            fixed_beta=getattr(self, 'fixed_beta', 0.1),
         )
 
         # Cache eigenvalues and CG solution for next step

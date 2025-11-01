@@ -51,7 +51,7 @@ c_t = β_t + λ_t
 
 #### **我们的 HCG 实现**
 ```python
-if use_spectral_scaling:
+if use_spectral_radius:
     c_t = 1.0 / (alpha_t + lambda_t + 1e-8)
 else:
     c_t = 1.0

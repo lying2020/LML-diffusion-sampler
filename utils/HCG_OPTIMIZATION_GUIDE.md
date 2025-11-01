@@ -295,7 +295,7 @@ lanczos_k = 3
 num_vectors = 1
 cg_max_iter = 3
 cg_tol = 1e-1
-use_spectral_scaling = False  # 可选：关闭谱缩放
+use_spectral_radius = False  # 可选：关闭谱缩放
 enable_eigenvalue_cache = True
 cache_interval = 5
 ```
@@ -309,7 +309,7 @@ lanczos_k = 5
 num_vectors = 2
 cg_max_iter = 5
 cg_tol = 1e-2
-use_spectral_scaling = True
+use_spectral_radius = True
 enable_eigenvalue_cache = True
 cache_interval = 3
 ```
@@ -323,7 +323,7 @@ lanczos_k = 7
 num_vectors = 2
 cg_max_iter = 10
 cg_tol = 5e-3
-use_spectral_scaling = True
+use_spectral_radius = True
 enable_eigenvalue_cache = True
 cache_interval = 2
 ```

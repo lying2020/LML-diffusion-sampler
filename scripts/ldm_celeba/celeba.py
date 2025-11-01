@@ -76,22 +76,34 @@ def parse_args():
     parser.add_argument('--device', type=str, default='cuda')
 
     # HCG (Hessian-Conjugate Gradient) parameters
-    parser.add_argument('--kappa_target', type=float, default=100.0, help='Target condition number for adaptive damping')
-    parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
+
     parser.add_argument('--cg_max_iter', type=int, default=5, help='Maximum CG iterations')
     parser.add_argument('--cg_tol', type=float, default=1e-3, help='CG tolerance (default: 1e-3, tighter than 1e-2 for better convergence)')
-    # HCG (Hessian-Conjugate Gradient) parameters for spectral radius scaling
-    parser.add_argument('--use_spectral_scaling', action='store_true', default=False, help='Use spectral radius scaling c_t = beta_t + lambda_t (default: True, REQUIRED for HCG to work)')
-    parser.add_argument('--spectral_scaling', type=float, default=1.0, help='Spectral radius scaling factor when use_spectral_scaling=False (default: 1.0, only used if disabled)')
 
+    # HCG (Hessian-Conjugate Gradient) parameters for spectral radius scaling
+    parser.add_argument('--use_spectral_radius', type=bool, default=False, help='Use spectral radius scaling c_t = beta_t + lambda_t (default: True, REQUIRED for HCG to work)')
+    parser.add_argument('--spectral_scaling', type=float, default=1.0, help='Spectral radius scaling factor when use_spectral_radius=False (default: 1.0, only used if disabled)')
     # HCG (Hessian-Conjugate Gradient) parameters for adaptive damping
-    parser.add_argument('--use_adaptive_lambda', action='store_true', default=False, help='Use adaptive lambda_t (default: False, optimized). If False, use fixed lambda_t = lambda_base.')
+    parser.add_argument('--use_adaptive_lambda', type=bool, default=False, help='Use adaptive lambda_t (default: False, optimized). If False, use fixed lambda_t = lambda_base.')
     parser.add_argument('--lambda_base', type=float, default=0.004, help='Base lambda_t (default: 0.3, optimized). If use_adaptive_lambda=False, use fixed lambda_t = lambda_base.')
     parser.add_argument('--lambda_scale', type=float, default=0.3, help='Scaling factor for adaptive lambda_t (default: 0.3, optimized). If use_adaptive_lambda=True, use adaptive lambda_t = lambda_scale * lambda_t_base.')
+    parser.add_argument('--kappa_target', type=float, default=100.0, help='Target condition number for adaptive damping')
 
-    parser.add_argument('--log_lambda_stats', action='store_true', default=True, help='Log lambda_t statistics to understand its range during sampling (default: True).')
-    parser.add_argument('--enable_eigenvalue_cache', action='store_true', default=True, help='Enable eigenvalue caching for faster computation (default: True).')
+    parser.add_argument('--log_lambda_stats', type=bool, default=True, help='Log lambda_t statistics to understand its range during sampling (default: True).')
+    parser.add_argument('--enable_eigenvalue_cache', type=bool, default=True, help='Enable eigenvalue caching for faster computation (default: True).')
     parser.add_argument('--eigenvalue_cache_interval', type=int, default=5, help='Re-estimate eigenvalues every N steps when caching is enabled (default: 5). If use_adaptive_lambda=True, re-estimate eigenvalues every N steps when caching is enabled.')
+
+    # Additional debugging control variables
+    parser.add_argument('--use_cg_warm_start', type=bool, default=True, help='Use CG warm start from previous solution (default: True)')
+    parser.add_argument('--use_normalization', type=bool, default=True, help='Normalize corrected noise to preserve magnitude (default: True)')
+    # EMA parameters
+    parser.add_argument('--use_ema_smoothing', type=bool, default=False, help='Use EMA smoothing like LML (default: False)')
+    parser.add_argument('--ema_kappa', type=float, default=1e-8, help='EMA smoothing factor kappa, same as LML kappa (default: 1e-8)')
+
+    parser.add_argument('--skip_lanczos', type=bool, default=False, help='Skip Lanczos estimation, use fixed eigenvalues for fast testing (default: False)')
+    parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
+    parser.add_argument('--fixed_alpha', type=float, default=1.0, help='Fixed alpha_t when skip_lanczos=True (default: 1.0)')
+    parser.add_argument('--fixed_beta', type=float, default=0.1, help='Fixed beta_t when skip_lanczos=True (default: 0.1)')
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', default=False, help='Run evaluation metrics')
@@ -182,10 +194,12 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
 def setup_scheduler_hcg(pipe, kappa_target=20.0, lanczos_k=5, cg_max_iter=5,
-                    cg_tol=1e-3, use_spectral_scaling=True, spectral_scaling=1.0,
+                    cg_tol=1e-3, use_spectral_radius=True, spectral_scaling=1.0,
                     use_adaptive_lambda=True, lambda_base=0.004, lambda_scale=0.3,
-                    log_lambda_stats=True, enable_eigenvalue_cache=True,
-                    eigenvalue_cache_interval=5):
+                    log_lambda_stats=True, enable_eigenvalue_cache=True, eigenvalue_cache_interval=5,
+                    use_cg_warm_start=True, use_normalization=True,
+                    use_ema_smoothing=False, ema_kappa=1e-8,
+                    skip_lanczos=False, fixed_alpha=1.0, fixed_beta=0.1):
     """Setup the HCG scheduler"""
     # 获取原始配置并过滤掉不需要的属性（避免警告）
     original_config = pipe.scheduler.config
@@ -209,7 +223,7 @@ def setup_scheduler_hcg(pipe, kappa_target=20.0, lanczos_k=5, cg_max_iter=5,
     pipe.scheduler.lanczos_k = lanczos_k
     pipe.scheduler.cg_max_iter = cg_max_iter
     pipe.scheduler.cg_tol = cg_tol
-    pipe.scheduler.use_spectral_scaling = use_spectral_scaling
+    pipe.scheduler.use_spectral_radius = use_spectral_radius
     pipe.scheduler.spectral_scaling = spectral_scaling
     pipe.scheduler.use_adaptive_lambda = use_adaptive_lambda
     pipe.scheduler.lambda_base = lambda_base
@@ -218,11 +232,23 @@ def setup_scheduler_hcg(pipe, kappa_target=20.0, lanczos_k=5, cg_max_iter=5,
     pipe.scheduler.enable_eigenvalue_cache = enable_eigenvalue_cache
     pipe.scheduler.eigenvalue_cache_interval = eigenvalue_cache_interval
 
+    # Additional debugging control variables
+    pipe.scheduler.use_cg_warm_start = use_cg_warm_start
+    pipe.scheduler.use_normalization = use_normalization
+    pipe.scheduler.use_ema_smoothing = use_ema_smoothing
+    pipe.scheduler.ema_kappa = ema_kappa
+    pipe.scheduler.skip_lanczos = skip_lanczos
+    pipe.scheduler.fixed_alpha = fixed_alpha
+    pipe.scheduler.fixed_beta = fixed_beta
+
     project.info(f"  Using DPM-Solver++ with HCG (Hessian-Conjugate Gradient) correction")
     project.info(f"    kappa_target={kappa_target}, lanczos_k={lanczos_k}, cg_max_iter={cg_max_iter}")
-    project.info(f"    cg_tol={cg_tol}, use_spectral_scaling={use_spectral_scaling}, spectral_scaling={spectral_scaling}")
+    project.info(f"    cg_tol={cg_tol}, use_spectral_radius={use_spectral_radius}, spectral_scaling={spectral_scaling}")
     project.info(f"    use_adaptive_lambda={use_adaptive_lambda}, lambda_base={lambda_base}, lambda_scale={lambda_scale:.4f}, log_lambda_stats={log_lambda_stats}")
     project.info(f"    enable_eigenvalue_cache={enable_eigenvalue_cache}, cache_interval={eigenvalue_cache_interval}")
+    project.info(f"    use_cg_warm_start={use_cg_warm_start}, use_normalization={use_normalization}, use_ema_smoothing={use_ema_smoothing}")
+    if skip_lanczos:
+        project.info(f"    skip_lanczos=True, fixed_alpha={fixed_alpha}, fixed_beta={fixed_beta}")
 
 def process_image(image):
     """
@@ -486,14 +512,21 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
             lanczos_k=args.lanczos_k,
             cg_max_iter=args.cg_max_iter,
             cg_tol=args.cg_tol,
-            use_spectral_scaling=args.use_spectral_scaling,
+            use_spectral_radius=args.use_spectral_radius,
             spectral_scaling=args.spectral_scaling,
             use_adaptive_lambda=args.use_adaptive_lambda,
             lambda_base=args.lambda_base,
             lambda_scale=args.lambda_scale,
             log_lambda_stats=args.log_lambda_stats,
             enable_eigenvalue_cache=args.enable_eigenvalue_cache,
-            eigenvalue_cache_interval=args.eigenvalue_cache_interval
+            eigenvalue_cache_interval=args.eigenvalue_cache_interval,
+            use_cg_warm_start=args.use_cg_warm_start,
+            use_normalization=args.use_normalization,
+            use_ema_smoothing=args.use_ema_smoothing,
+            ema_kappa=args.ema_kappa,
+            skip_lanczos=args.skip_lanczos,
+            fixed_alpha=args.fixed_alpha,
+            fixed_beta=args.fixed_beta,
         )
     else:
         setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
