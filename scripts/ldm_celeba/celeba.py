@@ -193,13 +193,7 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
-def setup_scheduler_hcg(pipe, kappa_target=20.0, lanczos_k=5, cg_max_iter=5,
-                    cg_tol=1e-3, use_spectral_radius=True, spectral_scaling=1.0,
-                    use_adaptive_lambda=True, lambda_base=0.004, lambda_scale=0.3,
-                    log_lambda_stats=True, enable_eigenvalue_cache=True, eigenvalue_cache_interval=5,
-                    use_cg_warm_start=True, use_normalization=True,
-                    use_ema_smoothing=False, ema_kappa=1e-8,
-                    skip_lanczos=False, fixed_alpha=1.0, fixed_beta=0.1):
+def setup_scheduler_hcg(pipe, args):
     """Setup the HCG scheduler"""
     # 获取原始配置并过滤掉不需要的属性（避免警告）
     original_config = pipe.scheduler.config
@@ -219,36 +213,16 @@ def setup_scheduler_hcg(pipe, kappa_target=20.0, lanczos_k=5, cg_max_iter=5,
 
     # 设置HCG参数
     pipe.scheduler.use_hcg = True
-    pipe.scheduler.kappa_target = kappa_target
-    pipe.scheduler.lanczos_k = lanczos_k
-    pipe.scheduler.cg_max_iter = cg_max_iter
-    pipe.scheduler.cg_tol = cg_tol
-    pipe.scheduler.use_spectral_radius = use_spectral_radius
-    pipe.scheduler.spectral_scaling = spectral_scaling
-    pipe.scheduler.use_adaptive_lambda = use_adaptive_lambda
-    pipe.scheduler.lambda_base = lambda_base
-    pipe.scheduler.lambda_scale = lambda_scale
-    pipe.scheduler.log_lambda_stats = log_lambda_stats
-    pipe.scheduler.enable_eigenvalue_cache = enable_eigenvalue_cache
-    pipe.scheduler.eigenvalue_cache_interval = eigenvalue_cache_interval
-
-    # Additional debugging control variables
-    pipe.scheduler.use_cg_warm_start = use_cg_warm_start
-    pipe.scheduler.use_normalization = use_normalization
-    pipe.scheduler.use_ema_smoothing = use_ema_smoothing
-    pipe.scheduler.ema_kappa = ema_kappa
-    pipe.scheduler.skip_lanczos = skip_lanczos
-    pipe.scheduler.fixed_alpha = fixed_alpha
-    pipe.scheduler.fixed_beta = fixed_beta
+    pipe.scheduler.args_cfg = args
 
     project.info(f"  Using DPM-Solver++ with HCG (Hessian-Conjugate Gradient) correction")
-    project.info(f"    kappa_target={kappa_target}, lanczos_k={lanczos_k}, cg_max_iter={cg_max_iter}")
-    project.info(f"    cg_tol={cg_tol}, use_spectral_radius={use_spectral_radius}, spectral_scaling={spectral_scaling}")
-    project.info(f"    use_adaptive_lambda={use_adaptive_lambda}, lambda_base={lambda_base}, lambda_scale={lambda_scale:.4f}, log_lambda_stats={log_lambda_stats}")
-    project.info(f"    enable_eigenvalue_cache={enable_eigenvalue_cache}, cache_interval={eigenvalue_cache_interval}")
-    project.info(f"    use_cg_warm_start={use_cg_warm_start}, use_normalization={use_normalization}, use_ema_smoothing={use_ema_smoothing}")
-    if skip_lanczos:
-        project.info(f"    skip_lanczos=True, fixed_alpha={fixed_alpha}, fixed_beta={fixed_beta}")
+    project.info(f"    kappa_target={args.kappa_target}, lanczos_k={args.lanczos_k}, cg_max_iter={args.cg_max_iter}")
+    project.info(f"    cg_tol={args.cg_tol}, use_spectral_radius={args.use_spectral_radius}, spectral_scaling={args.spectral_scaling}")
+    project.info(f"    use_adaptive_lambda={args.use_adaptive_lambda}, lambda_base={args.lambda_base}, lambda_scale={args.lambda_scale:.4f}, log_lambda_stats={args.log_lambda_stats}")
+    project.info(f"    enable_eigenvalue_cache={args.enable_eigenvalue_cache}, cache_interval={args.eigenvalue_cache_interval}")
+    project.info(f"    use_cg_warm_start={args.use_cg_warm_start}, use_normalization={args.use_normalization}, use_ema_smoothing={args.use_ema_smoothing}")
+    if args.skip_lanczos:
+        project.info(f"    skip_lanczos=True, fixed_alpha={args.fixed_alpha}, fixed_beta={args.fixed_beta}")
 
 def process_image(image):
     """
@@ -507,27 +481,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
     # Setup scheduler
     project.info(f"\n⚙️ Setting up scheduler...")
     if args.sampler_type == 'dpm_hcg':
-        setup_scheduler_hcg(
-            pipe, kappa_target=args.kappa_target,
-            lanczos_k=args.lanczos_k,
-            cg_max_iter=args.cg_max_iter,
-            cg_tol=args.cg_tol,
-            use_spectral_radius=args.use_spectral_radius,
-            spectral_scaling=args.spectral_scaling,
-            use_adaptive_lambda=args.use_adaptive_lambda,
-            lambda_base=args.lambda_base,
-            lambda_scale=args.lambda_scale,
-            log_lambda_stats=args.log_lambda_stats,
-            enable_eigenvalue_cache=args.enable_eigenvalue_cache,
-            eigenvalue_cache_interval=args.eigenvalue_cache_interval,
-            use_cg_warm_start=args.use_cg_warm_start,
-            use_normalization=args.use_normalization,
-            use_ema_smoothing=args.use_ema_smoothing,
-            ema_kappa=args.ema_kappa,
-            skip_lanczos=args.skip_lanczos,
-            fixed_alpha=args.fixed_alpha,
-            fixed_beta=args.fixed_beta,
-        )
+        setup_scheduler_hcg(pipe, args)
     else:
         pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
         setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)

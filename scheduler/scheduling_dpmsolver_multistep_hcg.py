@@ -636,6 +636,35 @@ def hcg_correct(
     return corrected_noise, (alpha_t, beta_t), corrected_noise.clone(), stats_dict
 
 
+def lm_correct(prev_noise, noise_pred, lamb, kappa):
+    # print('entered lmc')
+    if prev_noise is not None:
+        noise_pred_ema = kappa * prev_noise + (1 - kappa) * noise_pred
+    else:
+        noise_pred_ema = noise_pred
+    # lm step for noise
+    norm_squared = (noise_pred * noise_pred).sum(dim=(1, 2, 3))
+    norm_squared = norm_squared.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+    part1 =  noise_pred
+
+    norm_squared_ema = (noise_pred_ema * noise_pred_ema).sum(dim=(1, 2, 3))
+    norm_squared_ema = norm_squared_ema.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+
+    inner_product = torch.sum(noise_pred * noise_pred_ema, dim=(1, 2, 3))
+    mp = noise_pred_ema * inner_product.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    part2 = mp /  (lamb + norm_squared_ema)
+
+    inversed_pred = part1 - part2
+
+    # normalize the direction
+    norm = torch.sqrt(norm_squared)
+    norm_squared_lm = (inversed_pred * inversed_pred).sum(dim=(1, 2, 3))
+    norm_squared_lm = norm_squared_lm.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+    norm_lm = torch.sqrt(norm_squared_lm)
+    inversed_pred = inversed_pred * norm / norm_lm
+    return inversed_pred
+
+
 # Copied from diffusers.schedulers.scheduling_ddpm.betas_for_alpha_bar
 def betas_for_alpha_bar(num_diffusion_timesteps, max_beta=0.999, alpha_transform_type="cosine"):
     """
@@ -714,27 +743,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         variance_type: Optional[str] = None,
         timestep_spacing: str = "linspace",
         steps_offset: int = 0,
-        use_hcg: bool = True,
-        kappa_target: float = 20.0,  # Increased from 10.0 for better performance
-        lanczos_k: int = 5,  # Reduced from 10 for faster computation
-        cg_max_iter: int = 5,  # Reduced from 20 for faster computation
-        cg_tol: float = 1e-3,  # Balanced: tighter than 1e-2 for better convergence, but not as strict as 1e-4
-        use_spectral_radius: bool = True,
-        spectral_scaling: float = 1.0,
-        use_adaptive_lambda: bool = True,
-        lambda_base: float = 0.004,
-        lambda_scale: float = 0.3,  # Reduced from 1.0 (typical range: 0.1-0.5)
-        log_lambda_stats: bool = False,
-        enable_eigenvalue_cache: bool = True,  # New: enable eigenvalue caching
-        eigenvalue_cache_interval: int = 4,  # New: re-estimate every N steps (ICLR doc recommends r=2 or 4)
-        # Additional control variables for debugging
-        use_cg_warm_start: bool = True,  # Control whether to use CG warm start
-        use_normalization: bool = True,  # Control whether to normalize after correction
-        use_ema_smoothing: bool = False,  # Control whether to use EMA smoothing (like LML)
-        ema_kappa: float = 1e-8,  # EMA smoothing factor (like LML's kappa)
-        skip_lanczos: bool = False,  # Skip Lanczos, use fixed eigenvalues for fast testing
-        fixed_alpha: float = 1.0,  # Fixed alpha_t when skip_lanczos=True
-        fixed_beta: float = 0.1,  # Fixed beta_t when skip_lanczos=True
+        args_cfg: dict = None
     ):
         if trained_betas is not None:
             self.betas = torch.tensor(trained_betas, dtype=torch.float32)
@@ -751,35 +760,62 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         else:
             raise NotImplementedError(f"{beta_schedule} does is not implemented for {self.__class__}")
 
-        self.use_hcg = use_hcg
-        self.kappa_target = kappa_target
-        self.lanczos_k = lanczos_k
-        self.cg_max_iter = cg_max_iter
-        self.cg_tol = cg_tol
-        self.use_spectral_radius = use_spectral_radius
-        self.spectral_scaling = spectral_scaling
-        self.use_adaptive_lambda = use_adaptive_lambda
-        self.lambda_base = lambda_base
-        self.lambda_scale = lambda_scale
-        self.log_lambda_stats = log_lambda_stats
+        '''
+            use_hcg: bool = True,
+            kappa_target: float = 20.0,  # Increased from 10.0 for better performance
+            lanczos_k: int = 5,  # Reduced from 10 for faster computation
+            cg_max_iter: int = 5,  # Reduced from 20 for faster computation
+            cg_tol: float = 1e-3,  # Balanced: tighter than 1e-2 for better convergence, but not as strict as 1e-4
+            use_spectral_radius: bool = True,
+            spectral_scaling: float = 1.0,
+            use_adaptive_lambda: bool = True,
+            lambda_base: float = 0.004,
+            lambda_scale: float = 0.3,  # Reduced from 1.0 (typical range: 0.1-0.5)
+            log_lambda_stats: bool = False,
+            enable_eigenvalue_cache: bool = True,  # New: enable eigenvalue caching
+            eigenvalue_cache_interval: int = 4,  # New: re-estimate every N steps (ICLR doc recommends r=2 or 4)
+            # Additional control variables for debugging
+            use_cg_warm_start: bool = True,  # Control whether to use CG warm start
+            use_normalization: bool = True,  # Control whether to normalize after correction
+            use_ema_smoothing: bool = False,  # Control whether to use EMA smoothing (like LML)
+            ema_kappa: float = 1e-8,  # EMA smoothing factor (like LML's kappa)
+            skip_lanczos: bool = False,  # Skip Lanczos, use fixed eigenvalues for fast testing
+            fixed_alpha: float = 1.0,  # Fixed alpha_t when skip_lanczos=True
+            fixed_beta: float = 0.1,  # Fixed beta_t when skip_lanczos=True
+            args_cfg: dict = None
+        '''
+
+        def set_args(para, default_value):
+            return default_value if args_cfg is None else args_cfg.get(para, default_value)
+
+        self.use_hcg = set_args('use_hcg', True)
+        self.kappa_target = set_args('kappa_target', 20.0)
+        self.lanczos_k = set_args('lanczos_k', 5)
+        self.cg_max_iter = set_args('cg_max_iter', 5)
+        self.cg_tol = set_args('cg_tol', 1e-3)
+        self.use_spectral_radius = set_args('use_spectral_radius', True)
+        self.spectral_scaling = set_args('spectral_scaling', 1.0)
+        self.use_adaptive_lambda = set_args('use_adaptive_lambda', True)
+        self.lambda_base = set_args('lambda_base', 0.004)
+        self.lambda_scale = set_args('lambda_scale', 0.3)
+        self.log_lambda_stats = set_args('log_lambda_stats', False)
 
         # Additional control variables for debugging
-        self.use_cg_warm_start = use_cg_warm_start
-        self.use_normalization = use_normalization
-        self.use_ema_smoothing = use_ema_smoothing
-        self.ema_kappa = ema_kappa
-        self.skip_lanczos = skip_lanczos
-        self.fixed_alpha = fixed_alpha
-        self.fixed_beta = fixed_beta
-
-        self.model = None  # Will be set during sampling
-        self.prev_noise = None
+        self.use_cg_warm_start = set_args('use_cg_warm_start', True)
+        self.use_normalization = set_args('use_normalization', True)
+        self.use_ema_smoothing = set_args('use_ema_smoothing', False)
+        self.ema_kappa = set_args('ema_kappa', 1e-8)
+        self.skip_lanczos = set_args('skip_lanczos', False)
+        self.fixed_alpha = set_args('fixed_alpha', 1.0)
+        self.fixed_beta = set_args('fixed_beta', 0.1)
 
         # Eigenvalue cache for optimization
-        self.eigenvalue_cache = {}
-        self.eigenvalue_cache_interval = eigenvalue_cache_interval
-        self.enable_eigenvalue_cache = enable_eigenvalue_cache
+        self.eigenvalue_cache_interval = set_args('eigenvalue_cache_interval', 4)
+        self.enable_eigenvalue_cache = set_args('enable_eigenvalue_cache', True)
         self.prev_cg_solution = None  # Cache for CG initial guess
+        self.eigenvalue_cache = {}
+        self.model = None  # Will be set during sampling
+        self.prev_noise = None
 
         # Intermediate variables and statistics for analysis (as per paper/documentation)
         self.hcg_intermediate_vars = {
