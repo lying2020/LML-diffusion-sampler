@@ -81,7 +81,7 @@ def parse_args():
     parser.add_argument('--cg_max_iter', type=int, default=5, help='Maximum CG iterations')
     parser.add_argument('--cg_tol', type=float, default=1e-3, help='CG tolerance (default: 1e-3, tighter than 1e-2 for better convergence)')
     # HCG (Hessian-Conjugate Gradient) parameters for spectral radius scaling
-    parser.add_argument('--use_spectral_scaling', action='store_true', default=True, help='Use spectral radius scaling c_t = beta_t + lambda_t (default: True, REQUIRED for HCG to work)')
+    parser.add_argument('--use_spectral_scaling', action='store_true', default=False, help='Use spectral radius scaling c_t = beta_t + lambda_t (default: True, REQUIRED for HCG to work)')
     parser.add_argument('--spectral_scaling', type=float, default=1.0, help='Spectral radius scaling factor when use_spectral_scaling=False (default: 1.0, only used if disabled)')
 
     # HCG (Hessian-Conjugate Gradient) parameters for adaptive damping
