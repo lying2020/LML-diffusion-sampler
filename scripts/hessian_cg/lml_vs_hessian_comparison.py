@@ -217,7 +217,7 @@ class LMLvsHessianComparator:
                 )
                 return corrected
             self.pipe.scheduler.lm_correct = explicit_hessian_lm_correct
-        elif algorithm_config['type'] == 'hcg':
+        elif algorithm_config['type'] == '':
             def _lm_correct(prev_noise, noise_pred, lamb, kappa):
                 corrected, residuals = self._correct(
                     prev_noise, noise_pred, lamb, kappa,
@@ -319,7 +319,7 @@ class LMLvsHessianComparator:
             },
             {
                 'name': 'Hessian-Free-Basic',
-                'type': 'hcg',
+                'type': '',
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 10,
@@ -332,7 +332,7 @@ class LMLvsHessianComparator:
             },
             {
                 'name': 'Hessian-Free-Fast',
-                'type': 'hcg',
+                'type': '',
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 5,

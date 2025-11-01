@@ -12,7 +12,7 @@
 ### 配置参数
 - **solver_order**: 3 (三阶求解器)
 - **algorithm_type**: "dpmsolver++" (使用DPM-Solver++算法)
-- **hessian_method**: "hcg" (使用Hessian-Free方法)
+- **hessian_method**: "" (使用Hessian-Free方法)
 
 ### 2.2 Hessian 计算方法
 
@@ -414,7 +414,7 @@ class DPMSolverMultistepHCGScheduler:
                 noise_pred=model_output,
                 lamb=self.lamb,
                 kappa=self.kappa,
-                hessian_method=self.hessian_method,  # 'original', 'explicit', 'hcg'
+                hessian_method=self.hessian_method,  # 'original', 'explicit', ''
                 model=self.model,
                 x=sample,
                 t=timestep,

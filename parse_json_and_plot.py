@@ -54,7 +54,7 @@ class CelebAPerformanceAnalyzer:
         """从文件路径中提取方法名"""
         path_parts = file_path.split(os.sep)
         for part in path_parts:
-            if part in ["ddim", "pndm", "dpm", "dpm++", "dpm_lm", "unipc", "hcg"]:
+            if part in ["ddim", "pndm", "dpm", "dpm++", "dpm_lm", "unipc", "dpm_hcg"]:
                 return part
         return None
 

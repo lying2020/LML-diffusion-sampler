@@ -87,7 +87,7 @@ class ZigzagAnalyzer:
             pipe.scheduler.lamb = 0.0008
             pipe.scheduler.lm = True
             pipe.scheduler.kappa = 1e-8
-            pipe.scheduler.hessian_method = 'hcg'
+            pipe.scheduler.hessian_method = ''
             pipe.scheduler.set_model(pipe.unet)
         elif method_name == 'DPM_LM_Explicit':
             pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)

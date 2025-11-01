@@ -368,7 +368,7 @@ class ComprehensiveAlgorithmComparator:
                 return corrected
 
             self.pipe.scheduler.lm_correct = explicit_hessian_lm_correct
-        elif algorithm_config['type'] == 'hcg':
+        elif algorithm_config['type'] == '':
             self.pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(self.pipe.scheduler.config)
             self.pipe.scheduler.config.solver_order = 3
             self.pipe.scheduler.config.algorithm_type = "dpmsolver"
@@ -561,7 +561,7 @@ class ComprehensiveAlgorithmComparator:
             },
             {
                 'name': 'Hessian-Free-Basic',
-                'type': 'hcg',
+                'type': '',
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 10,
@@ -572,7 +572,7 @@ class ComprehensiveAlgorithmComparator:
             },
             {
                 'name': 'Hessian-Free-Fast',
-                'type': 'hcg',
+                'type': '',
                 'lamb': 0.001,
                 'kappa': 5e-8,
                 'max_iter': 5,

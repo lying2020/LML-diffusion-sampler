@@ -52,7 +52,7 @@ def parse_args():
 
     # Sampler selection
     parser.add_argument('--sampler_type', type=str, default='dpm++',
-                        choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hcg'])
+                        choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
@@ -81,12 +81,12 @@ def parse_args():
     parser.add_argument('--grid_title', type=str, default="CelebA-HQ Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
     parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
-    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'hcg'],
+    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_hcg'],
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
-    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hcg'], help='List of samplers to test in batch mode')
+    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'], help='List of samplers to test in batch mode')
     parser.add_argument('--run_batch_steps', type=int, default=[20, 50, 200], help='List of inference steps to test in batch mode')
 
     # Additional options
@@ -224,7 +224,7 @@ def generate_images(results_save_dir, args, pipe):
 
         # HCG method requires gradient computation for Hessian-vector products
         # So we can't use torch.no_grad() for HCG sampler
-        if args.sampler_type == 'hcg' and pipe.scheduler.model is not None:
+        if args.sampler_type == 'dpm_hcg' and pipe.scheduler.model is not None:
             # For HCG, we need gradients enabled for Hessian computation
             # But we still want to disable gradients for final output
             images = pipe(batch_size=args.batch_size, num_inference_steps=args.num_inference_steps).images
@@ -328,7 +328,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
 
     # Setup scheduler
     project.info(f"\n⚙️ Setting up scheduler...")
-    if args.sampler_type == 'hcg':
+    if args.sampler_type == 'dpm_hcg':
         setup_scheduler_hcg(
             pipe, kappa_target=args.kappa_target,
             lanczos_k=args.lanczos_k,
@@ -383,7 +383,7 @@ if __name__ == '__main__':
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
         # 批量实验模式
-        SAMPLER_TYPES = args.run_batch_samplers  #['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'hcg']
+        SAMPLER_TYPES = args.run_batch_samplers  #['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg']
         INFERENCE_STEPS = args.run_batch_steps  # [5, 10, 20, 30]
 
     total_experiments = len(SAMPLER_TYPES) * len(INFERENCE_STEPS)

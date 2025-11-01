@@ -77,7 +77,7 @@ class AnisotropyAnalyzer:
             pipe.scheduler.lamb = 0.0008
             pipe.scheduler.lm = True
             pipe.scheduler.kappa = 1e-8
-            pipe.scheduler.hessian_method = 'hcg'
+            pipe.scheduler.hessian_method = ''
             pipe.scheduler.set_model(pipe.unet)
             pipe.scheduler.set_timesteps(self.num_inference_steps)
 
