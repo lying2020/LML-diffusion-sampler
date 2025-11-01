@@ -175,12 +175,12 @@ def hessian_vector_product(model, x_sample: torch.Tensor, t_timestep: int, v: to
 
                 with torch.enable_grad():
                     # Compute gradients at perturbed points
-                    score_plus = model(x_plus, t)
+                    score_plus = model(x_plus, t_timestep)
                     if hasattr(score_plus, 'sample'):
                         score_plus = score_plus.sample
                     log_prob_plus = -0.5 * torch.sum(score_plus ** 2, dim=(1, 2, 3)).sum()
 
-                    score_minus = model(x_minus, t)
+                    score_minus = model(x_minus, t_timestep)
                     if hasattr(score_minus, 'sample'):
                         score_minus = score_minus.sample
                     log_prob_minus = -0.5 * torch.sum(score_minus ** 2, dim=(1, 2, 3)).sum()
@@ -205,9 +205,13 @@ def hessian_vector_product(model, x_sample: torch.Tensor, t_timestep: int, v: to
 
 # Step 4: Solve (H + λ_t I)^{-1} * noise_pred using CG
 def regularized_hessian_vector_product(model, x_sample, t_timestep, v: torch.Tensor, lambda_t: float) -> torch.Tensor:
-    """Compute (H + λ_t I) * v"""
-    with profile("hessian_vector_product", get_profiler()):
-        Hv = hessian_vector_product(model, x_sample, t_timestep, v)
+    """
+    Compute (H + λ_t I) * v
+
+    Note: This is a lightweight wrapper. Profiling is handled inside
+    hessian_vector_product and at call sites.
+    """
+    Hv = hessian_vector_product(model, x_sample, t_timestep, v)
     # Add regularization: (H + λ_t I)v = Hv + λ_t * v
     return Hv + lambda_t * v
 
@@ -220,12 +224,16 @@ def conjugate_gradient_solve(model, x_sample, t_timestep, prev_solution: Optiona
         num_iterations: Number of CG iterations used
         final_residual: Final residual norm (normalized by initial residual)
     """
+    profiler = get_profiler()
     with profile("conjugate_gradient_solve", get_profiler()):
         # Use previous solution as initial guess if available (can improve convergence)
         if prev_solution is not None and prev_solution.shape == b.shape:
             x_cg = prev_solution.clone()
             # Compute initial residual
-            Hx = regularized_hessian_vector_product(model, x_sample, t_timestep, x_cg, lambda_t=lambda_t)
+            # Compute initial residual (counts as 1 HVP call for warm start)
+            profiler = get_profiler()
+            with profile("cg_hvp_call", profiler):
+                Hx = regularized_hessian_vector_product(model, x_sample, t_timestep, x_cg, lambda_t=lambda_t)
             r = b - Hx
         else:
             x_cg = torch.zeros_like(b)
@@ -241,7 +249,9 @@ def conjugate_gradient_solve(model, x_sample, t_timestep, prev_solution: Optiona
         num_iterations = 0
         r_norm = r_norm_0  # Initialize r_norm to avoid UnboundLocalError
         for i in range(cg_max_iter):
-            Hp = regularized_hessian_vector_product(model, x_sample, t_timestep, p, lambda_t=lambda_t)
+            # CG iteration loop - each iteration makes 1 HVP call
+            with profile("cg_hvp_call", profiler):
+                Hp = regularized_hessian_vector_product(model, x_sample, t_timestep, p, lambda_t=lambda_t)
             p_Hp = torch.sum(p * Hp)
 
             if p_Hp <= 1e-10:
@@ -510,7 +520,7 @@ def hcg_correct(
         alpha_t = torch.clamp(alpha_t, min=beta_t.item())
     else:
         try:
-            with profile("lanczos_eigenvalue_estimation"):
+            with profile("lanczos_eigenvalue_estimation", get_profiler()):
                 # Reduce num_vectors for efficiency (from 3 to 1-2)
                 num_vectors = 2 if lanczos_k >= 5 else 1  # Fewer vectors when k is small
                 alpha_t, beta_t = lanczos_eigenvalue_estimation(
@@ -535,7 +545,9 @@ def hcg_correct(
         noise_pred_ema = noise_pred
 
     # Step 2: Compute adaptive damping λ_t (simple computation, no profiling needed)
-    lambda_t_base = 0.0
+    # Step 2: Compute adaptive damping λ_t
+    with profile("adaptive_damping_compute", get_profiler()):
+        lambda_t_base = 0.0
     if use_adaptive_lambda:
         lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
         lambda_t = lambda_scale * lambda_t_base
@@ -574,10 +586,11 @@ def hcg_correct(
     #
     # Note: Using c_t = 1/(α_t + λ_t) would NOT satisfy this guarantee.
     # (Simple computation, no profiling needed)
-    if use_spectral_radius:
-        c_t = beta_t + lambda_t  # Per ICLR doc Lemma: ensures spec(M_t) ⊂ [1/κ_*, 1]
-    else:
-        c_t = spectral_scaling
+    with profile("spectral_scaling_compute", get_profiler()):
+        if use_spectral_radius:
+            c_t = beta_t + lambda_t  # Per ICLR doc Lemma: ensures spec(M_t) ⊂ [1/κ_*, 1]
+        else:
+            c_t = spectral_scaling
 
     # Solve (H + λ_t I)^{-1} * noise_pred (with warm start if available)
     # Use noise_pred_ema if EMA smoothing is enabled
@@ -588,11 +601,13 @@ def hcg_correct(
     )
 
     # Step 5: Apply spectral radius scaling: c_t * corrected_noise
-    corrected_noise = c_t * corrected_noise
+    with profile("spectral_scaling_apply", get_profiler()):
+        corrected_noise = c_t * corrected_noise
 
     # Step 6: Normalize to preserve magnitude (optional, controlled by use_normalization)
     if use_normalization:
-        norm_original = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
+        with profile("hcg_normalization", get_profiler()):
+            norm_original = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
         norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
         corrected_noise = corrected_noise * norm_original / (norm_corrected + 1e-8)
 
