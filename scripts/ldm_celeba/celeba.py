@@ -28,6 +28,13 @@ from diffusers import LDMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistepS
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 from scheduler.scheduling_dpmsolver_multistep_hcg import DPMSolverMultistepHCGScheduler
+
+# Import profiling utilities
+try:
+    from utils.profiling import get_profiler, profile
+    PROFILING_AVAILABLE = True
+except ImportError:
+    PROFILING_AVAILABLE = False
 from evaluations.celeba_eva import evaluate_images
 import project as project
 
@@ -41,10 +48,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=2)
+    parser.add_argument('--test_num', type=int, default=10)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=40, choices=[5, 10, 20, 40, 70, 100, 200, 400, 600, 1000])
+    parser.add_argument('--num_inference_steps', type=int, default=50, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
 
     parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
@@ -83,6 +90,10 @@ def parse_args():
     parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
     parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_hcg'],
                         help='List of samplers to test in batch mode')
+
+    # Profiling options
+    parser.add_argument('--enable_profiling', action='store_true', default=True, help='Enable function-level profiling (similar to MATLAB profiler)')
+    parser.add_argument('--profile_report_file', type=str, default=None, help='Path to save profiling report (JSON format)')
 
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
@@ -167,7 +178,7 @@ def setup_scheduler_hcg(pipe, kappa_target=10.0, lanczos_k=10, cg_max_iter=20,
     pipe.scheduler.config.solver_order = 3
 
     # 设置模型用于Hessian计算（必需）
-    # pipe.scheduler.set_model(pipe.unet)
+    pipe.scheduler.set_model(pipe.unet)
 
     # 设置HCG参数
     pipe.scheduler.use_hcg = True
@@ -205,6 +216,13 @@ def process_image(image):
 
 def generate_images(results_save_dir, args, pipe):
     """Generate images using the specified pipeline"""
+
+    # Enable profiling if requested
+    if PROFILING_AVAILABLE and args.enable_profiling:
+        profiler = get_profiler()
+        profiler.enabled = True
+        profiler.clear()
+        project.info("📊 Profiling enabled - will track function execution times")
 
     total_time = 0
     generation_times = []
@@ -272,6 +290,23 @@ def generate_images(results_save_dir, args, pipe):
     project.info(f"Total images generated: {args.test_num * args.batch_size}")
     project.info(f"Images per second: {args.test_num * args.batch_size / total_time:.2f}")
     project.info(f"{'='*60}")
+
+    # Print profiling report if enabled
+    if PROFILING_AVAILABLE and args.enable_profiling:
+        profiler = get_profiler()
+        if profiler and profiler.enabled:
+            project.info("\n" + "="*60)
+            project.info("PROFILING REPORT")
+            project.info("="*60)
+            profiler.print_report(sort_by='total_time', top_n=20)
+
+            # Save profiling report if requested
+            if args.profile_report_file:
+                profiler.save_report(args.profile_report_file)
+            else:
+                # Auto-save to results directory
+                profile_file = os.path.join(results_save_dir, f"profiling_report_{args.sampler_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+                profiler.save_report(profile_file)
 
     # Evaluate images if requested
     evaluation_results = None

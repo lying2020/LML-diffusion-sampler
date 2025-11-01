@@ -24,6 +24,29 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.schedulers.scheduling_utils import KarrasDiffusionSchedulers, SchedulerMixin, SchedulerOutput
 
+# Import profiling utilities
+try:
+    import sys
+    import os
+    # Add project root to path
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from utils.profiling import profile, profile_function, get_profiler
+    PROFILING_ENABLED = True
+except ImportError:
+    # Fallback if profiling not available
+    PROFILING_ENABLED = False
+    def profile(name, profiler=None):
+        return contextlib.nullcontext()
+    def profile_function(name=None):
+        def decorator(func):
+            return func
+        return decorator
+    def get_profiler():
+        return None
+
 
 def lanczos_eigenvalue_estimation(
     hessian_vector_product_fn,
@@ -103,7 +126,7 @@ def lanczos_eigenvalue_estimation(
 
             if beta_i > 1e-8:
                 q.append(w_flat / (beta_i + 1e-8))
-    else:
+            else:
                 break
 
         # Build tridiagonal matrix and compute eigenvalues
@@ -182,6 +205,7 @@ def adaptive_damping_lambda(
     return lambda_t
 
 
+@profile_function("hcg_correct")
 def hcg_correct(
     noise_pred: torch.Tensor,
     model,
@@ -256,14 +280,14 @@ def hcg_correct(
                 with torch.enable_grad():
                     # Create a fresh copy of x that requires grad within this gradient context
                     # This ensures it's completely detached from any outer no_grad context
-        x_grad = x.clone().detach().requires_grad_(True)
+                    x_grad = x.clone().detach().requires_grad_(True)
 
                     # Forward pass: model(x, t) - this must be inside enable_grad
                     # to ensure score_pred tracks gradients w.r.t. x_grad
                     # Disable any attention optimizations that might interfere
-            score_pred = model(x_grad, t)
-            if hasattr(score_pred, 'sample'):
-                score_pred = score_pred.sample
+                    score_pred = model(x_grad, t)
+                    if hasattr(score_pred, 'sample'):
+                        score_pred = score_pred.sample
 
                     # Verify that score_pred has gradient connection to x_grad
                     if not score_pred.requires_grad:
@@ -272,8 +296,8 @@ def hcg_correct(
                         score_pred = score_pred + 0.0 * x_grad.sum()
 
                     # Log probability: -0.5 * ||score||^2
-            log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
-            log_prob = log_prob.sum()
+                    log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
+                    log_prob = log_prob.sum()
 
                     # Ensure log_prob requires grad
                     if not log_prob.requires_grad:
@@ -301,7 +325,7 @@ def hcg_correct(
 
                 # Hv = ∇(∇f · v) for H = -∇²log p
                 # Compute inner product: grad · v_grad
-        grad_dot_v = torch.sum(grad * v_grad)
+                grad_dot_v = torch.sum(grad * v_grad)
 
                 # Check that grad_dot_v requires grad (for second derivative)
                 if not grad_dot_v.requires_grad:
@@ -371,13 +395,14 @@ def hcg_correct(
 
     # Step 1: Estimate eigenvalues using Lanczos
     try:
-        alpha_t, beta_t = lanczos_eigenvalue_estimation(
-            hessian_vector_product_fn=hessian_vector_product,
-            x_shape=x.shape,
-            k=lanczos_k,
-            num_vectors=3,  # Use fewer vectors for efficiency
-            device=device
-        )
+        with profile("lanczos_eigenvalue_estimation"):
+            alpha_t, beta_t = lanczos_eigenvalue_estimation(
+                hessian_vector_product_fn=hessian_vector_product,
+                x_shape=x.shape,
+                k=lanczos_k,
+                num_vectors=3,  # Use fewer vectors for efficiency
+                device=device
+            )
     except Exception as e:
         # Fallback: use diagonal approximation
         # This is a simplified fallback - in practice you might want better handling
@@ -386,56 +411,60 @@ def hcg_correct(
         beta_t = torch.tensor(0.1, dtype=torch.float32, device=device)
 
     # Step 2: Compute adaptive damping λ_t
-    lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+    with profile("adaptive_damping_lambda"):
+        lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
 
     # Step 3: Compute spectral radius scaling factor c_t = 1/(α_t + λ_t)
-    if use_spectral_scaling:
-        c_t = 1.0 / (alpha_t + lambda_t + 1e-8)
-    else:
-        c_t = 1.0
+    with profile("spectral_scaling"):
+        if use_spectral_scaling:
+            c_t = 1.0 / (alpha_t + lambda_t + 1e-8)
+        else:
+            c_t = 1.0
 
     # Step 4: Solve (H + λ_t I)^{-1} * noise_pred using CG
     def regularized_hessian_vector_product(v: torch.Tensor) -> torch.Tensor:
         """Compute (H + λ_t I) * v"""
-        Hv = hessian_vector_product(v)
+        with profile("hessian_vector_product", get_profiler()):
+            Hv = hessian_vector_product(v)
         # Add regularization: (H + λ_t I)v = Hv + λ_t * v
         return Hv + lambda_t * v
 
     def conjugate_gradient_solve(b: torch.Tensor) -> torch.Tensor:
         """Solve (H + λ_t I) * x = b using CG"""
-        x_cg = torch.zeros_like(b)
-        r = b.clone()
-        p = r.clone()
+        with profile("conjugate_gradient_solve", get_profiler()):
+            x_cg = torch.zeros_like(b)
+            r = b.clone()
+            p = r.clone()
 
-        r_norm_sq = torch.sum(r ** 2)
-        r_norm_0 = torch.sqrt(r_norm_sq)
+            r_norm_sq = torch.sum(r ** 2)
+            r_norm_0 = torch.sqrt(r_norm_sq)
 
-        if r_norm_0 < 1e-10:
+            if r_norm_0 < 1e-10:
+                return x_cg
+
+            for i in range(cg_max_iter):
+                Hp = regularized_hessian_vector_product(p)
+                p_Hp = torch.sum(p * Hp)
+
+                if p_Hp <= 1e-10:
+                    break
+
+                alpha = r_norm_sq / p_Hp
+                x_cg = x_cg + alpha * p
+                r = r - alpha * Hp
+
+                r_norm_sq_new = torch.sum(r ** 2)
+                r_norm = torch.sqrt(r_norm_sq_new)
+
+                if r_norm < cg_tol * r_norm_0:
+                    break
+
+                if i < cg_max_iter - 1:
+                    beta = r_norm_sq_new / (r_norm_sq + 1e-10)
+                    p = r + beta * p
+                    r_norm_sq = r_norm_sq_new
+
             return x_cg
-
-        for i in range(cg_max_iter):
-            Hp = regularized_hessian_vector_product(p)
-            p_Hp = torch.sum(p * Hp)
-
-            if p_Hp <= 1e-10:
-                break
-
-            alpha = r_norm_sq / p_Hp
-            x_cg = x_cg + alpha * p
-            r = r - alpha * Hp
-
-            r_norm_sq_new = torch.sum(r ** 2)
-            r_norm = torch.sqrt(r_norm_sq_new)
-
-            if r_norm < cg_tol * r_norm_0:
-                break
-
-            if i < cg_max_iter - 1:
-                beta = r_norm_sq_new / (r_norm_sq + 1e-10)
-            p = r + beta * p
-            r_norm_sq = r_norm_sq_new
-
-        return x_cg
 
     # Solve (H + λ_t I)^{-1} * noise_pred
     corrected_noise = conjugate_gradient_solve(noise_pred)
