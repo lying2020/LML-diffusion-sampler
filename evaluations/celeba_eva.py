@@ -23,7 +23,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
 import pandas as pd
 
-
+sys.path.append(os.getcwd())
+import project as project
 
 def safe_array_conversion(img):
     """Safely convert PIL Image to numpy array without deprecation warnings"""

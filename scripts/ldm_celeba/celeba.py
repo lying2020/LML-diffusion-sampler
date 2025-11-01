@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm++',
+    parser.add_argument('--sampler_type', type=str, default='dpm_hcg',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
@@ -153,8 +153,16 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
 def setup_scheduler_hcg(pipe, kappa_target=10.0, lanczos_k=10, cg_max_iter=20,
                     cg_tol=1e-4, use_spectral_scaling=True):
     """Setup the HCG scheduler"""
+    # 获取原始配置并过滤掉不需要的属性（避免警告）
+    original_config = pipe.scheduler.config
+    # 创建新的配置字典，只包含 DPMSolverMultistepHCGScheduler 需要的字段
+    config_dict = {
+        k: v for k, v in original_config.items()
+        if k not in ['timestep_values', 'timesteps']  # 移除这些运行时状态属性
+    }
+
     # 使用新的 DPMSolverMultistepHCGScheduler
-    pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
+    pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(config_dict)
     pipe.scheduler.config.algorithm_type = "dpmsolver++"
     pipe.scheduler.config.solver_order = 3
 

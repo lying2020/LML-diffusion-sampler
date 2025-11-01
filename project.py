@@ -317,7 +317,7 @@ class ProjectLogger:
         file_handler = logging.FileHandler(self.log_file, encoding='utf-8')
         file_handler.setLevel(self.level)
 
-        # 控制台处理器
+        # 控制台处理器 - 用于直接调用 logger.info() 等方法时的控制台输出
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(self.level)
 
@@ -340,8 +340,21 @@ class ProjectLogger:
         def log_print(*args, **kwargs):
             # 将print的内容转换为字符串
             message = ' '.join(str(arg) for arg in args)
-            self.logger.info(message)
-            # 同时输出到控制台
+
+            # 只写入日志文件，不输出到控制台（避免重复）
+            # 临时禁用控制台处理器
+            console_handlers = [h for h in self.logger.handlers if isinstance(h, logging.StreamHandler)]
+            for handler in console_handlers:
+                handler.setLevel(logging.CRITICAL + 1)  # 临时禁用
+
+            try:
+                self.logger.info(message)  # 写入文件
+            finally:
+                # 恢复控制台处理器
+                for handler in console_handlers:
+                    handler.setLevel(self.level)
+
+            # 直接输出到控制台（使用原始 print 以保持原有格式）
             self._original_print(*args, **kwargs)
 
         # 替换全局print函数

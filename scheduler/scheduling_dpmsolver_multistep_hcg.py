@@ -103,7 +103,7 @@ def lanczos_eigenvalue_estimation(
 
             if beta_i > 1e-8:
                 q.append(w_flat / (beta_i + 1e-8))
-            else:
+    else:
                 break
 
         # Build tridiagonal matrix and compute eigenvalues
@@ -256,14 +256,14 @@ def hcg_correct(
                 with torch.enable_grad():
                     # Create a fresh copy of x that requires grad within this gradient context
                     # This ensures it's completely detached from any outer no_grad context
-                    x_grad = x.clone().detach().requires_grad_(True)
+        x_grad = x.clone().detach().requires_grad_(True)
 
                     # Forward pass: model(x, t) - this must be inside enable_grad
                     # to ensure score_pred tracks gradients w.r.t. x_grad
                     # Disable any attention optimizations that might interfere
-                    score_pred = model(x_grad, t)
-                    if hasattr(score_pred, 'sample'):
-                        score_pred = score_pred.sample
+            score_pred = model(x_grad, t)
+            if hasattr(score_pred, 'sample'):
+                score_pred = score_pred.sample
 
                     # Verify that score_pred has gradient connection to x_grad
                     if not score_pred.requires_grad:
@@ -272,8 +272,8 @@ def hcg_correct(
                         score_pred = score_pred + 0.0 * x_grad.sum()
 
                     # Log probability: -0.5 * ||score||^2
-                    log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
-                    log_prob = log_prob.sum()
+            log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
+            log_prob = log_prob.sum()
 
                     # Ensure log_prob requires grad
                     if not log_prob.requires_grad:
@@ -301,7 +301,7 @@ def hcg_correct(
 
                 # Hv = ∇(∇f · v) for H = -∇²log p
                 # Compute inner product: grad · v_grad
-                grad_dot_v = torch.sum(grad * v_grad)
+        grad_dot_v = torch.sum(grad * v_grad)
 
                 # Check that grad_dot_v requires grad (for second derivative)
                 if not grad_dot_v.requires_grad:
@@ -432,8 +432,8 @@ def hcg_correct(
 
             if i < cg_max_iter - 1:
                 beta = r_norm_sq_new / (r_norm_sq + 1e-10)
-                p = r + beta * p
-                r_norm_sq = r_norm_sq_new
+            p = r + beta * p
+            r_norm_sq = r_norm_sq_new
 
         return x_cg
 
