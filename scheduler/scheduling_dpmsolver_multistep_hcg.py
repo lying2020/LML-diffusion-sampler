@@ -431,22 +431,31 @@ def hcg_correct(
         lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
         lambda_t = lambda_scale * lambda_t_base
 
-        # Compute current condition number for analysis
+        # Compute current condition numbers for analysis
         alpha_t_val = alpha_t.item() if isinstance(alpha_t, torch.Tensor) else alpha_t
         beta_t_val = beta_t.item() if isinstance(beta_t, torch.Tensor) else beta_t
-        kappa_current = alpha_t_val / (beta_t_val + 1e-8)
+        lambda_t_val = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
+
+        # κ(H_sym) = α_t / β_t (original condition number)
+        kappa_original = alpha_t_val / (beta_t_val + 1e-8)
+
+        # κ(A_t) = (α_t + λ_t) / (β_t + λ_t) (regularized condition number, per ICLR doc)
+        # This is the condition number that actually affects CG convergence
+        kappa_regularized = (alpha_t_val + lambda_t_val) / (beta_t_val + lambda_t_val + 1e-8)
 
         # Log statistics if requested (for understanding lambda_t range)
         if log_lambda_stats:
             lambda_t_item = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
             print(f"[HCG lambda stats] t={t}, alpha_t={alpha_t_val:.6f}, beta_t={beta_t_val:.6f}, "
-                  f"kappa_current={kappa_current:.2f}, lambda_t_base={lambda_t_base.item():.6f}, "
-                  f"lambda_t_scaled={lambda_t_item:.6f}, lambda_scale={lambda_scale:.4f}")
+                  f"kappa_original={kappa_original:.2f}, kappa_regularized={kappa_regularized:.2f}, "
+                  f"lambda_t_base={lambda_t_base.item():.6f}, lambda_t_scaled={lambda_t_item:.6f}, "
+                  f"lambda_scale={lambda_scale:.4f}")
 
-    # Step 3: Compute spectral radius scaling factor c_t = 1/(α_t + λ_t)
+    # Step 3: Compute spectral radius scaling factor c_t = β_t + λ_t (per ICLR doc Lemma)
+    # This ensures spec(M_t) ⊂ [1/κ_*, 1] where M_t(x) = c_t (H_sym(x) + λ_t I)^{-1}
     with profile("spectral_scaling"):
         if use_spectral_scaling:
-            c_t = 1.0 / (alpha_t + lambda_t + 1e-8)
+            c_t = beta_t + lambda_t # c_t = 1.0 / (alpha_t + lambda_t + 1e-8)  # c_t = beta_t + lambda_t
         else:
             c_t = 1.0
 
@@ -525,18 +534,25 @@ def hcg_correct(
     norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
     corrected_noise = corrected_noise * norm_original / (norm_corrected + 1e-8)
 
+    # Compute theoretical minimum CG iterations k_pred (per ICLR doc convergence bound)
+    # k_pred = 0.5 * sqrt(κ(A_t)) * log(2/τ)
+    # This provides a theoretical lower bound for comparison with actual iterations k_obs
+    theoretical_min_k = 0.5 * np.sqrt(kappa_regularized) * np.log(2.0 / cg_tol)
+
     # Prepare statistics for return (if statistics collection is needed)
     stats_dict = {
         'alpha_t': alpha_t_val,
         'beta_t': beta_t_val,
         'lambda_t_base': lambda_t_base.item() if isinstance(lambda_t_base, torch.Tensor) else lambda_t_base,
-        'lambda_t': lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t,
-        'kappa_current': kappa_current,
+        'lambda_t': lambda_t_val,
+        'kappa_original': kappa_original,  # κ(H_sym) = α_t / β_t
+        'kappa_regularized': kappa_regularized,  # κ(A_t) = (α_t + λ_t) / (β_t + λ_t)
         'kappa_target': kappa_target,
         'c_t': c_t.item() if isinstance(c_t, torch.Tensor) else c_t,
-        'cg_iterations': cg_iterations,
-        'cg_final_residual': cg_final_residual,
+        'cg_iterations': cg_iterations,  # k_obs: actual CG iterations
+        'cg_final_residual': cg_final_residual,  # ||r^(k)|| / ||r^(0)||
         'cg_converged': cg_final_residual < cg_tol,
+        'theoretical_min_k': theoretical_min_k,  # k_pred: theoretical lower bound
     }
 
     # Return corrected noise, eigenvalues (for caching), CG solution (for warm start), and stats
@@ -630,7 +646,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         lambda_scale: float = 0.3,  # Reduced from 1.0 (typical range: 0.1-0.5)
         log_lambda_stats: bool = False,
         enable_eigenvalue_cache: bool = True,  # New: enable eigenvalue caching
-        eigenvalue_cache_interval: int = 5,  # New: re-estimate every N steps
+        eigenvalue_cache_interval: int = 4,  # New: re-estimate every N steps (ICLR doc recommends r=2 or 4)
     ):
         if trained_betas is not None:
             self.betas = torch.tensor(trained_betas, dtype=torch.float32)
@@ -662,17 +678,20 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         # Eigenvalue cache for optimization
         self.eigenvalue_cache = {}
         self.eigenvalue_cache_interval = eigenvalue_cache_interval
+        self.enable_eigenvalue_cache = enable_eigenvalue_cache
         self.prev_cg_solution = None  # Cache for CG initial guess
 
         # Intermediate variables and statistics for analysis (as per paper/documentation)
         self.hcg_intermediate_vars = {
             'lambda_t_history': [],           # Adaptive damping λ_t sequence
             'lambda_t_base_history': [],       # Base lambda_t before scaling
-            'kappa_current_history': [],       # Actual condition number sequence
+            'kappa_original_history': [],      # Original condition number κ(H_sym) = α_t / β_t
+            'kappa_regularized_history': [],   # Regularized condition number κ(A_t) = (α_t + λ_t) / (β_t + λ_t)
             'kappa_target_history': [],       # Target condition number (should be constant)
-            'c_t_history': [],                # Spectral radius scaling factor sequence
-            'cg_iterations_history': [],       # CG iterations per step
-            'cg_final_residual_history': [],   # CG final residual norms
+            'c_t_history': [],                # Spectral radius scaling factor sequence (c_t = β_t + λ_t per ICLR doc)
+            'cg_iterations_history': [],       # CG iterations per step (k_obs)
+            'cg_final_residual_history': [],   # CG final residual norms ||r^(k)|| / ||r^(0)||
+            'theoretical_min_k_history': [],   # Theoretical lower bound k_pred = 0.5 * sqrt(κ(A_t)) * log(2/τ)
             'alpha_t_history': [],            # Maximum eigenvalue sequence
             'beta_t_history': [],              # Minimum eigenvalue sequence
             'timesteps_history': [],           # Corresponding timesteps
@@ -776,11 +795,13 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         self.hcg_intermediate_vars['beta_t_history'].append(stats['beta_t'])
         self.hcg_intermediate_vars['lambda_t_base_history'].append(stats['lambda_t_base'])
         self.hcg_intermediate_vars['lambda_t_history'].append(stats['lambda_t'])
-        self.hcg_intermediate_vars['kappa_current_history'].append(stats['kappa_current'])
+        self.hcg_intermediate_vars['kappa_original_history'].append(stats['kappa_original'])
+        self.hcg_intermediate_vars['kappa_regularized_history'].append(stats['kappa_regularized'])
         self.hcg_intermediate_vars['kappa_target_history'].append(stats['kappa_target'])
         self.hcg_intermediate_vars['c_t_history'].append(stats['c_t'])
-        self.hcg_intermediate_vars['cg_iterations_history'].append(stats['cg_iterations'])
+        self.hcg_intermediate_vars['cg_iterations_history'].append(stats['cg_iterations'])  # k_obs
         self.hcg_intermediate_vars['cg_final_residual_history'].append(stats['cg_final_residual'])
+        self.hcg_intermediate_vars['theoretical_min_k_history'].append(stats['theoretical_min_k'])  # k_pred
         self.hcg_intermediate_vars['cg_convergence_history'].append(stats['cg_converged'])
 
         # Update counters
