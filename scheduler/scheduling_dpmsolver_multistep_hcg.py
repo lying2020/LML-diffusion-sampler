@@ -495,11 +495,15 @@ def hcg_correct(
                 return x_cg, 0, 0.0
 
             num_iterations = 0
+            r_norm = r_norm_0  # Initialize r_norm to avoid UnboundLocalError
             for i in range(cg_max_iter):
                 Hp = regularized_hessian_vector_product(p)
                 p_Hp = torch.sum(p * Hp)
 
                 if p_Hp <= 1e-10:
+                    # If p_Hp is too small, compute final residual before breaking
+                    r_norm_sq_final = torch.sum(r ** 2)
+                    r_norm = torch.sqrt(r_norm_sq_final)
                     break
 
                 alpha = r_norm_sq / p_Hp
@@ -1252,36 +1256,16 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         if self.config.algorithm_type == "dpmsolver++":
             noise = - (alpha_t * (torch.exp(-h) - 1.0)) * D0 + (alpha_t * ((torch.exp(-h) - 1.0) / h + 1.0)) * D1 - (alpha_t * ((torch.exp(-h) - 1.0 + h) / h**2 - 0.5)) * D2
             if self.use_hcg and self.model is not None:
-                x_t = (sigma_t / sigma_s0) * sample + hcg_correct(
-                    noise_pred=noise,
-                    model=self.model,
-                    x=sample,
-                    t=timestep_list[-1],
-                    device=sample.device,
-                    kappa_target=self.kappa_target,
-                    lanczos_k=self.lanczos_k,
-                    cg_max_iter=self.cg_max_iter,
-                    cg_tol=self.cg_tol,
-                    use_spectral_scaling=self.use_spectral_scaling,
-                )
+                corrected_noise = self._call_hcg_correct(noise, sample, timestep_list[-1])
+                x_t = (sigma_t / sigma_s0) * sample + corrected_noise
             else:
                 x_t = (sigma_t / sigma_s0) * sample + noise
             self.prev_noise = noise
         elif self.config.algorithm_type == "dpmsolver":
             noise = - (sigma_t * (torch.exp(h) - 1.0)) * D0 - (sigma_t * ((torch.exp(h) - 1.0) / h - 1.0)) * D1 - (sigma_t * ((torch.exp(h) - 1.0 - h) / h**2 - 0.5)) * D2
             if self.use_hcg and self.model is not None:
-                x_t = (alpha_t / alpha_s0) * sample + hcg_correct(
-                    noise_pred=noise,
-                    model=self.model,
-                    x=sample,
-                    t=timestep_list[-1],
-                    device=sample.device,
-                    kappa_target=self.kappa_target,
-                    lanczos_k=self.lanczos_k,
-                    cg_max_iter=self.cg_max_iter,
-                    cg_tol=self.cg_tol,
-                    use_spectral_scaling=self.use_spectral_scaling,
-                )
+                corrected_noise = self._call_hcg_correct(noise, sample, timestep_list[-1])
+                x_t = (alpha_t / alpha_s0) * sample + corrected_noise
             else:
                 x_t = (alpha_t / alpha_s0) * sample + noise
             self.prev_noise = noise

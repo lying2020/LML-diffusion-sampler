@@ -124,31 +124,37 @@ def parse_args():
 
 def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     """Setup the appropriate scheduler based on sampler type"""
+    # 获取原始配置并过滤掉运行时状态属性（避免警告）
+    original_config = pipe.scheduler.config
+    config_dict = {
+        k: v for k, v in original_config.items()
+        if k not in ['timestep_values', 'timesteps']  # 移除这些运行时状态属性
+    }
 
     if sampler_type == 'pndm':
-        pipe.scheduler = PNDMScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = PNDMScheduler.from_config(config_dict)
         project.info(f"  Using PNDM scheduler")
 
     elif sampler_type == 'ddim':
-        pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = DDIMScheduler.from_config(config_dict)
         pipe.scheduler.config.eta = 0.0  # 设置eta=0.0，与celeba_test.py保持一致
         project.info(f"  Using DDIM scheduler (eta=0.0)")
 
     elif sampler_type == 'ddim_lm':
-        pipe.scheduler = DDIMLMScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = DDIMLMScheduler.from_config(config_dict)
         pipe.scheduler.lamb = lamb
         pipe.scheduler.lm = True
         pipe.scheduler.kappa = kappa
         project.info(f"  Using DDIM with LML correction (λ={lamb}, κ={kappa})")
 
     elif sampler_type == 'dpm++':
-        pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = DPMSolverMultistepScheduler.from_config(config_dict)
         pipe.scheduler.config.algorithm_type = "dpmsolver++"
         pipe.scheduler.config.solver_order = 3
         project.info(f"  Using DPM-Solver++ scheduler")
 
     elif sampler_type == 'dpm_lm':
-        pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(config_dict)
         pipe.scheduler.config.algorithm_type = "dpmsolver"
         pipe.scheduler.config.solver_order = 3
         pipe.scheduler.lamb = lamb
@@ -157,14 +163,14 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         project.info(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
 
     elif sampler_type == 'dpm':
-        pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(config_dict)
         pipe.scheduler.config.algorithm_type = "dpmsolver"
         pipe.scheduler.config.solver_order = 3
         pipe.scheduler.lm = False
         project.info(f"  Using DPM-Solver scheduler")
 
     elif sampler_type == 'unipc':
-        pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
+        pipe.scheduler = UniPCMultistepScheduler.from_config(config_dict)
         project.info(f"  Using UniPC scheduler")
 
     else:
@@ -524,11 +530,6 @@ if __name__ == '__main__':
         'test_num': args.test_num
     })
 
-    print("="*50)
-    print("CelebA-HQ 实验批量运行开始")
-    print(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*50)
-
     for i in range(len(INFERENCE_STEPS)):
         for j in range(len(SAMPLER_TYPES)):
             experiment_num += 1
@@ -563,12 +564,12 @@ if __name__ == '__main__':
 
         if args.generate_grid:
             # 生成对比图组模式
-            print("\n🎨 生成对比图组...")
+            project.info("\n🎨 生成对比图组...")
             output_path = project.generate_comparison_grid_from_existing(results_save_dir, args)
             if output_path:
-                print(f"✅ 对比图组已生成: {output_path}")
+                project.info(f"✅ 对比图组已生成: {output_path}")
             else:
-                print("❌ 对比图组生成失败")
+                project.warning("❌ 对比图组生成失败")
 
 
     # # Generate comparison table
@@ -582,11 +583,6 @@ if __name__ == '__main__':
     #     project.info(f"\n📊 Results saved to: {results_file}")
 
     end_time = datetime.now()
-
-    print("\n" + "="*50)
-    print("CelebA-HQ 实验批量运行完成")
-    print(f"结束时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*50)
 
     # 生成实验总结报告
     project.info("\n生成实验总结报告...")
