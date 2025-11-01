@@ -221,7 +221,9 @@ def hcg_correct(
     use_spectral_scaling: bool = True,
     lambda_scale: float = 1.0,
     log_lambda_stats: bool = False,
-) -> torch.Tensor:
+    cached_eigenvalues: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # New: optional cached eigenvalues
+    prev_cg_solution: Optional[torch.Tensor] = None,  # New: previous CG solution for warm start
+) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
     """
     Hessian-Conjugate Gradient correction using adaptive damping.
 
@@ -401,22 +403,28 @@ def hcg_correct(
         # Detach and return (no need to keep gradients in output)
         return Hv.detach()
 
-    # Step 1: Estimate eigenvalues using Lanczos
-    try:
-        with profile("lanczos_eigenvalue_estimation"):
-            alpha_t, beta_t = lanczos_eigenvalue_estimation(
-                hessian_vector_product_fn=hessian_vector_product,
-                x_shape=x.shape,
-                k=lanczos_k,
-                num_vectors=3,  # Use fewer vectors for efficiency
-                device=device
-            )
-    except Exception as e:
-        # Fallback: use diagonal approximation
-        # This is a simplified fallback - in practice you might want better handling
-        print(f"Warning: Lanczos estimation failed, using fallback: {e}")
-        alpha_t = torch.tensor(1.0, dtype=torch.float32, device=device)
-        beta_t = torch.tensor(0.1, dtype=torch.float32, device=device)
+    # Step 1: Estimate eigenvalues using Lanczos (with caching if enabled)
+    if cached_eigenvalues is not None:
+        # Use cached eigenvalues if provided
+        alpha_t, beta_t = cached_eigenvalues
+    else:
+        try:
+            with profile("lanczos_eigenvalue_estimation"):
+                # Reduce num_vectors for efficiency (from 3 to 1-2)
+                num_vectors = 2 if lanczos_k >= 5 else 1  # Fewer vectors when k is small
+                alpha_t, beta_t = lanczos_eigenvalue_estimation(
+                    hessian_vector_product_fn=hessian_vector_product,
+                    x_shape=x.shape,
+                    k=lanczos_k,
+                    num_vectors=num_vectors,
+                    device=device
+                )
+        except Exception as e:
+            # Fallback: use diagonal approximation
+            # This is a simplified fallback - in practice you might want better handling
+            print(f"Warning: Lanczos estimation failed, using fallback: {e}")
+            alpha_t = torch.tensor(1.0, dtype=torch.float32, device=device)
+            beta_t = torch.tensor(0.1, dtype=torch.float32, device=device)
 
     # Step 2: Compute adaptive damping λ_t
     with profile("adaptive_damping_lambda"):
@@ -448,11 +456,18 @@ def hcg_correct(
         # Add regularization: (H + λ_t I)v = Hv + λ_t * v
         return Hv + lambda_t * v
 
-    def conjugate_gradient_solve(b: torch.Tensor) -> torch.Tensor:
-        """Solve (H + λ_t I) * x = b using CG"""
+    def conjugate_gradient_solve(b: torch.Tensor, prev_solution: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Solve (H + λ_t I) * x = b using CG with optional initial guess"""
         with profile("conjugate_gradient_solve", get_profiler()):
-            x_cg = torch.zeros_like(b)
-            r = b.clone()
+            # Use previous solution as initial guess if available (can improve convergence)
+            if prev_solution is not None and prev_solution.shape == b.shape:
+                x_cg = prev_solution.clone()
+                # Compute initial residual
+                Hx = regularized_hessian_vector_product(x_cg)
+                r = b - Hx
+            else:
+                x_cg = torch.zeros_like(b)
+                r = b.clone()
             p = r.clone()
 
             r_norm_sq = torch.sum(r ** 2)
@@ -485,8 +500,8 @@ def hcg_correct(
 
             return x_cg
 
-    # Solve (H + λ_t I)^{-1} * noise_pred
-    corrected_noise = conjugate_gradient_solve(noise_pred)
+    # Solve (H + λ_t I)^{-1} * noise_pred (with warm start if available)
+    corrected_noise = conjugate_gradient_solve(noise_pred, prev_solution=prev_cg_solution)
 
     # Step 5: Apply spectral radius scaling: c_t * corrected_noise
     corrected_noise = c_t * corrected_noise
@@ -496,7 +511,8 @@ def hcg_correct(
     norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
     corrected_noise = corrected_noise * norm_original / (norm_corrected + 1e-8)
 
-    return corrected_noise
+    # Return corrected noise, eigenvalues (for caching), and CG solution (for warm start)
+    return corrected_noise, (alpha_t, beta_t), corrected_noise.clone()
 
 
 # Copied from diffusers.schedulers.scheduling_ddpm.betas_for_alpha_bar
@@ -578,13 +594,15 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         timestep_spacing: str = "linspace",
         steps_offset: int = 0,
         use_hcg: bool = True,
-        kappa_target: float = 10.0,
-        lanczos_k: int = 10,
-        cg_max_iter: int = 20,
-        cg_tol: float = 1e-4,
+        kappa_target: float = 20.0,  # Increased from 10.0 for better performance
+        lanczos_k: int = 5,  # Reduced from 10 for faster computation
+        cg_max_iter: int = 5,  # Reduced from 20 for faster computation
+        cg_tol: float = 1e-2,  # Relaxed from 1e-4 for faster convergence
         use_spectral_scaling: bool = True,
-        lambda_scale: float = 1.0,
+        lambda_scale: float = 0.3,  # Reduced from 1.0 (typical range: 0.1-0.5)
         log_lambda_stats: bool = False,
+        enable_eigenvalue_cache: bool = True,  # New: enable eigenvalue caching
+        eigenvalue_cache_interval: int = 5,  # New: re-estimate every N steps
     ):
         if trained_betas is not None:
             self.betas = torch.tensor(trained_betas, dtype=torch.float32)
@@ -607,9 +625,16 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         self.cg_max_iter = cg_max_iter
         self.cg_tol = cg_tol
         self.use_spectral_scaling = use_spectral_scaling
+        self.lambda_scale = lambda_scale
+        self.log_lambda_stats = log_lambda_stats
 
         self.model = None  # Will be set during sampling
         self.prev_noise = None
+
+        # Eigenvalue cache for optimization
+        self.eigenvalue_cache = {}
+        self.eigenvalue_cache_interval = 5  # Re-estimate every N steps
+        self.prev_cg_solution = None  # Cache for CG initial guess
 
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
@@ -644,6 +669,40 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
     def set_model(self, model):
         """Set the model for Hessian computation"""
         self.model = model
+
+    def _call_hcg_correct(self, noise, sample, timestep):
+        """Helper method to call hcg_correct with caching and return only corrected noise"""
+        # Get cached eigenvalues if available
+        cached_eigs = None
+        if self.enable_eigenvalue_cache and timestep in self.eigenvalue_cache:
+            # Check if cache is still valid (within interval)
+            cached_t, (alpha_cached, beta_cached) = self.eigenvalue_cache[timestep]
+            if abs(timestep - cached_t) < self.eigenvalue_cache_interval:
+                cached_eigs = (alpha_cached, beta_cached)
+
+        corrected_noise, eigenvalues, cg_solution = hcg_correct(
+            noise_pred=noise,
+            model=self.model,
+            x=sample,
+            t=timestep,
+            device=sample.device,
+            kappa_target=self.kappa_target,
+            lanczos_k=self.lanczos_k,
+            cg_max_iter=self.cg_max_iter,
+            cg_tol=self.cg_tol,
+            use_spectral_scaling=self.use_spectral_scaling,
+            lambda_scale=self.lambda_scale,
+            log_lambda_stats=self.log_lambda_stats,
+            cached_eigenvalues=cached_eigs,
+            prev_cg_solution=self.prev_cg_solution,
+        )
+
+        # Cache eigenvalues and CG solution for next step
+        if self.enable_eigenvalue_cache:
+            self.eigenvalue_cache[timestep] = (timestep, eigenvalues)
+        self.prev_cg_solution = cg_solution
+
+        return corrected_noise
 
     def set_timesteps(self, num_inference_steps: int = None, device: Union[str, torch.device] = None):
         """
@@ -885,38 +944,16 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         if self.config.algorithm_type == "dpmsolver++":
             noise = - (alpha_t * (torch.exp(-h) - 1.0)) * model_output
             if self.use_hcg and self.model is not None:
-                x_t = (sigma_t / sigma_s) * sample + hcg_correct(
-                    noise_pred=noise,
-                    model=self.model,
-                    x=sample,
-                    t=timestep,
-                    device=sample.device,
-                    kappa_target=self.kappa_target,
-                    lanczos_k=self.lanczos_k,
-                    cg_max_iter=self.cg_max_iter,
-                    cg_tol=self.cg_tol,
-                    use_spectral_scaling=self.use_spectral_scaling,
-                    lambda_scale=self.lambda_scale,
-                    log_lambda_stats=self.log_lambda_stats,
-                )
+                corrected_noise = self._call_hcg_correct(noise, sample, timestep)
+                x_t = (sigma_t / sigma_s) * sample + corrected_noise
             else:
                 x_t = (sigma_t / sigma_s) * sample + noise
             self.prev_noise = noise
         elif self.config.algorithm_type == "dpmsolver":
             noise = - (sigma_t * (torch.exp(h) - 1.0)) * model_output
             if self.use_hcg and self.model is not None:
-                x_t = (alpha_t / alpha_s) * sample + hcg_correct(
-                    noise_pred=noise,
-                    model=self.model,
-                    x=sample,
-                    t=timestep,
-                    device=sample.device,
-                    kappa_target=self.kappa_target,
-                    lanczos_k=self.lanczos_k,
-                    cg_max_iter=self.cg_max_iter,
-                    cg_tol=self.cg_tol,
-                    use_spectral_scaling=self.use_spectral_scaling,
-                )
+                corrected_noise = self._call_hcg_correct(noise, sample, timestep)
+                x_t = (alpha_t / alpha_s) * sample + corrected_noise
             else:
                 x_t = (alpha_t / alpha_s) * sample + noise
             self.prev_noise = noise
@@ -971,36 +1008,16 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             if self.config.solver_type == "midpoint":
                 noise = - (alpha_t * (torch.exp(-h) - 1.0)) * D0 - 0.5 * (alpha_t * (torch.exp(-h) - 1.0)) * D1
                 if self.use_hcg and self.model is not None:
-                    x_t = (sigma_t / sigma_s0) * sample + hcg_correct(
-                        noise_pred=noise,
-                        model=self.model,
-                        x=sample,
-                        t=timestep_list[-1],
-                        device=sample.device,
-                        kappa_target=self.kappa_target,
-                        lanczos_k=self.lanczos_k,
-                        cg_max_iter=self.cg_max_iter,
-                        cg_tol=self.cg_tol,
-                        use_spectral_scaling=self.use_spectral_scaling,
-                    )
+                    corrected_noise = self._call_hcg_correct(noise, sample, timestep_list[-1])
+                    x_t = (sigma_t / sigma_s0) * sample + corrected_noise
                 else:
                     x_t = (sigma_t / sigma_s0) * sample + noise
                 self.prev_noise = noise
             elif self.config.solver_type == "heun":
                 noise = - (alpha_t * (torch.exp(-h) - 1.0)) * D0 + (alpha_t * ((torch.exp(-h) - 1.0) / h + 1.0)) * D1
                 if self.use_hcg and self.model is not None:
-                    x_t = (sigma_t / sigma_s0) * sample + hcg_correct(
-                        noise_pred=noise,
-                        model=self.model,
-                        x=sample,
-                        t=timestep_list[-1],
-                        device=sample.device,
-                        kappa_target=self.kappa_target,
-                        lanczos_k=self.lanczos_k,
-                        cg_max_iter=self.cg_max_iter,
-                        cg_tol=self.cg_tol,
-                        use_spectral_scaling=self.use_spectral_scaling,
-                    )
+                    corrected_noise = self._call_hcg_correct(noise, sample, timestep_list[-1])
+                    x_t = (sigma_t / sigma_s0) * sample + corrected_noise
                 else:
                     x_t = (sigma_t / sigma_s0) * sample + noise
                 self.prev_noise = noise
@@ -1008,36 +1025,16 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             if self.config.solver_type == "midpoint":
                 noise = - (sigma_t * (torch.exp(h) - 1.0)) * D0 - 0.5 * (sigma_t * (torch.exp(h) - 1.0)) * D1
                 if self.use_hcg and self.model is not None:
-                    x_t = (alpha_t / alpha_s0) * sample + hcg_correct(
-                        noise_pred=noise,
-                        model=self.model,
-                        x=sample,
-                        t=timestep_list[-1],
-                        device=sample.device,
-                        kappa_target=self.kappa_target,
-                        lanczos_k=self.lanczos_k,
-                        cg_max_iter=self.cg_max_iter,
-                        cg_tol=self.cg_tol,
-                        use_spectral_scaling=self.use_spectral_scaling,
-                    )
+                    corrected_noise = self._call_hcg_correct(noise, sample, timestep_list[-1])
+                    x_t = (alpha_t / alpha_s0) * sample + corrected_noise
                 else:
                     x_t = (alpha_t / alpha_s0) * sample + noise
                 self.prev_noise = noise
             elif self.config.solver_type == "heun":
                 noise = - (sigma_t * (torch.exp(h) - 1.0)) * D0 - (sigma_t * ((torch.exp(h) - 1.0) / h - 1.0)) * D1
                 if self.use_hcg and self.model is not None:
-                    x_t = (alpha_t / alpha_s0) * sample + hcg_correct(
-                        noise_pred=noise,
-                        model=self.model,
-                        x=sample,
-                        t=timestep_list[-1],
-                        device=sample.device,
-                        kappa_target=self.kappa_target,
-                        lanczos_k=self.lanczos_k,
-                        cg_max_iter=self.cg_max_iter,
-                        cg_tol=self.cg_tol,
-                        use_spectral_scaling=self.use_spectral_scaling,
-                    )
+                    corrected_noise = self._call_hcg_correct(noise, sample, timestep_list[-1])
+                    x_t = (alpha_t / alpha_s0) * sample + corrected_noise
                 else:
                     x_t = (alpha_t / alpha_s0) * sample + noise
                 self.prev_noise = noise

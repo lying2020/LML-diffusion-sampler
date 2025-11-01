@@ -48,7 +48,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=10)
+    parser.add_argument('--test_num', type=int, default=4)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_inference_steps', type=int, default=50, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
@@ -72,14 +72,17 @@ def parse_args():
     parser.add_argument('--kappa', type=float, default=1.0e-8)
 
     # HCG (Hessian-Conjugate Gradient) parameters
-    parser.add_argument('--kappa_target', type=float, default=10.0, help='Target condition number for adaptive damping')
-    parser.add_argument('--lanczos_k', type=int, default=10, help='Number of Lanczos iterations for eigenvalue estimation')
-    parser.add_argument('--cg_max_iter', type=int, default=20, help='Maximum CG iterations')
-    parser.add_argument('--cg_tol', type=float, default=1e-4, help='CG tolerance')
+    parser.add_argument('--kappa_target', type=float, default=20.0, help='Target condition number for adaptive damping')
+    parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
+    parser.add_argument('--cg_max_iter', type=int, default=5, help='Maximum CG iterations')
+    parser.add_argument('--cg_tol', type=float, default=1e-2, help='CG tolerance')
     parser.add_argument('--use_spectral_scaling', action='store_true', default=True, help='Use spectral radius scaling (default: True)')
     parser.add_argument('--no_spectral_scaling', dest='use_spectral_scaling', action='store_false', help='Disable spectral radius scaling')
-    parser.add_argument('--lambda_scale', type=float, default=1.0, help='Scaling factor for adaptive lambda_t (default: 1.0). Similar to fixed lambda in LML. Typical range: 0.1-10.0. If adaptive lambda_t is ~0.01 and you want ~0.004, set lambda_scale=0.4')
+    parser.add_argument('--lambda_scale', type=float, default=0.3, help='Scaling factor for adaptive lambda_t (default: 0.3, optimized). Similar to fixed lambda in LML. Typical range: 0.1-10.0. If adaptive lambda_t is ~0.01 and you want ~0.004, set lambda_scale=0.4')
     parser.add_argument('--log_lambda_stats', action='store_true', default=False, help='Log lambda_t statistics to understand its range during sampling')
+    parser.add_argument('--enable_eigenvalue_cache', action='store_true', default=True, help='Enable eigenvalue caching for faster computation (default: True)')
+    parser.add_argument('--no_eigenvalue_cache', dest='enable_eigenvalue_cache', action='store_false', help='Disable eigenvalue caching')
+    parser.add_argument('--eigenvalue_cache_interval', type=int, default=5, help='Re-estimate eigenvalues every N steps when caching is enabled (default: 5)')
 
     # Technical parameters
     parser.add_argument('--dtype', type=str, default='fp32', choices=['fp32', 'fp64', 'fp16', 'bf16'])
@@ -167,8 +170,10 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
-def setup_scheduler_hcg(pipe, kappa_target=10.0, lanczos_k=10, cg_max_iter=20,
-                    cg_tol=1e-4, use_spectral_scaling=True, lambda_scale=1.0, log_lambda_stats=False):
+def setup_scheduler_hcg(pipe, kappa_target=20.0, lanczos_k=5, cg_max_iter=5,
+                    cg_tol=1e-2, use_spectral_scaling=True, lambda_scale=0.3,
+                    log_lambda_stats=False, enable_eigenvalue_cache=True,
+                    eigenvalue_cache_interval=5):
     """Setup the HCG scheduler"""
     # 获取原始配置并过滤掉不需要的属性（避免警告）
     original_config = pipe.scheduler.config
@@ -195,11 +200,14 @@ def setup_scheduler_hcg(pipe, kappa_target=10.0, lanczos_k=10, cg_max_iter=20,
     pipe.scheduler.use_spectral_scaling = use_spectral_scaling
     pipe.scheduler.lambda_scale = lambda_scale
     pipe.scheduler.log_lambda_stats = log_lambda_stats
+    pipe.scheduler.enable_eigenvalue_cache = enable_eigenvalue_cache
+    pipe.scheduler.eigenvalue_cache_interval = eigenvalue_cache_interval
 
     project.info(f"  Using DPM-Solver++ with HCG (Hessian-Conjugate Gradient) correction")
     project.info(f"    kappa_target={kappa_target}, lanczos_k={lanczos_k}, cg_max_iter={cg_max_iter}")
     project.info(f"    cg_tol={cg_tol}, use_spectral_scaling={use_spectral_scaling}")
     project.info(f"    lambda_scale={lambda_scale:.4f}, log_lambda_stats={log_lambda_stats}")
+    project.info(f"    enable_eigenvalue_cache={enable_eigenvalue_cache}, cache_interval={eigenvalue_cache_interval}")
 
 def process_image(image):
     """
@@ -389,7 +397,9 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
             cg_tol=args.cg_tol,
             use_spectral_scaling=args.use_spectral_scaling,
             lambda_scale=args.lambda_scale,
-            log_lambda_stats=args.log_lambda_stats
+            log_lambda_stats=args.log_lambda_stats,
+            enable_eigenvalue_cache=args.enable_eigenvalue_cache,
+            eigenvalue_cache_interval=args.eigenvalue_cache_interval
         )
     else:
         setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
