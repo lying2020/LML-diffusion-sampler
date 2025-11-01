@@ -96,12 +96,22 @@ class Profiler:
 
         return stats
 
-    def print_report(self, sort_by: str = 'total_time', top_n: Optional[int] = None):
-        """Print profiling report sorted by specified metric"""
+    def print_report(self, sort_by: str = 'total_time', top_n: Optional[int] = None, logger=None):
+        """
+        Print profiling report sorted by specified metric.
+
+        Args:
+            sort_by: Metric to sort by (default: 'total_time')
+            top_n: Limit number of results (None for all)
+            logger: Optional logger to also write to (in addition to print)
+        """
         stats = self.get_stats()
 
         if not stats:
-            print("No profiling data available")
+            msg = "No profiling data available"
+            print(msg)
+            if logger:
+                logger.info(msg)
             return
 
         # Sort by specified metric
@@ -114,6 +124,40 @@ class Profiler:
         if top_n:
             sorted_stats = sorted_stats[:top_n]
 
+        # Build report lines
+        lines = []
+        lines.append("\n" + "="*80)
+        lines.append(f"Profiling Report (sorted by {sort_by})")
+        lines.append("="*80)
+        lines.append(f"{'Function':<40} {'Calls':<8} {'Total(s)':<12} {'Avg(s)':<12} {'Min(s)':<12} {'Max(s)':<12}")
+        lines.append("-"*80)
+
+        for name, stat in sorted_stats:
+            calls = stat['calls']
+            total = stat['total_time']
+            avg = stat['avg_time']
+            min_time = stat['min_time']
+            max_time = stat['max_time']
+
+            line = f"{name[:39]:<40} {calls:<8} {total:<12.4f} {avg:<12.4f} {min_time:<12.4f} {max_time:<12.4f}"
+            lines.append(line)
+            print(line)
+
+            if 'cuda_avg' in stat:
+                cuda_line = f"  └─ CUDA avg: {stat['cuda_avg']:.4f}s"
+                lines.append(cuda_line)
+                print(cuda_line)
+
+        lines.append("="*80)
+
+        # Print summary
+        total_time = sum(s['total_time'] for s in stats.values())
+        summary_line1 = f"\nTotal profiled time: {total_time:.4f}s"
+        summary_line2 = f"Total function calls: {sum(s['calls'] for s in stats.values())}"
+        lines.append(summary_line1)
+        lines.append(summary_line2)
+
+        # Print to console
         print("\n" + "="*80)
         print(f"Profiling Report (sorted by {sort_by})")
         print("="*80)
@@ -126,18 +170,20 @@ class Profiler:
             avg = stat['avg_time']
             min_time = stat['min_time']
             max_time = stat['max_time']
-
             print(f"{name[:39]:<40} {calls:<8} {total:<12.4f} {avg:<12.4f} {min_time:<12.4f} {max_time:<12.4f}")
-
             if 'cuda_avg' in stat:
                 print(f"  └─ CUDA avg: {stat['cuda_avg']:.4f}s")
 
         print("="*80)
+        print(summary_line1)
+        print(summary_line2)
 
-        # Print summary
-        total_time = sum(s['total_time'] for s in stats.values())
-        print(f"\nTotal profiled time: {total_time:.4f}s")
-        print(f"Total function calls: {sum(s['calls'] for s in stats.values())}")
+        # Also write to logger if provided (all lines including formatting)
+        if logger:
+            for line in lines:
+                logger.info(line)
+            logger.info(summary_line1)
+            logger.info(summary_line2)
 
     def save_report(self, filepath: str, sort_by: str = 'total_time'):
         """Save profiling report to JSON file"""

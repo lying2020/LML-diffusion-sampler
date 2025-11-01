@@ -76,7 +76,10 @@ def parse_args():
     parser.add_argument('--lanczos_k', type=int, default=10, help='Number of Lanczos iterations for eigenvalue estimation')
     parser.add_argument('--cg_max_iter', type=int, default=20, help='Maximum CG iterations')
     parser.add_argument('--cg_tol', type=float, default=1e-4, help='CG tolerance')
-    parser.add_argument('--use_spectral_scaling', type=lambda x: (str(x).lower() in ['true', '1', 'yes']), default=False, help='Use spectral radius scaling (default: True)')
+    parser.add_argument('--use_spectral_scaling', action='store_true', default=True, help='Use spectral radius scaling (default: True)')
+    parser.add_argument('--no_spectral_scaling', dest='use_spectral_scaling', action='store_false', help='Disable spectral radius scaling')
+    parser.add_argument('--lambda_scale', type=float, default=1.0, help='Scaling factor for adaptive lambda_t (default: 1.0). Similar to fixed lambda in LML. Typical range: 0.1-10.0. If adaptive lambda_t is ~0.01 and you want ~0.004, set lambda_scale=0.4')
+    parser.add_argument('--log_lambda_stats', action='store_true', default=False, help='Log lambda_t statistics to understand its range during sampling')
 
     # Technical parameters
     parser.add_argument('--dtype', type=str, default='fp32', choices=['fp32', 'fp64', 'fp16', 'bf16'])
@@ -94,6 +97,9 @@ def parse_args():
     # Profiling options
     parser.add_argument('--enable_profiling', action='store_true', default=True, help='Enable function-level profiling (similar to MATLAB profiler)')
     parser.add_argument('--profile_report_file', type=str, default=None, help='Path to save profiling report (JSON format)')
+
+    # Logging options
+    parser.add_argument('--log_dir', type=str, default=None, help='Directory to save log files (default: output/logs)')
 
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
@@ -162,7 +168,7 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
 def setup_scheduler_hcg(pipe, kappa_target=10.0, lanczos_k=10, cg_max_iter=20,
-                    cg_tol=1e-4, use_spectral_scaling=True):
+                    cg_tol=1e-4, use_spectral_scaling=True, lambda_scale=1.0, log_lambda_stats=False):
     """Setup the HCG scheduler"""
     # 获取原始配置并过滤掉不需要的属性（避免警告）
     original_config = pipe.scheduler.config
@@ -187,10 +193,13 @@ def setup_scheduler_hcg(pipe, kappa_target=10.0, lanczos_k=10, cg_max_iter=20,
     pipe.scheduler.cg_max_iter = cg_max_iter
     pipe.scheduler.cg_tol = cg_tol
     pipe.scheduler.use_spectral_scaling = use_spectral_scaling
+    pipe.scheduler.lambda_scale = lambda_scale
+    pipe.scheduler.log_lambda_stats = log_lambda_stats
 
     project.info(f"  Using DPM-Solver++ with HCG (Hessian-Conjugate Gradient) correction")
     project.info(f"    kappa_target={kappa_target}, lanczos_k={lanczos_k}, cg_max_iter={cg_max_iter}")
     project.info(f"    cg_tol={cg_tol}, use_spectral_scaling={use_spectral_scaling}")
+    project.info(f"    lambda_scale={lambda_scale:.4f}, log_lambda_stats={log_lambda_stats}")
 
 def process_image(image):
     """
@@ -298,7 +307,8 @@ def generate_images(results_save_dir, args, pipe):
             project.info("\n" + "="*60)
             project.info("PROFILING REPORT")
             project.info("="*60)
-            profiler.print_report(sort_by='total_time', top_n=20)
+            # Pass logger so report is also written to log file
+            profiler.print_report(sort_by='total_time', top_n=20, logger=project.logger)
 
             # Save profiling report if requested
             if args.profile_report_file:
@@ -377,7 +387,9 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
             lanczos_k=args.lanczos_k,
             cg_max_iter=args.cg_max_iter,
             cg_tol=args.cg_tol,
-            use_spectral_scaling=args.use_spectral_scaling
+            use_spectral_scaling=args.use_spectral_scaling,
+            lambda_scale=args.lambda_scale,
+            log_lambda_stats=args.log_lambda_stats
         )
     else:
         setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
@@ -413,10 +425,12 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
 
 
 if __name__ == '__main__':
-    # 设置日志系统
-    logger = project.setup_logging(name='celeba', level=project.logging.INFO)
-
+    # 先解析参数（但不解析 log_dir，因为日志需要在参数解析前设置）
+    # 我们需要先设置一个默认的日志系统，然后再重新设置
     args = parse_args()
+
+    # 设置日志系统（使用解析后的 log_dir）
+    logger = project.setup_logging(name='celeba', log_dir=args.log_dir, level=project.logging.INFO)
     results_save_dir = os.path.join(project.output_dir, args.save_dir + '_' + args.model_type)
 
     # 单个实验模式（保持原有逻辑）

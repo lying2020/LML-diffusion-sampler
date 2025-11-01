@@ -175,13 +175,15 @@ def adaptive_damping_lambda(
 
     This ensures kappa(H_sym + lambda_t I) ≤ kappa_*
 
+    Note: lambda_scale is applied outside this function in hcg_correct()
+
     Args:
         alpha_t: Maximum eigenvalue (lambda_max)
         beta_t: Minimum eigenvalue (lambda_min)
         kappa_target: Target condition number \kappa_* (>1)
 
     Returns:
-        lambda_t: Adaptive damping parameter
+        lambda_t: Adaptive damping parameter (base value, unscaled)
     """
     if kappa_target <= 1.0:
         raise ValueError(f"kappa_target must be > 1, got {kappa_target}")
@@ -217,13 +219,15 @@ def hcg_correct(
     cg_max_iter: int = 20,
     cg_tol: float = 1e-4,
     use_spectral_scaling: bool = True,
+    lambda_scale: float = 1.0,
+    log_lambda_stats: bool = False,
 ) -> torch.Tensor:
     """
     Hessian-Conjugate Gradient correction using adaptive damping.
 
     Solves c_t * (H + lambda_t I)^{-1} * noise_pred where:
     - H is the Hessian of -log p_t(x)
-    - lambda_t is adaptive damping based on condition number
+    - lambda_t = lambda_scale * adaptive_lambda is scaled adaptive damping
     - c_t = 1/(alpha_t + lambda_t) is the spectral radius scaling factor
 
     Args:
@@ -237,6 +241,10 @@ def hcg_correct(
         cg_max_iter: Maximum CG iterations
         cg_tol: CG tolerance
         use_spectral_scaling: Whether to apply spectral radius scaling c_t
+        lambda_scale: Scaling factor for adaptive lambda_t (default: 1.0)
+                     Use this to fine-tune the damping strength.
+                     Typical range: 0.1 - 10.0 (similar to LML's fixed lambda ~0.0001-0.01)
+        log_lambda_stats: Whether to log lambda_t statistics for debugging
 
     Returns:
         corrected_noise: Corrected noise prediction
@@ -412,7 +420,18 @@ def hcg_correct(
 
     # Step 2: Compute adaptive damping λ_t
     with profile("adaptive_damping_lambda"):
-        lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+        lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+        lambda_t = lambda_scale * lambda_t_base
+
+        # Log statistics if requested (for understanding lambda_t range)
+        if log_lambda_stats:
+            lambda_t_item = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
+            alpha_t_item = alpha_t.item() if isinstance(alpha_t, torch.Tensor) else alpha_t
+            beta_t_item = beta_t.item() if isinstance(beta_t, torch.Tensor) else beta_t
+            kappa_current = alpha_t_item / (beta_t_item + 1e-8)
+            print(f"[HCG lambda stats] t={t}, alpha_t={alpha_t_item:.6f}, beta_t={beta_t_item:.6f}, "
+                  f"kappa_current={kappa_current:.2f}, lambda_t_base={lambda_t_base.item():.6f}, "
+                  f"lambda_t_scaled={lambda_t_item:.6f}, lambda_scale={lambda_scale:.4f}")
 
     # Step 3: Compute spectral radius scaling factor c_t = 1/(α_t + λ_t)
     with profile("spectral_scaling"):
@@ -564,6 +583,8 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         cg_max_iter: int = 20,
         cg_tol: float = 1e-4,
         use_spectral_scaling: bool = True,
+        lambda_scale: float = 1.0,
+        log_lambda_stats: bool = False,
     ):
         if trained_betas is not None:
             self.betas = torch.tensor(trained_betas, dtype=torch.float32)
@@ -875,6 +896,8 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
                     cg_max_iter=self.cg_max_iter,
                     cg_tol=self.cg_tol,
                     use_spectral_scaling=self.use_spectral_scaling,
+                    lambda_scale=self.lambda_scale,
+                    log_lambda_stats=self.log_lambda_stats,
                 )
             else:
                 x_t = (sigma_t / sigma_s) * sample + noise
