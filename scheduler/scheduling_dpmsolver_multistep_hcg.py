@@ -155,8 +155,11 @@ def lanczos_eigenvalue_estimation(
         alpha_t = torch.tensor(np.mean(max_eigenvals), dtype=torch.float32, device=device)
         beta_t = torch.tensor(np.mean(min_eigenvals), dtype=torch.float32, device=device)
 
-    # Ensure positive definiteness
-    beta_t = torch.clamp(beta_t, min=1e-6)
+    # Ensure positive definiteness with improved lower bound for numerical stability
+    # Higher beta_min improves condition number control and numerical stability
+    # Previously: 1e-6, now: 1e-5 (10x larger) to prevent extremely large condition numbers
+    beta_min = 1e-5  # Increased from 1e-6 for better numerical stability
+    beta_t = torch.clamp(beta_t, min=beta_min)
     alpha_t = torch.clamp(alpha_t, min=beta_t.item())
 
     return alpha_t, beta_t
@@ -219,6 +222,9 @@ def hcg_correct(
     cg_max_iter: int = 20,
     cg_tol: float = 1e-4,
     use_spectral_scaling: bool = True,
+    spectral_scaling: float = 1.0,
+    use_adaptive_lambda: bool = True,
+    lambda_base: float = 0.004,
     lambda_scale: float = 1.0,
     log_lambda_stats: bool = False,
     cached_eigenvalues: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # New: optional cached eigenvalues
@@ -243,6 +249,9 @@ def hcg_correct(
         cg_max_iter: Maximum CG iterations
         cg_tol: CG tolerance
         use_spectral_scaling: Whether to apply spectral radius scaling c_t
+        spectral_scaling: Spectral radius scaling factor c_t
+        use_adaptive_lambda: Whether to use adaptive lambda_t
+        lambda_base: Base lambda_t
         lambda_scale: Scaling factor for adaptive lambda_t (default: 1.0)
                      Use this to fine-tune the damping strength.
                      Typical range: 0.1 - 10.0 (similar to LML's fixed lambda ~0.0001-0.01)
@@ -408,9 +417,14 @@ def hcg_correct(
         return Hv.detach()
 
     # Step 1: Estimate eigenvalues using Lanczos (with caching if enabled)
+    beta_min = 1e-5  # Minimum eigenvalue lower bound for numerical stability
+
     if cached_eigenvalues is not None:
-        # Use cached eigenvalues if provided
+        # Use cached eigenvalues if provided, but ensure they meet minimum bounds
         alpha_t, beta_t = cached_eigenvalues
+        # Ensure cached values also respect the minimum bound
+        beta_t = torch.clamp(beta_t, min=beta_min)
+        alpha_t = torch.clamp(alpha_t, min=beta_t.item())
     else:
         try:
             with profile("lanczos_eigenvalue_estimation"):
@@ -428,11 +442,14 @@ def hcg_correct(
             # This is a simplified fallback - in practice you might want better handling
             print(f"Warning: Lanczos estimation failed, using fallback: {e}")
             alpha_t = torch.tensor(1.0, dtype=torch.float32, device=device)
-            beta_t = torch.tensor(0.1, dtype=torch.float32, device=device)
+            beta_t = torch.tensor(max(0.1, beta_min), dtype=torch.float32, device=device)  # Ensure beta_t >= beta_min
 
     # Step 2: Compute adaptive damping λ_t (simple computation, no profiling needed)
     lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
-    lambda_t = lambda_scale * lambda_t_base
+    if use_adaptive_lambda:
+        lambda_t = lambda_scale * lambda_t_base
+    else:
+        lambda_t = lambda_base
 
     # Compute current condition numbers for analysis
     alpha_t_val = alpha_t.item() if isinstance(alpha_t, torch.Tensor) else alpha_t
@@ -451,8 +468,8 @@ def hcg_correct(
         lambda_t_item = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
         print(f"[HCG lambda stats] t={t}, alpha_t={alpha_t_val:.6f}, beta_t={beta_t_val:.6f}, "
               f"kappa_original={kappa_original:.2f}, kappa_regularized={kappa_regularized:.2f}, "
-              f"lambda_t_base={lambda_t_base.item():.6f}, lambda_t_scaled={lambda_t_item:.6f}, "
-              f"lambda_scale={lambda_scale:.4f}")
+              f"lambda_t={lambda_t_item:.6f}, "
+              f"use_adaptive_lambda={use_adaptive_lambda}, lambda_base={lambda_base:.4f}, lambda_scale={lambda_scale:.4f}")
 
     # Step 3: Compute spectral radius scaling factor c_t = β_t + λ_t (per ICLR doc Lemma)
     # This ensures spec(M_t) ⊂ [1/κ_*, 1] where M_t(x) = c_t (H_sym(x) + λ_t I)^{-1}
@@ -469,7 +486,7 @@ def hcg_correct(
     if use_spectral_scaling:
         c_t = beta_t + lambda_t  # Per ICLR doc Lemma: ensures spec(M_t) ⊂ [1/κ_*, 1]
     else:
-        c_t = 1.0
+        c_t = spectral_scaling
 
     # Step 4: Solve (H + λ_t I)^{-1} * noise_pred using CG
     def regularized_hessian_vector_product(v: torch.Tensor) -> torch.Tensor:
@@ -657,8 +674,11 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         kappa_target: float = 20.0,  # Increased from 10.0 for better performance
         lanczos_k: int = 5,  # Reduced from 10 for faster computation
         cg_max_iter: int = 5,  # Reduced from 20 for faster computation
-        cg_tol: float = 1e-2,  # Relaxed from 1e-4 for faster convergence
+        cg_tol: float = 1e-3,  # Balanced: tighter than 1e-2 for better convergence, but not as strict as 1e-4
         use_spectral_scaling: bool = True,
+        spectral_scaling: float = 1.0,
+        use_adaptive_lambda: bool = True,
+        lambda_base: float = 0.004,
         lambda_scale: float = 0.3,  # Reduced from 1.0 (typical range: 0.1-0.5)
         log_lambda_stats: bool = False,
         enable_eigenvalue_cache: bool = True,  # New: enable eigenvalue caching
@@ -685,6 +705,9 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         self.cg_max_iter = cg_max_iter
         self.cg_tol = cg_tol
         self.use_spectral_scaling = use_spectral_scaling
+        self.spectral_scaling = spectral_scaling
+        self.use_adaptive_lambda = use_adaptive_lambda
+        self.lambda_base = lambda_base
         self.lambda_scale = lambda_scale
         self.log_lambda_stats = log_lambda_stats
 
@@ -784,6 +807,9 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             cg_max_iter=self.cg_max_iter,
             cg_tol=self.cg_tol,
             use_spectral_scaling=self.use_spectral_scaling,
+            spectral_scaling=self.spectral_scaling,
+            use_adaptive_lambda=self.use_adaptive_lambda,
+            lambda_base=self.lambda_base,
             lambda_scale=self.lambda_scale,
             log_lambda_stats=self.log_lambda_stats,
             cached_eigenvalues=cached_eigs,

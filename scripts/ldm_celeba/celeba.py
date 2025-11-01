@@ -48,14 +48,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=4)
+    parser.add_argument('--test_num', type=int, default=1)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_inference_steps', type=int, default=50, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
 
     parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
-    parser.add_argument('--seed', type=int, default=6)
+    parser.add_argument('--seed', type=int, default=102)
 
     # Sampler selection
     parser.add_argument('--sampler_type', type=str, default='dpm_hcg',
@@ -71,22 +71,27 @@ def parse_args():
     parser.add_argument('--lamb', type=float, default=0.004)
     parser.add_argument('--kappa', type=float, default=1.0e-8)
 
-    # HCG (Hessian-Conjugate Gradient) parameters
-    parser.add_argument('--kappa_target', type=float, default=20.0, help='Target condition number for adaptive damping')
-    parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
-    parser.add_argument('--cg_max_iter', type=int, default=5, help='Maximum CG iterations')
-    parser.add_argument('--cg_tol', type=float, default=1e-2, help='CG tolerance')
-    parser.add_argument('--use_spectral_scaling', action='store_true', default=True, help='Use spectral radius scaling (default: True)')
-    parser.add_argument('--no_spectral_scaling', dest='use_spectral_scaling', action='store_false', help='Disable spectral radius scaling')
-    parser.add_argument('--lambda_scale', type=float, default=0.3, help='Scaling factor for adaptive lambda_t (default: 0.3, optimized). Similar to fixed lambda in LML. Typical range: 0.1-10.0. If adaptive lambda_t is ~0.01 and you want ~0.004, set lambda_scale=0.4')
-    parser.add_argument('--log_lambda_stats', action='store_true', default=False, help='Log lambda_t statistics to understand its range during sampling')
-    parser.add_argument('--enable_eigenvalue_cache', action='store_true', default=True, help='Enable eigenvalue caching for faster computation (default: True)')
-    parser.add_argument('--no_eigenvalue_cache', dest='enable_eigenvalue_cache', action='store_false', help='Disable eigenvalue caching')
-    parser.add_argument('--eigenvalue_cache_interval', type=int, default=5, help='Re-estimate eigenvalues every N steps when caching is enabled (default: 5)')
-
     # Technical parameters
     parser.add_argument('--dtype', type=str, default='fp32', choices=['fp32', 'fp64', 'fp16', 'bf16'])
     parser.add_argument('--device', type=str, default='cuda')
+
+    # HCG (Hessian-Conjugate Gradient) parameters
+    parser.add_argument('--kappa_target', type=float, default=100.0, help='Target condition number for adaptive damping')
+    parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
+    parser.add_argument('--cg_max_iter', type=int, default=5, help='Maximum CG iterations')
+    parser.add_argument('--cg_tol', type=float, default=1e-3, help='CG tolerance (default: 1e-3, tighter than 1e-2 for better convergence)')
+    # HCG (Hessian-Conjugate Gradient) parameters for spectral radius scaling
+    parser.add_argument('--use_spectral_scaling', action='store_true', default=True, help='Use spectral radius scaling c_t = beta_t + lambda_t (default: True, REQUIRED for HCG to work)')
+    parser.add_argument('--spectral_scaling', type=float, default=1.0, help='Spectral radius scaling factor when use_spectral_scaling=False (default: 1.0, only used if disabled)')
+
+    # HCG (Hessian-Conjugate Gradient) parameters for adaptive damping
+    parser.add_argument('--use_adaptive_lambda', action='store_true', default=False, help='Use adaptive lambda_t (default: False, optimized). If False, use fixed lambda_t = lambda_base.')
+    parser.add_argument('--lambda_base', type=float, default=0.004, help='Base lambda_t (default: 0.3, optimized). If use_adaptive_lambda=False, use fixed lambda_t = lambda_base.')
+    parser.add_argument('--lambda_scale', type=float, default=0.3, help='Scaling factor for adaptive lambda_t (default: 0.3, optimized). If use_adaptive_lambda=True, use adaptive lambda_t = lambda_scale * lambda_t_base.')
+
+    parser.add_argument('--log_lambda_stats', action='store_true', default=True, help='Log lambda_t statistics to understand its range during sampling (default: True).')
+    parser.add_argument('--enable_eigenvalue_cache', action='store_true', default=True, help='Enable eigenvalue caching for faster computation (default: True).')
+    parser.add_argument('--eigenvalue_cache_interval', type=int, default=5, help='Re-estimate eigenvalues every N steps when caching is enabled (default: 5). If use_adaptive_lambda=True, re-estimate eigenvalues every N steps when caching is enabled.')
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', default=False, help='Run evaluation metrics')
@@ -177,8 +182,9 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
 def setup_scheduler_hcg(pipe, kappa_target=20.0, lanczos_k=5, cg_max_iter=5,
-                    cg_tol=1e-2, use_spectral_scaling=True, lambda_scale=0.3,
-                    log_lambda_stats=False, enable_eigenvalue_cache=True,
+                    cg_tol=1e-3, use_spectral_scaling=True, spectral_scaling=1.0,
+                    use_adaptive_lambda=True, lambda_base=0.004, lambda_scale=0.3,
+                    log_lambda_stats=True, enable_eigenvalue_cache=True,
                     eigenvalue_cache_interval=5):
     """Setup the HCG scheduler"""
     # 获取原始配置并过滤掉不需要的属性（避免警告）
@@ -204,6 +210,9 @@ def setup_scheduler_hcg(pipe, kappa_target=20.0, lanczos_k=5, cg_max_iter=5,
     pipe.scheduler.cg_max_iter = cg_max_iter
     pipe.scheduler.cg_tol = cg_tol
     pipe.scheduler.use_spectral_scaling = use_spectral_scaling
+    pipe.scheduler.spectral_scaling = spectral_scaling
+    pipe.scheduler.use_adaptive_lambda = use_adaptive_lambda
+    pipe.scheduler.lambda_base = lambda_base
     pipe.scheduler.lambda_scale = lambda_scale
     pipe.scheduler.log_lambda_stats = log_lambda_stats
     pipe.scheduler.enable_eigenvalue_cache = enable_eigenvalue_cache
@@ -211,8 +220,8 @@ def setup_scheduler_hcg(pipe, kappa_target=20.0, lanczos_k=5, cg_max_iter=5,
 
     project.info(f"  Using DPM-Solver++ with HCG (Hessian-Conjugate Gradient) correction")
     project.info(f"    kappa_target={kappa_target}, lanczos_k={lanczos_k}, cg_max_iter={cg_max_iter}")
-    project.info(f"    cg_tol={cg_tol}, use_spectral_scaling={use_spectral_scaling}")
-    project.info(f"    lambda_scale={lambda_scale:.4f}, log_lambda_stats={log_lambda_stats}")
+    project.info(f"    cg_tol={cg_tol}, use_spectral_scaling={use_spectral_scaling}, spectral_scaling={spectral_scaling}")
+    project.info(f"    use_adaptive_lambda={use_adaptive_lambda}, lambda_base={lambda_base}, lambda_scale={lambda_scale:.4f}, log_lambda_stats={log_lambda_stats}")
     project.info(f"    enable_eigenvalue_cache={enable_eigenvalue_cache}, cache_interval={eigenvalue_cache_interval}")
 
 def process_image(image):
@@ -351,16 +360,19 @@ def generate_images(results_save_dir, args, pipe):
                             project.info(f"  κ(A_t) ≤ κ* violations: {violations}/{len(kappa_reg)}")
 
                     if lambda_t_list:
-                        project.info(f"\nAdaptive Damping (λ_t):")
+                        project.info(f"\n")
+                        project.info(f"Adaptive Damping (λ_t):")
                         project.info(f"  Mean: {np.mean(lambda_t_list):.6f}, Min: {np.min(lambda_t_list):.6f}, Max: {np.max(lambda_t_list):.6f}")
                         project.info(f"  Zero damping steps: {sum(1 for l in lambda_t_list if abs(l) < 1e-8)}/{len(lambda_t_list)}")
 
                     if c_t_list:
-                        project.info(f"\nSpectral Scaling (c_t):")
+                        project.info(f"\n")
+                        project.info(f"Spectral Scaling (c_t):")
                         project.info(f"  Mean: {np.mean(c_t_list):.6f}, Min: {np.min(c_t_list):.6f}, Max: {np.max(c_t_list):.6f}")
 
                     if cg_iter and k_pred:
-                        project.info(f"\nCG Convergence:")
+                        project.info(f"\n")
+                        project.info(f"CG Convergence:")
                         project.info(f"  Actual iterations (k_obs) - avg: {np.mean(cg_iter):.2f}, min: {int(np.min(cg_iter))}, max: {int(np.max(cg_iter))}")
                         project.info(f"  Theoretical lower bound (k_pred) - avg: {np.mean(k_pred):.2f}, min: {np.min(k_pred):.2f}, max: {np.max(k_pred):.2f}")
                         cg_tol_val = getattr(args, 'cg_tol', 1e-2)
@@ -368,11 +380,13 @@ def generate_images(results_save_dir, args, pipe):
                         project.info(f"  Convergence rate: {convergence_rate}/{len(cg_residual)} (residual < {cg_tol_val})")
 
                     if alpha_t_list and beta_t_list:
-                        project.info(f"\nEigenvalue Estimates:")
+                        project.info(f"\n")
+                        project.info(f"Eigenvalue Estimates:")
                         project.info(f"  α_t (max) - avg: {np.mean(alpha_t_list):.6f}, min: {np.min(alpha_t_list):.6f}, max: {np.max(alpha_t_list):.6f}")
                         project.info(f"  β_t (min) - avg: {np.mean(beta_t_list):.6f}, min: {np.min(beta_t_list):.6f}, max: {np.max(beta_t_list):.6f}")
 
-                    project.info(f"\nTotal HVP calls: {vars_dict.get('hvp_call_count', 0)}")
+                    project.info(f"\n")
+                    project.info(f"Total HVP calls: {vars_dict.get('hvp_call_count', 0)}")
                     project.info(f"Eigenvalue estimations: {vars_dict.get('eigenvalue_estimates_count', 0)}")
                     project.info(f"Total timesteps processed: {len(timesteps_history)}")
                     project.info("="*60 + "\n")
@@ -400,7 +414,7 @@ def generate_images(results_save_dir, args, pipe):
                 profiler.save_report(args.profile_report_file)
             else:
                 # Auto-save to results directory
-                profile_file = os.path.join(results_save_dir, f"profiling_report_{args.sampler_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+                profile_file = os.path.join(results_save_dir, f"profiling_report_{args.sampler_type}.json")
                 profiler.save_report(profile_file)
 
     # Evaluate images if requested
@@ -473,6 +487,9 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
             cg_max_iter=args.cg_max_iter,
             cg_tol=args.cg_tol,
             use_spectral_scaling=args.use_spectral_scaling,
+            spectral_scaling=args.spectral_scaling,
+            use_adaptive_lambda=args.use_adaptive_lambda,
+            lambda_base=args.lambda_base,
             lambda_scale=args.lambda_scale,
             log_lambda_stats=args.log_lambda_stats,
             enable_eigenvalue_cache=args.enable_eigenvalue_cache,

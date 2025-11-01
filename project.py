@@ -67,7 +67,7 @@ def save_generation_log(results_save_dir, args, generation_stats):
         'generation_stats': generation_stats
     }
 
-    log_filename = f"generation_log_{getattr(args, 'sampler_type', 'unknown')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    log_filename = f"generation_log_{getattr(args, 'sampler_type', 'unknown')}.json"
     log_path = os.path.join(results_save_dir, log_filename)
 
     with open(log_path, 'w') as f:
@@ -253,7 +253,9 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
                  fontsize=16, fontweight='bold', y=0.98)
 
     # 保存图像
-    output_path = os.path.join(results_save_dir, f'comparison_grid_steps_{num_inference_steps}.png')
+    # 获取 results_save_dir 的最后一级目录名
+    last_dir_name = os.path.basename(os.path.normpath(results_save_dir))
+    output_path = os.path.join(results_save_dir, f'comparison_grid_{last_dir_name}_steps_{num_inference_steps}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
 
