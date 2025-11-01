@@ -223,7 +223,7 @@ def hcg_correct(
     log_lambda_stats: bool = False,
     cached_eigenvalues: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # New: optional cached eigenvalues
     prev_cg_solution: Optional[torch.Tensor] = None,  # New: previous CG solution for warm start
-) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
+) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor, dict]:
     """
     Hessian-Conjugate Gradient correction using adaptive damping.
 
@@ -431,13 +431,15 @@ def hcg_correct(
         lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
         lambda_t = lambda_scale * lambda_t_base
 
+        # Compute current condition number for analysis
+        alpha_t_val = alpha_t.item() if isinstance(alpha_t, torch.Tensor) else alpha_t
+        beta_t_val = beta_t.item() if isinstance(beta_t, torch.Tensor) else beta_t
+        kappa_current = alpha_t_val / (beta_t_val + 1e-8)
+
         # Log statistics if requested (for understanding lambda_t range)
         if log_lambda_stats:
             lambda_t_item = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
-            alpha_t_item = alpha_t.item() if isinstance(alpha_t, torch.Tensor) else alpha_t
-            beta_t_item = beta_t.item() if isinstance(beta_t, torch.Tensor) else beta_t
-            kappa_current = alpha_t_item / (beta_t_item + 1e-8)
-            print(f"[HCG lambda stats] t={t}, alpha_t={alpha_t_item:.6f}, beta_t={beta_t_item:.6f}, "
+            print(f"[HCG lambda stats] t={t}, alpha_t={alpha_t_val:.6f}, beta_t={beta_t_val:.6f}, "
                   f"kappa_current={kappa_current:.2f}, lambda_t_base={lambda_t_base.item():.6f}, "
                   f"lambda_t_scaled={lambda_t_item:.6f}, lambda_scale={lambda_scale:.4f}")
 
@@ -456,8 +458,15 @@ def hcg_correct(
         # Add regularization: (H + λ_t I)v = Hv + λ_t * v
         return Hv + lambda_t * v
 
-    def conjugate_gradient_solve(b: torch.Tensor, prev_solution: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """Solve (H + λ_t I) * x = b using CG with optional initial guess"""
+    def conjugate_gradient_solve(b: torch.Tensor, prev_solution: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, int, float]:
+        """
+        Solve (H + λ_t I) * x = b using CG with optional initial guess
+
+        Returns:
+            x_cg: Solution
+            num_iterations: Number of CG iterations used
+            final_residual: Final residual norm (normalized by initial residual)
+        """
         with profile("conjugate_gradient_solve", get_profiler()):
             # Use previous solution as initial guess if available (can improve convergence)
             if prev_solution is not None and prev_solution.shape == b.shape:
@@ -474,8 +483,9 @@ def hcg_correct(
             r_norm_0 = torch.sqrt(r_norm_sq)
 
             if r_norm_0 < 1e-10:
-                return x_cg
+                return x_cg, 0, 0.0
 
+            num_iterations = 0
             for i in range(cg_max_iter):
                 Hp = regularized_hessian_vector_product(p)
                 p_Hp = torch.sum(p * Hp)
@@ -489,6 +499,7 @@ def hcg_correct(
 
                 r_norm_sq_new = torch.sum(r ** 2)
                 r_norm = torch.sqrt(r_norm_sq_new)
+                num_iterations = i + 1
 
                 if r_norm < cg_tol * r_norm_0:
                     break
@@ -498,10 +509,13 @@ def hcg_correct(
                     p = r + beta * p
                     r_norm_sq = r_norm_sq_new
 
-            return x_cg
+            final_residual_ratio = r_norm / (r_norm_0 + 1e-10)
+            return x_cg, num_iterations, final_residual_ratio.item()
 
     # Solve (H + λ_t I)^{-1} * noise_pred (with warm start if available)
-    corrected_noise = conjugate_gradient_solve(noise_pred, prev_solution=prev_cg_solution)
+    corrected_noise, cg_iterations, cg_final_residual = conjugate_gradient_solve(
+        noise_pred, prev_solution=prev_cg_solution
+    )
 
     # Step 5: Apply spectral radius scaling: c_t * corrected_noise
     corrected_noise = c_t * corrected_noise
@@ -511,8 +525,22 @@ def hcg_correct(
     norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
     corrected_noise = corrected_noise * norm_original / (norm_corrected + 1e-8)
 
-    # Return corrected noise, eigenvalues (for caching), and CG solution (for warm start)
-    return corrected_noise, (alpha_t, beta_t), corrected_noise.clone()
+    # Prepare statistics for return (if statistics collection is needed)
+    stats_dict = {
+        'alpha_t': alpha_t_val,
+        'beta_t': beta_t_val,
+        'lambda_t_base': lambda_t_base.item() if isinstance(lambda_t_base, torch.Tensor) else lambda_t_base,
+        'lambda_t': lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t,
+        'kappa_current': kappa_current,
+        'kappa_target': kappa_target,
+        'c_t': c_t.item() if isinstance(c_t, torch.Tensor) else c_t,
+        'cg_iterations': cg_iterations,
+        'cg_final_residual': cg_final_residual,
+        'cg_converged': cg_final_residual < cg_tol,
+    }
+
+    # Return corrected noise, eigenvalues (for caching), CG solution (for warm start), and stats
+    return corrected_noise, (alpha_t, beta_t), corrected_noise.clone(), stats_dict
 
 
 # Copied from diffusers.schedulers.scheduling_ddpm.betas_for_alpha_bar
@@ -633,8 +661,38 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
 
         # Eigenvalue cache for optimization
         self.eigenvalue_cache = {}
-        self.eigenvalue_cache_interval = 5  # Re-estimate every N steps
+        self.eigenvalue_cache_interval = eigenvalue_cache_interval
         self.prev_cg_solution = None  # Cache for CG initial guess
+
+        # Intermediate variables and statistics for analysis (as per paper/documentation)
+        self.hcg_intermediate_vars = {
+            'lambda_t_history': [],           # Adaptive damping λ_t sequence
+            'lambda_t_base_history': [],       # Base lambda_t before scaling
+            'kappa_current_history': [],       # Actual condition number sequence
+            'kappa_target_history': [],       # Target condition number (should be constant)
+            'c_t_history': [],                # Spectral radius scaling factor sequence
+            'cg_iterations_history': [],       # CG iterations per step
+            'cg_final_residual_history': [],   # CG final residual norms
+            'alpha_t_history': [],            # Maximum eigenvalue sequence
+            'beta_t_history': [],              # Minimum eigenvalue sequence
+            'timesteps_history': [],           # Corresponding timesteps
+            'hvp_call_count': 0,               # Total HVP calls (for performance tracking)
+            'eigenvalue_estimates_count': 0,   # Number of eigenvalue estimations
+            'cg_convergence_history': [],      # CG convergence info (converged/not)
+        }
+
+        # Performance statistics
+        self.hcg_performance_stats = {
+            'lanczos_time_history': [],        # Time for Lanczos estimation
+            'cg_time_history': [],             # Time for CG solve
+            'hvp_time_history': [],            # Time for HVP computation
+            'adaptive_damping_time_history': [], # Time for lambda_t computation
+            'spectral_scaling_time_history': [], # Time for c_t computation
+            'total_hcg_time_history': [],      # Total HCG correction time
+        }
+
+        # Enable/disable statistics collection (for performance)
+        self.collect_stats = True  # Can be disabled if not needed
 
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
@@ -680,7 +738,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             if abs(timestep - cached_t) < self.eigenvalue_cache_interval:
                 cached_eigs = (alpha_cached, beta_cached)
 
-        corrected_noise, eigenvalues, cg_solution = hcg_correct(
+        corrected_noise, eigenvalues, cg_solution, stats = hcg_correct(
             noise_pred=noise,
             model=self.model,
             x=sample,
@@ -702,7 +760,57 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             self.eigenvalue_cache[timestep] = (timestep, eigenvalues)
         self.prev_cg_solution = cg_solution
 
+        # Save intermediate variables and statistics (if enabled)
+        if hasattr(self, 'collect_stats') and self.collect_stats:
+            self._save_hcg_statistics(timestep, stats)
+
         return corrected_noise
+
+    def _save_hcg_statistics(self, timestep: int, stats: dict):
+        """Save HCG statistics for analysis"""
+        if not hasattr(self, 'hcg_intermediate_vars'):
+            return
+
+        self.hcg_intermediate_vars['timesteps_history'].append(timestep)
+        self.hcg_intermediate_vars['alpha_t_history'].append(stats['alpha_t'])
+        self.hcg_intermediate_vars['beta_t_history'].append(stats['beta_t'])
+        self.hcg_intermediate_vars['lambda_t_base_history'].append(stats['lambda_t_base'])
+        self.hcg_intermediate_vars['lambda_t_history'].append(stats['lambda_t'])
+        self.hcg_intermediate_vars['kappa_current_history'].append(stats['kappa_current'])
+        self.hcg_intermediate_vars['kappa_target_history'].append(stats['kappa_target'])
+        self.hcg_intermediate_vars['c_t_history'].append(stats['c_t'])
+        self.hcg_intermediate_vars['cg_iterations_history'].append(stats['cg_iterations'])
+        self.hcg_intermediate_vars['cg_final_residual_history'].append(stats['cg_final_residual'])
+        self.hcg_intermediate_vars['cg_convergence_history'].append(stats['cg_converged'])
+
+        # Update counters
+        self.hcg_intermediate_vars['hvp_call_count'] += (
+            stats.get('lanczos_hvp_calls', 0) + stats.get('cg_hvp_calls', 0)
+        )
+        if stats.get('eigenvalue_estimated', False):
+            self.hcg_intermediate_vars['eigenvalue_estimates_count'] += 1
+
+    def get_hcg_statistics(self) -> dict:
+        """Get collected HCG statistics for analysis"""
+        if not hasattr(self, 'hcg_intermediate_vars'):
+            return {}
+        return {
+            'intermediate_vars': self.hcg_intermediate_vars.copy(),
+            'performance_stats': getattr(self, 'hcg_performance_stats', {}).copy(),
+        }
+
+    def clear_hcg_statistics(self):
+        """Clear collected statistics (e.g., before new sampling)"""
+        if hasattr(self, 'hcg_intermediate_vars'):
+            for key in self.hcg_intermediate_vars:
+                if isinstance(self.hcg_intermediate_vars[key], list):
+                    self.hcg_intermediate_vars[key].clear()
+                elif isinstance(self.hcg_intermediate_vars[key], (int, float)):
+                    self.hcg_intermediate_vars[key] = 0
+        if hasattr(self, 'hcg_performance_stats'):
+            for key in self.hcg_performance_stats:
+                if isinstance(self.hcg_performance_stats[key], list):
+                    self.hcg_performance_stats[key].clear()
 
     def set_timesteps(self, num_inference_steps: int = None, device: Union[str, torch.device] = None):
         """
@@ -764,6 +872,16 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         ] * self.config.solver_order
         self.lower_order_nums = 0
         self.prev_noise = None
+
+        # Clear caches when timesteps are reset
+        if hasattr(self, 'eigenvalue_cache'):
+            self.eigenvalue_cache.clear()
+        if hasattr(self, 'prev_cg_solution'):
+            self.prev_cg_solution = None
+
+        # Clear statistics when starting new sampling
+        if hasattr(self, 'collect_stats') and self.collect_stats:
+            self.clear_hcg_statistics()
 
     # Copied from diffusers.schedulers.scheduling_ddpm.DDPMScheduler._threshold_sample
     def _threshold_sample(self, sample: torch.FloatTensor) -> torch.FloatTensor:
