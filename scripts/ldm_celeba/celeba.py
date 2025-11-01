@@ -94,8 +94,8 @@ def parse_args():
     parser.add_argument('--eigenvalue_cache_interval', type=int, default=5, help='Re-estimate eigenvalues every N steps when caching is enabled (default: 5). If use_adaptive_lambda=True, re-estimate eigenvalues every N steps when caching is enabled.')
 
     # Additional debugging control variables
-    parser.add_argument('--use_cg_warm_start', type=bool, default=True, help='Use CG warm start from previous solution (default: True)')
-    parser.add_argument('--use_normalization', type=bool, default=True, help='Normalize corrected noise to preserve magnitude (default: True)')
+    parser.add_argument('--use_cg_warm_start', type=bool, default=False, help='Use CG warm start from previous solution (default: True)')
+    parser.add_argument('--use_normalization', type=bool, default=False, help='Normalize corrected noise to preserve magnitude (default: True)')
     # EMA parameters
     parser.add_argument('--use_ema_smoothing', type=bool, default=False, help='Use EMA smoothing like LML (default: False)')
     parser.add_argument('--ema_kappa', type=float, default=1e-8, help='EMA smoothing factor kappa, same as LML kappa (default: 1e-8)')
