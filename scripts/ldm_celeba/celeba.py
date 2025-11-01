@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument('--test_num', type=int, default=1)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=50, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
+    parser.add_argument('--num_inference_steps', type=int, default=200, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
 
     parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
@@ -77,8 +77,8 @@ def parse_args():
 
     # HCG (Hessian-Conjugate Gradient) parameters
 
-    parser.add_argument('--cg_max_iter', type=int, default=5, help='Maximum CG iterations')
-    parser.add_argument('--cg_tol', type=float, default=1e-3, help='CG tolerance (default: 1e-3, tighter than 1e-2 for better convergence)')
+    parser.add_argument('--cg_max_iter', type=int, default=10, help='Maximum CG iterations')
+    parser.add_argument('--cg_tol', type=float, default=1e-4, help='CG tolerance (default: 1e-3, tighter than 1e-2 for better convergence)')
 
     # HCG (Hessian-Conjugate Gradient) parameters for spectral radius scaling
     parser.add_argument('--use_spectral_radius', type=bool, default=False, help='Use spectral radius scaling c_t = beta_t + lambda_t (default: True, REQUIRED for HCG to work)')
@@ -97,10 +97,10 @@ def parse_args():
     parser.add_argument('--use_cg_warm_start', type=bool, default=False, help='Use CG warm start from previous solution (default: True)')
     parser.add_argument('--use_normalization', type=bool, default=False, help='Normalize corrected noise to preserve magnitude (default: True)')
     # EMA parameters
-    parser.add_argument('--use_ema_smoothing', type=bool, default=False, help='Use EMA smoothing like LML (default: False)')
+    parser.add_argument('--use_ema_smoothing', type=bool, default=True, help='Use EMA smoothing like LML (default: False)')
     parser.add_argument('--ema_kappa', type=float, default=1e-8, help='EMA smoothing factor kappa, same as LML kappa (default: 1e-8)')
 
-    parser.add_argument('--skip_lanczos', type=bool, default=False, help='Skip Lanczos estimation, use fixed eigenvalues for fast testing (default: False)')
+    parser.add_argument('--skip_lanczos', type=bool, default=True, help='Skip Lanczos estimation, use fixed eigenvalues for fast testing (default: False)')
     parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
     parser.add_argument('--fixed_alpha', type=float, default=1.0, help='Fixed alpha_t when skip_lanczos=True (default: 1.0)')
     parser.add_argument('--fixed_beta', type=float, default=0.1, help='Fixed beta_t when skip_lanczos=True (default: 0.1)')
@@ -500,7 +500,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
     pipe = LDMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
     pipe.unet.to(args.device)
     pipe.vqvae.to(args.device)
-    pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
+    # pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
 
     project.success("Model loaded successfully")
 
@@ -529,6 +529,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
             fixed_beta=args.fixed_beta,
         )
     else:
+        pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
         setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
 
     # Generate images

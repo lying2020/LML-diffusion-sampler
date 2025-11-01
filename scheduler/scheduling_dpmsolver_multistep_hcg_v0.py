@@ -266,7 +266,7 @@ class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
         timestep_spacing: str = "linspace",
         steps_offset: int = 0,
         lamb: float = 1.0,
-        lm: bool = False,
+        use_hcg: bool = False,
         kappa: float = 0.0,
         hessian_method: str = 'original',  # New parameter
     ):
@@ -290,7 +290,7 @@ class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
             timestep_spacing=timestep_spacing,
             steps_offset=steps_offset,
             lamb=lamb,
-            lm=lm,
+            use_hcg=use_hcg,
             kappa=kappa,
         )
         self.hessian_method = hessian_method
@@ -308,7 +308,7 @@ class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
         sample: torch.FloatTensor,
         noise: Optional[torch.FloatTensor] = None,
         lamb: float = 1.0,
-        lm=True,
+        use_hcg=True,
     ) -> torch.FloatTensor:
         """Enhanced first-order update with advanced Hessian methods"""
         lambda_t, lambda_s = self.lambda_t[prev_timestep], self.lambda_t[timestep]
@@ -318,7 +318,7 @@ class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
 
         if self.config.algorithm_type == "dpmsolver++":
             noise = - (alpha_t * (torch.exp(-h) - 1.0)) * model_output
-            if lm is True:
+            if use_hcg is True:
                 x_t = (sigma_t / sigma_s) * sample + lm_correct_advanced(
                     prev_noise=self.prev_noise,
                     noise_pred=noise,
@@ -335,7 +335,7 @@ class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
             self.prev_noise = noise
         elif self.config.algorithm_type == "dpmsolver":
             noise = - (sigma_t * (torch.exp(h) - 1.0)) * model_output
-            if lm is True:
+            if use_hcg is True:
                 x_t = (alpha_t / alpha_s) * sample + lm_correct_advanced(
                     prev_noise=self.prev_noise,
                     noise_pred=noise,
@@ -353,7 +353,7 @@ class DPMSolverMultistepHCGScheduler(DPMSolverMultistepLMScheduler):
         else:
             # Handle other algorithm types
             x_t = super().dpm_solver_first_order_update(
-                model_output, timestep, prev_timestep, sample, noise, lamb, lm
+                model_output, timestep, prev_timestep, sample, noise, lamb, use_hcg
             )
 
         return x_t
