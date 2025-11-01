@@ -308,6 +308,65 @@ def generate_images(results_save_dir, args, pipe):
     project.info(f"Images per second: {args.test_num * args.batch_size / total_time:.2f}")
     project.info(f"{'='*60}")
 
+    # Print HCG statistics if using HCG sampler
+    if args.sampler_type == 'hcg' and hasattr(pipe.scheduler, 'get_hcg_statistics'):
+        hcg_stats = pipe.scheduler.get_hcg_statistics()
+        if hcg_stats and hcg_stats.get('intermediate_vars'):
+            vars_dict = hcg_stats['intermediate_vars']
+            if vars_dict.get('timesteps_history'):
+                project.info("\n" + "="*60)
+                project.info("HCG INTERMEDIATE STATISTICS SUMMARY")
+                project.info("="*60)
+
+                # Extract key statistics
+                kappa_reg = vars_dict.get('kappa_regularized_history', [])
+                kappa_orig = vars_dict.get('kappa_original_history', [])
+                kappa_target = vars_dict.get('kappa_target_history', [])
+                lambda_t_list = vars_dict.get('lambda_t_history', [])
+                c_t_list = vars_dict.get('c_t_history', [])
+                cg_iter = vars_dict.get('cg_iterations_history', [])
+                cg_residual = vars_dict.get('cg_final_residual_history', [])
+                k_pred = vars_dict.get('theoretical_min_k_history', [])
+                alpha_t_list = vars_dict.get('alpha_t_history', [])
+                beta_t_list = vars_dict.get('beta_t_history', [])
+
+                if kappa_reg:
+                    kappa_target_val = kappa_target[0] if kappa_target and len(kappa_target) > 0 else None
+                    project.info(f"Condition Numbers (κ):")
+                    if kappa_target_val is not None:
+                        project.info(f"  Target κ*: {kappa_target_val:.2f}")
+                    project.info(f"  Original κ(H_sym) - avg: {np.mean(kappa_orig):.2f}, min: {np.min(kappa_orig):.2f}, max: {np.max(kappa_orig):.2f}")
+                    project.info(f"  Regularized κ(A_t) - avg: {np.mean(kappa_reg):.2f}, min: {np.min(kappa_reg):.2f}, max: {np.max(kappa_reg):.2f}")
+                    if kappa_target_val is not None:
+                        violations = sum(1 for k in kappa_reg if k > kappa_target_val)
+                        project.info(f"  κ(A_t) ≤ κ* violations: {violations}/{len(kappa_reg)}")
+
+                if lambda_t_list:
+                    project.info(f"\nAdaptive Damping (λ_t):")
+                    project.info(f"  Mean: {np.mean(lambda_t_list):.6f}, Min: {np.min(lambda_t_list):.6f}, Max: {np.max(lambda_t_list):.6f}")
+                    project.info(f"  Zero damping steps: {sum(1 for l in lambda_t_list if abs(l) < 1e-8)}/{len(lambda_t_list)}")
+
+                if c_t_list:
+                    project.info(f"\nSpectral Scaling (c_t):")
+                    project.info(f"  Mean: {np.mean(c_t_list):.6f}, Min: {np.min(c_t_list):.6f}, Max: {np.max(c_t_list):.6f}")
+
+                if cg_iter and k_pred:
+                    project.info(f"\nCG Convergence:")
+                    project.info(f"  Actual iterations (k_obs) - avg: {np.mean(cg_iter):.2f}, min: {int(np.min(cg_iter))}, max: {int(np.max(cg_iter))}")
+                    project.info(f"  Theoretical lower bound (k_pred) - avg: {np.mean(k_pred):.2f}, min: {np.min(k_pred):.2f}, max: {np.max(k_pred):.2f}")
+                    cg_tol_val = getattr(args, 'cg_tol', 1e-2)
+                    convergence_rate = sum(1 for r in cg_residual if r < cg_tol_val)
+                    project.info(f"  Convergence rate: {convergence_rate}/{len(cg_residual)} (residual < {cg_tol_val})")
+
+                if alpha_t_list and beta_t_list:
+                    project.info(f"\nEigenvalue Estimates:")
+                    project.info(f"  α_t (max) - avg: {np.mean(alpha_t_list):.6f}, min: {np.min(alpha_t_list):.6f}, max: {np.max(alpha_t_list):.6f}")
+                    project.info(f"  β_t (min) - avg: {np.mean(beta_t_list):.6f}, min: {np.min(beta_t_list):.6f}, max: {np.max(beta_t_list):.6f}")
+
+                project.info(f"\nTotal HVP calls: {vars_dict.get('hvp_call_count', 0)}")
+                project.info(f"Eigenvalue estimations: {vars_dict.get('eigenvalue_estimates_count', 0)}")
+                project.info("="*60 + "\n")
+
     # Print profiling report if enabled
     if PROFILING_AVAILABLE and args.enable_profiling:
         profiler = get_profiler()
@@ -315,7 +374,7 @@ def generate_images(results_save_dir, args, pipe):
             project.info("\n" + "="*60)
             project.info("PROFILING REPORT")
             project.info("="*60)
-            # Pass logger so report is also written to log file
+            # Pass logger - it will output once to both console and file
             profiler.print_report(sort_by='total_time', top_n=20, logger=project.logger)
 
             # Save profiling report if requested

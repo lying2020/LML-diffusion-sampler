@@ -141,12 +141,10 @@ class Profiler:
 
             line = f"{name[:39]:<40} {calls:<8} {total:<12.4f} {avg:<12.4f} {min_time:<12.4f} {max_time:<12.4f}"
             lines.append(line)
-            print(line)
 
             if 'cuda_avg' in stat:
                 cuda_line = f"  └─ CUDA avg: {stat['cuda_avg']:.4f}s"
                 lines.append(cuda_line)
-                print(cuda_line)
 
         lines.append("="*80)
 
@@ -157,33 +155,15 @@ class Profiler:
         lines.append(summary_line1)
         lines.append(summary_line2)
 
-        # Print to console
-        print("\n" + "="*80)
-        print(f"Profiling Report (sorted by {sort_by})")
-        print("="*80)
-        print(f"{'Function':<40} {'Calls':<8} {'Total(s)':<12} {'Avg(s)':<12} {'Min(s)':<12} {'Max(s)':<12}")
-        print("-"*80)
-
-        for name, stat in sorted_stats:
-            calls = stat['calls']
-            total = stat['total_time']
-            avg = stat['avg_time']
-            min_time = stat['min_time']
-            max_time = stat['max_time']
-            print(f"{name[:39]:<40} {calls:<8} {total:<12.4f} {avg:<12.4f} {min_time:<12.4f} {max_time:<12.4f}")
-            if 'cuda_avg' in stat:
-                print(f"  └─ CUDA avg: {stat['cuda_avg']:.4f}s")
-
-        print("="*80)
-        print(summary_line1)
-        print(summary_line2)
-
-        # Also write to logger if provided (all lines including formatting)
+        # Output: prefer logger if provided (logger handles both console and file), otherwise print to console
         if logger:
+            # Write to logger only (which handles both file and console output)
             for line in lines:
                 logger.info(line)
-            logger.info(summary_line1)
-            logger.info(summary_line2)
+        else:
+            # Fallback: print to console only
+            for line in lines:
+                print(line)
 
     def save_report(self, filepath: str, sort_by: str = 'total_time'):
         """Save profiling report to JSON file"""
