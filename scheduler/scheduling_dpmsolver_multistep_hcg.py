@@ -494,6 +494,174 @@ def adaptive_damping_lambda(
     return lambda_t
 
 
+
+def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa):
+    # print('entered lmc_advanced')
+    if prev_noise is not None:
+        noise_pred_ema = kappa * prev_noise + (1 - kappa) * noise_pred
+    else:
+        noise_pred_ema = noise_pred
+    # lm step for noise
+    norm_squared = (noise_pred * noise_pred).sum(dim=(1, 2, 3))
+    norm_squared = norm_squared.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+    part1 =  noise_pred
+
+    norm_squared_ema = (noise_pred_ema * noise_pred_ema).sum(dim=(1, 2, 3))
+    norm_squared_ema = norm_squared_ema.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+
+    inner_product = torch.sum(noise_pred * noise_pred_ema, dim=(1, 2, 3))
+    mp = noise_pred_ema * inner_product.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+    part2 = mp /  (lamb + norm_squared_ema)
+
+    inversed_pred = part1 - part2
+
+    # normalize the direction
+    norm = torch.sqrt(norm_squared)
+    norm_squared_lm = (inversed_pred * inversed_pred).sum(dim=(1, 2, 3))
+    norm_squared_lm = norm_squared_lm.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+    norm_lm = torch.sqrt(norm_squared_lm)
+    inversed_pred = inversed_pred * norm / norm_lm
+    return inversed_pred
+
+
+def hessian_explicit_correct(model, x_sample, t_timestep, noise_pred, lamb=1.0):
+    """
+    LML correction using explicit Hessian computation
+    Based on finite difference approximation of Hessian matrix
+    """
+
+    batch_size, channels, height, width = noise_pred.shape
+
+    # Compute gradient of log p_t(x) at current point
+    x_grad = x_sample.clone().detach().requires_grad_(True)
+    with torch.enable_grad():
+        # Forward pass to get score function
+        score_pred = model(x_grad, t_timestep)
+        if hasattr(score_pred, 'sample'):
+            score_pred = score_pred.sample
+
+        # Log probability (simplified)
+        log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
+        log_prob = log_prob.sum()
+
+    # Compute gradient
+    grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
+
+    # Compute Hessian using finite differences (simplified version)
+    # For efficiency, we only compute diagonal elements
+    eps = 1e-4
+    hessian_diag = torch.zeros_like(x_sample)
+
+    for i in range(channels):
+        for j in range(height):
+            for k in range(width):
+                # Perturb single element
+                x_pert = x_sample.clone()
+                x_pert[:, i, j, k] += eps
+
+                # Compute gradient at perturbed point
+                x_pert_grad = x_pert.clone().detach().requires_grad_(True)
+                with torch.enable_grad():
+                    score_pred_pert = model(x_pert_grad, t_timestep)
+                    if hasattr(score_pred_pert, 'sample'):
+                        score_pred_pert = score_pred_pert.sample
+                    log_prob_pert = -0.5 * torch.sum(score_pred_pert ** 2, dim=(1, 2, 3))
+                    log_prob_pert = log_prob_pert.sum()
+
+                grad_pert = torch.autograd.grad(log_prob_pert, x_pert_grad, create_graph=False)[0]
+                hessian_diag[:, i, j, k] = (grad_pert[:, i, j, k] - grad[:, i, j, k]) / eps
+
+    # Apply LML correction using diagonal Hessian approximation
+    # H^{-1} ≈ (H_diag + λI)^{-1}
+    hessian_inv_diag = 1.0 / (hessian_diag + lamb)
+
+    # Apply correction
+    corrected_noise = noise_pred * hessian_inv_diag
+
+    # Normalize
+    norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
+    norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
+    corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
+
+    return corrected_noise
+
+
+def hessian_free_correct(model, x_sample, t_timestep, noise_pred, lamb=1.0):
+    """
+    LML correction using Hessian-Free method (CG + HVP)
+    Solves H^{-1}g using conjugate gradient without explicit Hessian
+    """
+
+    batch_size, channels, height, width = noise_pred.shape
+
+    def hessian_vector_product(v):
+        """Compute Hv using Pearlmutter's method"""
+        # Ensure v requires grad
+        v_grad = v.clone().detach().requires_grad_(True)
+        x_grad = x_sample.clone().detach().requires_grad_(True)
+
+        with torch.enable_grad():
+            score_pred = model(x_grad, t_timestep)
+            if hasattr(score_pred, 'sample'):
+                score_pred = score_pred.sample
+            log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
+            log_prob = log_prob.sum()
+
+        # First gradient
+        grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
+
+        # Hv = ∇(∇f · v)
+        grad_dot_v = torch.sum(grad * v_grad)
+        hv = torch.autograd.grad(grad_dot_v, x_grad, retain_graph=True)[0]
+        return hv
+
+    def cg_solve(b, max_iter=20, tol=1e-4):
+        """Solve Hx = b using CG"""
+        x_cg = torch.zeros_like(b)
+        r = b.clone()
+        p = r.clone()
+
+        r_norm_sq = torch.sum(r ** 2)
+        r_norm_0 = torch.sqrt(r_norm_sq)
+
+        for i in range(max_iter):
+            Hp = hessian_vector_product(p)
+            p_Hp = torch.sum(p * Hp)
+
+            if p_Hp <= 0:
+                break
+
+            alpha = r_norm_sq / p_Hp
+            x_cg = x_cg + alpha * p
+            r = r - alpha * Hp
+
+            r_norm_sq_new = torch.sum(r ** 2)
+            r_norm = torch.sqrt(r_norm_sq_new)
+
+            if r_norm < tol * r_norm_0:
+                break
+
+            beta = r_norm_sq_new / r_norm_sq
+            p = r + beta * p
+            r_norm_sq = r_norm_sq_new
+
+        return x_cg
+
+    # Solve H^{-1} * noise_pred using CG
+    # We want to solve Hx = noise_pred, so x = H^{-1} * noise_pred
+    corrected_noise = cg_solve(noise_pred)
+
+    # Add regularization
+    corrected_noise = corrected_noise / (1.0 + lamb)
+
+    # Normalize
+    norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
+    norm_corrected = torch.sqrt((corrected_noise * corrected_noise).sum(dim=(1, 2, 3), keepdim=True))
+    corrected_noise = corrected_noise * norm / (norm_corrected + 1e-8)
+
+    return corrected_noise
+
+
 @profile_function("hcg_correct")
 def hcg_correct(
     noise_pred: torch.Tensor,
@@ -688,34 +856,6 @@ def hcg_correct(
     return corrected_noise, (alpha_t, beta_t), corrected_noise.clone(), stats_dict
 
 
-def lm_correct(prev_noise, noise_pred, lamb, kappa):
-    # print('entered lmc')
-    if prev_noise is not None:
-        noise_pred_ema = kappa * prev_noise + (1 - kappa) * noise_pred
-    else:
-        noise_pred_ema = noise_pred
-    # lm step for noise
-    norm_squared = (noise_pred * noise_pred).sum(dim=(1, 2, 3))
-    norm_squared = norm_squared.unsqueeze(1).unsqueeze(2).unsqueeze(3)
-    part1 =  noise_pred
-
-    norm_squared_ema = (noise_pred_ema * noise_pred_ema).sum(dim=(1, 2, 3))
-    norm_squared_ema = norm_squared_ema.unsqueeze(1).unsqueeze(2).unsqueeze(3)
-
-    inner_product = torch.sum(noise_pred * noise_pred_ema, dim=(1, 2, 3))
-    mp = noise_pred_ema * inner_product.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-    part2 = mp /  (lamb + norm_squared_ema)
-
-    inversed_pred = part1 - part2
-
-    # normalize the direction
-    norm = torch.sqrt(norm_squared)
-    norm_squared_lm = (inversed_pred * inversed_pred).sum(dim=(1, 2, 3))
-    norm_squared_lm = norm_squared_lm.unsqueeze(1).unsqueeze(2).unsqueeze(3)
-    norm_lm = torch.sqrt(norm_squared_lm)
-    inversed_pred = inversed_pred * norm / norm_lm
-    return inversed_pred
-
 
 # Copied from diffusers.schedulers.scheduling_ddpm.betas_for_alpha_bar
 def betas_for_alpha_bar(num_diffusion_timesteps, max_beta=0.999, alpha_transform_type="cosine"):
@@ -837,8 +977,16 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             args_cfg: dict = None
         '''
 
+        self.args_cfg = args_cfg
         def set_args(para, default_value):
-            return default_value if args_cfg is None else args_cfg.get(para, default_value)
+            if self.args_cfg is None:
+                return default_value
+            # Support both dict and argparse.Namespace objects
+            if isinstance(self.args_cfg, dict):
+                return self.args_cfg.get(para, default_value)
+            else:
+                # For argparse.Namespace or other objects with attributes
+                return getattr(self.args_cfg, para, default_value)
 
         self.use_hcg = set_args('use_hcg', True)
         self.kappa_target = set_args('kappa_target', 20.0)
@@ -944,6 +1092,17 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
     def _call_hcg_correct(self, noise, sample, timestep):
         """Helper method to call hcg_correct with caching and return only corrected noise"""
         # Get cached eigenvalues if available
+
+        if self.hvp_method == 'explicit':
+            corrected_noise = hessian_explicit_correct(self.model, sample, timestep, noise, lamb=self.lambda_base)
+            return corrected_noise
+        if self.hvp_method == 'hessian_free':
+            corrected_noise = hessian_free_correct(self.model, sample, timestep, noise, lamb=self.lambda_base)
+            return corrected_noise
+        if self.hvp_method == 'lml_advanced':
+            corrected_noise = lm_correct_advanced(self.prev_noise, noise, self.lambda_base, self.ema_kappa)
+            return corrected_noise
+
         cached_eigs = None
         if self.enable_eigenvalue_cache and timestep in self.eigenvalue_cache:
             # Check if cache is still valid (within interval)

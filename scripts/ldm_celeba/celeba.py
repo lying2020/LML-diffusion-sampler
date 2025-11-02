@@ -80,7 +80,7 @@ def parse_args():
     parser.add_argument('--cg_max_iter', type=int, default=10, help='Maximum CG iterations')
     parser.add_argument('--cg_tol', type=float, default=1e-4, help='CG tolerance (default: 1e-3, tighter than 1e-2 for better convergence)')
 
-    parser.add_argument('--hvp_method', type=str, default='symmetrized', choices=['symmetrized', 'reverse-over-reverse', 'forward-over-reverse', 'reverse-over-forward', 'auto'], help='HVP computation method (default: auto, automatically selects best available method)')
+    parser.add_argument('--hvp_method', type=str, default='lml_advanced', choices=['explicit', 'hessian_free', 'lml_advanced', 'symmetrized', 'reverse-over-reverse', 'forward-over-reverse', 'reverse-over-forward', 'auto'], help='HVP computation method (default: auto, automatically selects best available method)')
     # HCG (Hessian-Conjugate Gradient) parameters for eigenvalue estimation
     parser.add_argument('--unuse_lanczos_estimation', type=bool, default=True, help='Skip Lanczos estimation, use fixed eigenvalues for fast testing (default: False)')
     parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
@@ -205,6 +205,9 @@ def setup_scheduler_hcg(pipe, args):
         if k not in ['timestep_values', 'timesteps']  # 移除这些运行时状态属性
     }
 
+    # 将 args_cfg 添加到 config_dict 中，这样在 __init__ 时就能读取到参数
+    config_dict['args_cfg'] = args
+
     # 使用新的 DPMSolverMultistepHCGScheduler
     pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(config_dict)
     pipe.scheduler.config.algorithm_type = "dpmsolver++"
@@ -213,8 +216,7 @@ def setup_scheduler_hcg(pipe, args):
     # 设置模型用于Hessian计算（必需）
     pipe.scheduler.set_model(pipe.unet)
 
-    # 设置HCG参数
-    pipe.scheduler.use_hcg = True
+    # 确保 args_cfg 已设置（作为备用，虽然已经在 from_config 时传入）
     pipe.scheduler.args_cfg = args
 
     project.info(f"  Using DPM-Solver++ with HCG (Hessian-Conjugate Gradient) correction")
@@ -476,7 +478,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
     pipe = LDMPipeline.from_pretrained(model_path, torch_dtype=dtype, use_safetensors=False)
     pipe.unet.to(args.device)
     pipe.vqvae.to(args.device)
-    # pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
+    pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
 
     project.success("Model loaded successfully")
 
@@ -485,7 +487,7 @@ def run_single_experiment(results_save_dir, args, experiment_num, total_experime
     if args.sampler_type == 'dpm_hcg':
         setup_scheduler_hcg(pipe, args)
     else:
-        pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
+        # pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
         setup_scheduler(pipe, args.sampler_type, args.lamb, args.kappa)
 
     # Generate images

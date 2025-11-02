@@ -46,7 +46,7 @@ def lm_correct_advanced(prev_noise, noise_pred, lamb, kappa, hessian_method='',
     else:
         noise_pred_ema = noise_pred
 
-    if hessian_method == '':
+    if hessian_method == 'hessian-free':
         # Hessian-Free method using CG + HVP
         return hessian_free_correct(noise_pred, noise_pred_ema, lamb, model, x, t, device)
     elif hessian_method == 'explicit':
