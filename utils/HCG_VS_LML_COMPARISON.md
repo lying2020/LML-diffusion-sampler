@@ -138,7 +138,7 @@ corrected_noise = corrected_noise * norm_original / norm_corrected
 
 ### 测试 8: 跳过 Lanczos，使用固定特征值（快速测试）
 ```bash
---skip_lanczos \
+--unuse_lanczos_estimation \
 --fixed_alpha 1.0 \
 --fixed_beta 0.1
 ```
@@ -190,12 +190,12 @@ corrected_noise = corrected_noise * norm_original / norm_corrected
 - **默认**：1e-8
 - **影响**：控制历史信息的权重
 
-### `--skip_lanczos`
+### `--unuse_lanczos_estimation`
 - **作用**：跳过 Lanczos 特征值估计，使用固定值
 - **默认**：False（禁用）
 - **影响**：快速测试，排除特征值估计的问题
 
 ### `--fixed_alpha` / `--fixed_beta`
-- **作用**：当 `skip_lanczos=True` 时使用的固定特征值
+- **作用**：当 `unuse_lanczos_estimation=True` 时使用的固定特征值
 - **默认**：alpha=1.0, beta=0.1
 - **影响**：用于快速测试，避免特征值估计的开销

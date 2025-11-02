@@ -80,6 +80,12 @@ def parse_args():
     parser.add_argument('--cg_max_iter', type=int, default=10, help='Maximum CG iterations')
     parser.add_argument('--cg_tol', type=float, default=1e-4, help='CG tolerance (default: 1e-3, tighter than 1e-2 for better convergence)')
 
+    # HCG (Hessian-Conjugate Gradient) parameters for eigenvalue estimation
+    parser.add_argument('--unuse_lanczos_estimation', type=bool, default=True, help='Skip Lanczos estimation, use fixed eigenvalues for fast testing (default: False)')
+    parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
+    parser.add_argument('--fixed_alpha', type=float, default=1.0, help='Fixed alpha_t when unuse_lanczos_estimation=True (default: 1.0)')
+    parser.add_argument('--fixed_beta', type=float, default=0.1, help='Fixed beta_t when unuse_lanczos_estimation=True (default: 0.1)')
+
     # HCG (Hessian-Conjugate Gradient) parameters for spectral radius scaling
     parser.add_argument('--use_spectral_radius', type=bool, default=False, help='Use spectral radius scaling c_t = beta_t + lambda_t (default: True, REQUIRED for HCG to work)')
     parser.add_argument('--spectral_scaling', type=float, default=1.0, help='Spectral radius scaling factor when use_spectral_radius=False (default: 1.0, only used if disabled)')
@@ -99,11 +105,6 @@ def parse_args():
     # EMA parameters
     parser.add_argument('--use_ema_smoothing', type=bool, default=True, help='Use EMA smoothing like LML (default: False)')
     parser.add_argument('--ema_kappa', type=float, default=1e-8, help='EMA smoothing factor kappa, same as LML kappa (default: 1e-8)')
-
-    parser.add_argument('--skip_lanczos', type=bool, default=True, help='Skip Lanczos estimation, use fixed eigenvalues for fast testing (default: False)')
-    parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
-    parser.add_argument('--fixed_alpha', type=float, default=1.0, help='Fixed alpha_t when skip_lanczos=True (default: 1.0)')
-    parser.add_argument('--fixed_beta', type=float, default=0.1, help='Fixed beta_t when skip_lanczos=True (default: 0.1)')
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', default=False, help='Run evaluation metrics')
@@ -221,8 +222,8 @@ def setup_scheduler_hcg(pipe, args):
     project.info(f"    use_adaptive_lambda={args.use_adaptive_lambda}, lambda_base={args.lambda_base}, lambda_scale={args.lambda_scale:.4f}, log_lambda_stats={args.log_lambda_stats}")
     project.info(f"    enable_eigenvalue_cache={args.enable_eigenvalue_cache}, cache_interval={args.eigenvalue_cache_interval}")
     project.info(f"    use_cg_warm_start={args.use_cg_warm_start}, use_normalization={args.use_normalization}, use_ema_smoothing={args.use_ema_smoothing}")
-    if args.skip_lanczos:
-        project.info(f"    skip_lanczos=True, fixed_alpha={args.fixed_alpha}, fixed_beta={args.fixed_beta}")
+    if args.unuse_lanczos_estimation:
+        project.info(f"    unuse_lanczos_estimation=True, fixed_alpha={args.fixed_alpha}, fixed_beta={args.fixed_beta}")
 
 def process_image(image):
     """

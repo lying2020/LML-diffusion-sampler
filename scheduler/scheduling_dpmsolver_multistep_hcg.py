@@ -47,13 +47,52 @@ except ImportError:
     def get_profiler():
         return None
 
+# Import HVP methods from comparison module
+try:
+    from .hvp_methods_comparison import (
+        hessian_vector_product_forward_over_reverse,
+        hessian_vector_product_reverse_over_forward,
+        hessian_vector_product_reverse_over_reverse,
+        hessian_vector_product_adaptive
+    )
+    HVP_METHODS_AVAILABLE = True
+except ImportError:
+    # Fallback if import fails
+    HVP_METHODS_AVAILABLE = False
 
 
-def hessian_vector_product(model, x_sample: torch.Tensor, t_timestep: int, v: torch.Tensor) -> torch.Tensor:
+
+def hessian_vector_product(model, x_sample: torch.Tensor, t_timestep: int, v: torch.Tensor, method: str = "reverse-over-reverse") -> torch.Tensor:
     """
-    Compute H*v using Pearlmutter's method.
+    Compute H*v using automatic differentiation.
     H is the Hessian of -log p_t(x), symmetrized.
+
+    Args:
+        model: Neural network model
+        x_sample: Input sample tensor
+        t_timestep: Timestep
+        v: Vector for HVP computation
+        method: HVP computation method, options:
+            - "reverse-over-reverse" (default): Pearlmutter's method, most general
+            - "forward-over-reverse": Fastest, uses torch.func.jvp
+            - "reverse-over-forward": Fastest, uses torch.func.vjp
+            - "auto": Automatically select fastest available method
+
+    Returns:
+        H*v: Hessian-vector product
+
+    Reference:
+        ICLR 2024 Blog: https://iclr-blogposts.github.io/2024/blog/bench-hvp/
     """
+    # If advanced methods available and method is specified, use them
+    if HVP_METHODS_AVAILABLE and method != "reverse-over-reverse":
+        try:
+            return hessian_vector_product_adaptive(model, x_sample, t_timestep, v, method=method)
+        except Exception as e:
+            # Fallback to reverse-over-reverse if advanced method fails
+            if method != "auto":
+                print(f"Warning: HVP method '{method}' failed ({e}), falling back to reverse-over-reverse")
+            # Continue to use reverse-over-reverse below
     # Ensure v requires grad - detach from the no_grad context
     v_grad = v.clone().detach().requires_grad_(True)
 
@@ -204,18 +243,26 @@ def hessian_vector_product(model, x_sample: torch.Tensor, t_timestep: int, v: to
     return Hv.detach()
 
 # Step 4: Solve (H + λ_t I)^{-1} * noise_pred using CG
-def regularized_hessian_vector_product(model, x_sample, t_timestep, v: torch.Tensor, lambda_t: float) -> torch.Tensor:
+def regularized_hessian_vector_product(model, x_sample, t_timestep, v: torch.Tensor, lambda_t: float, hvp_method: str = "reverse-over-reverse") -> torch.Tensor:
     """
     Compute (H + λ_t I) * v
 
     Note: This is a lightweight wrapper. Profiling is handled inside
     hessian_vector_product and at call sites.
+
+    Args:
+        model: Neural network model
+        x_sample: Input sample
+        t_timestep: Timestep
+        v: Vector
+        lambda_t: Regularization parameter
+        hvp_method: HVP computation method (passed to hessian_vector_product)
     """
-    Hv = hessian_vector_product(model, x_sample, t_timestep, v)
+    Hv = hessian_vector_product(model, x_sample, t_timestep, v, method=hvp_method)
     # Add regularization: (H + λ_t I)v = Hv + λ_t * v
     return Hv + lambda_t * v
 
-def conjugate_gradient_solve(model, x_sample, t_timestep, prev_solution: Optional[torch.Tensor] = None, lambda_t: float = 0.0004, b: torch.Tensor = None, cg_max_iter: int = 20, cg_tol: float = 1e-4) -> Tuple[torch.Tensor, int, float]:
+def conjugate_gradient_solve(model, x_sample, t_timestep, prev_solution: Optional[torch.Tensor] = None, lambda_t: float = 0.0004, b: torch.Tensor = None, cg_max_iter: int = 20, cg_tol: float = 1e-4, hvp_method: str = "reverse-over-reverse") -> Tuple[torch.Tensor, int, float]:
     """
     Solve (H + λ_t I) * x = b using CG with optional initial guess
 
@@ -233,7 +280,7 @@ def conjugate_gradient_solve(model, x_sample, t_timestep, prev_solution: Optiona
             # Compute initial residual (counts as 1 HVP call for warm start)
             profiler = get_profiler()
             with profile("cg_hvp_call", profiler):
-                Hx = regularized_hessian_vector_product(model, x_sample, t_timestep, x_cg, lambda_t=lambda_t)
+                Hx = regularized_hessian_vector_product(model, x_sample, t_timestep, x_cg, lambda_t=lambda_t, hvp_method=hvp_method)
             r = b - Hx
         else:
             x_cg = torch.zeros_like(b)
@@ -251,7 +298,7 @@ def conjugate_gradient_solve(model, x_sample, t_timestep, prev_solution: Optiona
         for i in range(cg_max_iter):
             # CG iteration loop - each iteration makes 1 HVP call
             with profile("cg_hvp_call", profiler):
-                Hp = regularized_hessian_vector_product(model, x_sample, t_timestep, p, lambda_t=lambda_t)
+                Hp = regularized_hessian_vector_product(model, x_sample, t_timestep, p, lambda_t=lambda_t, hvp_method=hvp_method)
             p_Hp = torch.sum(p * Hp)
 
             if p_Hp <= 1e-10:
@@ -324,7 +371,7 @@ def lanczos_eigenvalue_estimation(
 
         # First iteration
         v_full = v_flat.view(x_shape[0:1] + x_shape[1:])
-        w = hessian_vector_product(model, x_sample, t_timestep, v_full)
+        w = hessian_vector_product(model, x_sample, t_timestep, v_full, method="reverse-over-reverse")  # Lanczos uses standard method
         w_flat = w.view(batch_size, -1).mean(dim=0).cpu().numpy()  # Average over batch
 
         alpha_0 = np.dot(w_flat, v_flat.cpu().numpy())
@@ -347,7 +394,7 @@ def lanczos_eigenvalue_estimation(
 
             # Expand to full shape for HVP
             v_curr_full = torch.tensor(v_curr, device=device, dtype=torch.float32).view(x_shape[0:1] + x_shape[1:])
-            w = hessian_vector_product(model, x_sample, t_timestep, v_curr_full)
+            w = hessian_vector_product(model, x_sample, t_timestep, v_curr_full, method="reverse-over-reverse")  # Lanczos uses standard method
             w_flat = w.view(batch_size, -1).mean(dim=0).cpu().numpy()
 
             alpha_i = np.dot(w_flat, v_curr)
@@ -469,9 +516,10 @@ def hcg_correct(
     use_ema_smoothing: bool = False,  # Control whether to use EMA smoothing (like LML)
     ema_kappa: float = 1e-8,  # EMA smoothing factor (like LML's kappa)
     prev_noise: Optional[torch.Tensor] = None,  # Previous noise for EMA (like LML)
-    skip_lanczos: bool = False,  # Skip Lanczos, use fixed eigenvalues for fast testing
-    fixed_alpha: float = 1.0,  # Fixed alpha_t when skip_lanczos=True
-    fixed_beta: float = 0.1,  # Fixed beta_t when skip_lanczos=True
+    unuse_lanczos_estimation: bool = False,  # Skip Lanczos, use fixed eigenvalues for fast testing
+    fixed_alpha: float = 1.0,  # Fixed alpha_t when unuse_lanczos_estimation=True
+    fixed_beta: float = 0.1,  # Fixed beta_t when unuse_lanczos_estimation=True
+    hvp_method: str = "reverse-over-reverse",  # HVP computation method
 ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor, dict]:
     """
     Hessian-Conjugate Gradient correction using adaptive damping.
@@ -508,7 +556,7 @@ def hcg_correct(
     # Step 1: Estimate eigenvalues using Lanczos (with caching if enabled)
     beta_min = 1e-5  # Minimum eigenvalue lower bound for numerical stability
 
-    if skip_lanczos:
+    if unuse_lanczos_estimation:
         # For debugging: use fixed eigenvalues
         alpha_t = torch.tensor(fixed_alpha, dtype=torch.float32, device=device)
         beta_t = torch.tensor(fixed_beta, dtype=torch.float32, device=device)
@@ -597,7 +645,7 @@ def hcg_correct(
     cg_input = noise_pred_ema if use_ema_smoothing else noise_pred
     cg_prev_solution = prev_cg_solution if use_cg_warm_start else None
     corrected_noise, cg_iterations, cg_final_residual = conjugate_gradient_solve(
-        model=model, x_sample=x_sample, t_timestep=t_timestep, prev_solution=cg_prev_solution, lambda_t=lambda_t, b=cg_input, cg_max_iter=cg_max_iter, cg_tol=cg_tol
+        model=model, x_sample=x_sample, t_timestep=t_timestep, prev_solution=cg_prev_solution, lambda_t=lambda_t, b=cg_input, cg_max_iter=cg_max_iter, cg_tol=cg_tol, hvp_method=hvp_method
     )
 
     # Step 5: Apply spectral radius scaling: c_t * corrected_noise
@@ -779,9 +827,9 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             use_normalization: bool = True,  # Control whether to normalize after correction
             use_ema_smoothing: bool = False,  # Control whether to use EMA smoothing (like LML)
             ema_kappa: float = 1e-8,  # EMA smoothing factor (like LML's kappa)
-            skip_lanczos: bool = False,  # Skip Lanczos, use fixed eigenvalues for fast testing
-            fixed_alpha: float = 1.0,  # Fixed alpha_t when skip_lanczos=True
-            fixed_beta: float = 0.1,  # Fixed beta_t when skip_lanczos=True
+            unuse_lanczos_estimation: bool = False,  # Skip Lanczos, use fixed eigenvalues for fast testing
+            fixed_alpha: float = 1.0,  # Fixed alpha_t when unuse_lanczos_estimation=True
+            fixed_beta: float = 0.1,  # Fixed beta_t when unuse_lanczos_estimation=True
             args_cfg: dict = None
         '''
 
@@ -805,7 +853,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         self.use_normalization = set_args('use_normalization', True)
         self.use_ema_smoothing = set_args('use_ema_smoothing', False)
         self.ema_kappa = set_args('ema_kappa', 1e-8)
-        self.skip_lanczos = set_args('skip_lanczos', False)
+        self.unuse_lanczos_estimation = set_args('unuse_lanczos_estimation', False)
         self.fixed_alpha = set_args('fixed_alpha', 1.0)
         self.fixed_beta = set_args('fixed_beta', 0.1)
 
@@ -917,7 +965,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             use_ema_smoothing=getattr(self, 'use_ema_smoothing', False),
             ema_kappa=getattr(self, 'ema_kappa', 1e-8),
             prev_noise=self.prev_noise,
-            skip_lanczos=getattr(self, 'skip_lanczos', False),
+            unuse_lanczos_estimation=getattr(self, 'unuse_lanczos_estimation', False),
             fixed_alpha=getattr(self, 'fixed_alpha', 1.0),
             fixed_beta=getattr(self, 'fixed_beta', 0.1),
         )
