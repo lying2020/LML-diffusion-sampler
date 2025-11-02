@@ -331,6 +331,7 @@ def lanczos_eigenvalue_estimation(
     model,
     x_sample,
     t_timestep: int,
+    hvp_method: str = "reverse-over-reverse",
     k: int = 10,
     num_vectors: int = 5,
     device: str = 'cuda'
@@ -371,7 +372,7 @@ def lanczos_eigenvalue_estimation(
 
         # First iteration
         v_full = v_flat.view(x_shape[0:1] + x_shape[1:])
-        w = hessian_vector_product(model, x_sample, t_timestep, v_full, method="reverse-over-reverse")  # Lanczos uses standard method
+        w = hessian_vector_product(model, x_sample, t_timestep, v_full, method=hvp_method)  # Lanczos uses standard method
         w_flat = w.view(batch_size, -1).mean(dim=0).cpu().numpy()  # Average over batch
 
         alpha_0 = np.dot(w_flat, v_flat.cpu().numpy())
@@ -394,7 +395,7 @@ def lanczos_eigenvalue_estimation(
 
             # Expand to full shape for HVP
             v_curr_full = torch.tensor(v_curr, device=device, dtype=torch.float32).view(x_shape[0:1] + x_shape[1:])
-            w = hessian_vector_product(model, x_sample, t_timestep, v_curr_full, method="reverse-over-reverse")  # Lanczos uses standard method
+            w = hessian_vector_product(model, x_sample, t_timestep, v_curr_full, method=hvp_method)
             w_flat = w.view(batch_size, -1).mean(dim=0).cpu().numpy()
 
             alpha_i = np.dot(w_flat, v_curr)
@@ -575,6 +576,7 @@ def hcg_correct(
                     model=model,
                     x_sample=x_sample,
                     t_timestep=t_timestep,
+                    hvp_method=hvp_method,
                     k=lanczos_k,
                     num_vectors=num_vectors,
                     device=device
@@ -857,6 +859,9 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         self.fixed_alpha = set_args('fixed_alpha', 1.0)
         self.fixed_beta = set_args('fixed_beta', 0.1)
 
+        # HVP computation method (from ICLR 2024 blog)
+        self.hvp_method = set_args('hvp_method', 'reverse-over-reverse')  # Options: reverse-over-reverse, forward-over-reverse, reverse-over-forward, auto
+
         # Eigenvalue cache for optimization
         self.eigenvalue_cache_interval = set_args('eigenvalue_cache_interval', 4)
         self.enable_eigenvalue_cache = set_args('enable_eigenvalue_cache', True)
@@ -968,6 +973,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             unuse_lanczos_estimation=getattr(self, 'unuse_lanczos_estimation', False),
             fixed_alpha=getattr(self, 'fixed_alpha', 1.0),
             fixed_beta=getattr(self, 'fixed_beta', 0.1),
+            hvp_method=getattr(self, 'hvp_method', 'reverse-over-reverse'),
         )
 
         # Cache eigenvalues and CG solution for next step

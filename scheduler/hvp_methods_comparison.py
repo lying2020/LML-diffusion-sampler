@@ -1,6 +1,7 @@
 """
 根据 ICLR 2024 博客文章实现的不同 HVP 计算方法对比
-参考: https://iclr-blogposts.github.io/2024/blog/bench-hvp/
+- [ICLR 2024 Blog: How to compute Hessian-vector products?](https://iclr-blogposts.github.io/2024/blog/bench-hvp/)
+- PyTorch 文档: [torch.func](https://pytorch.org/docs/stable/func.html)
 
 三种方法：
 1. Forward-over-reverse (使用 torch.func.jvp)
