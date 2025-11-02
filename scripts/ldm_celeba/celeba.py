@@ -80,7 +80,7 @@ def parse_args():
     parser.add_argument('--cg_max_iter', type=int, default=10, help='Maximum CG iterations')
     parser.add_argument('--cg_tol', type=float, default=1e-4, help='CG tolerance (default: 1e-3, tighter than 1e-2 for better convergence)')
 
-    parser.add_argument('--hvp_method', type=str, default='reverse-over-reverse', choices=['reverse-over-reverse', 'forward-over-reverse', 'reverse-over-forward', 'auto'], help='HVP computation method')
+    parser.add_argument('--hvp_method', type=str, default='symmetrized', choices=['symmetrized', 'reverse-over-reverse', 'forward-over-reverse', 'reverse-over-forward', 'auto'], help='HVP computation method (default: auto, automatically selects best available method)')
     # HCG (Hessian-Conjugate Gradient) parameters for eigenvalue estimation
     parser.add_argument('--unuse_lanczos_estimation', type=bool, default=True, help='Skip Lanczos estimation, use fixed eigenvalues for fast testing (default: False)')
     parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')

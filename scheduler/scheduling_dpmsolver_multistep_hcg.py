@@ -50,6 +50,7 @@ except ImportError:
 # Import HVP methods from comparison module
 try:
     from .hvp_methods_comparison import (
+        hessian_vector_product_symmetrized,
         hessian_vector_product_forward_over_reverse,
         hessian_vector_product_reverse_over_forward,
         hessian_vector_product_reverse_over_reverse,
@@ -73,10 +74,11 @@ def hessian_vector_product(model, x_sample: torch.Tensor, t_timestep: int, v: to
         t_timestep: Timestep
         v: Vector for HVP computation
         method: HVP computation method, options:
+            - "symmetrized" (recommended): Symmetrized HVP using H_sym = 1/2*(H+H^T), ensures symmetry
             - "reverse-over-reverse" (default): Pearlmutter's method, most general
             - "forward-over-reverse": Fastest, uses torch.func.jvp
             - "reverse-over-forward": Fastest, uses torch.func.vjp
-            - "auto": Automatically select fastest available method
+            - "auto": Automatically select fastest available method (prefers symmetrized)
 
     Returns:
         H*v: Hessian-vector product
@@ -92,7 +94,7 @@ def hessian_vector_product(model, x_sample: torch.Tensor, t_timestep: int, v: to
             # Fallback to reverse-over-reverse if advanced method fails
             if method != "auto":
                 print(f"Warning: HVP method '{method}' failed ({e}), falling back to reverse-over-reverse")
-            # Continue to use reverse-over-reverse below
+            # Continue to use reverse-over-reverse below (the standard implementation)
     # Ensure v requires grad - detach from the no_grad context
     v_grad = v.clone().detach().requires_grad_(True)
 
@@ -860,7 +862,10 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         self.fixed_beta = set_args('fixed_beta', 0.1)
 
         # HVP computation method (from ICLR 2024 blog)
-        self.hvp_method = set_args('hvp_method', 'reverse-over-reverse')  # Options: reverse-over-reverse, forward-over-reverse, reverse-over-forward, auto
+        # Options: auto (recommended), symmetrized, reverse-over-reverse, forward-over-reverse, reverse-over-forward
+        # Note: 'symmetrized' requires forward AD support, which may not be available for all models
+        # 'auto' will automatically select the best available method
+        self.hvp_method = set_args('hvp_method', 'auto')  # Default to auto for best compatibility
 
         # Eigenvalue cache for optimization
         self.eigenvalue_cache_interval = set_args('eigenvalue_cache_interval', 4)
@@ -973,7 +978,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             unuse_lanczos_estimation=getattr(self, 'unuse_lanczos_estimation', False),
             fixed_alpha=getattr(self, 'fixed_alpha', 1.0),
             fixed_beta=getattr(self, 'fixed_beta', 0.1),
-            hvp_method=getattr(self, 'hvp_method', 'reverse-over-reverse'),
+            hvp_method=getattr(self, 'hvp_method', 'auto'),
         )
 
         # Cache eigenvalues and CG solution for next step

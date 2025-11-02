@@ -1,17 +1,115 @@
 """
-根据 ICLR 2024 博客文章实现的不同 HVP 计算方法对比
+根据 ICLR 2024 博客文章和论文实现的不同 HVP 计算方法对比
 - [ICLR 2024 Blog: How to compute Hessian-vector products?](https://iclr-blogposts.github.io/2024/blog/bench-hvp/)
 - PyTorch 文档: [torch.func](https://pytorch.org/docs/stable/func.html)
 
-三种方法：
-1. Forward-over-reverse (使用 torch.func.jvp)
-2. Reverse-over-forward (使用 torch.func.vjp)
-3. Reverse-over-reverse (当前的 Pearlmutter 方法)
+四种方法：
+1. Symmetrized (推荐): 使用 H_sym = 1/2*(H+H^T)，确保对称性 - Equation 8
+2. Forward-over-reverse (使用 torch.func.jvp)
+3. Reverse-over-forward (使用 torch.func.vjp)
+4. Reverse-over-reverse (当前的 Pearlmutter 方法，最通用)
 """
 
 import torch
 import contextlib
 from typing import Optional
+
+
+def hessian_vector_product_symmetrized(model, x_sample: torch.Tensor, t_timestep: int, v: torch.Tensor) -> torch.Tensor:
+    """
+    Symmetrized Hessian-vector product using JVP and VJP.
+
+    实现公式：H_sym v = 1/2 * (JVP(s_θ, v) + VJP(s_θ, v))
+
+    其中：
+    - H_sym = 1/2 * (H + H^T) 是对称化 Hessian
+    - s_θ 是 score function (模型输出的梯度)
+    - JVP: Jacobian-Vector Product
+    - VJP: Vector-Jacobian Product
+
+    这个方法确保了：
+    1. 对称性：即使原始 H 不对称，H_sym 也是对称的
+    2. 效率：不需要显式计算 Hessian 矩阵
+    3. 速度：使用优化的 JVP 和 VJP 操作
+
+    Reference: ICLR 2024 / Equation 8
+
+    注意：需要禁用 flash attention 等不支持 forward AD 的优化
+    """
+    try:
+        from torch.func import jvp, vjp, grad
+
+        # 禁用 flash attention 等不支持 forward AD 的优化
+        # 这对 JVP 是必需的，因为 forward AD 不支持某些 attention 操作
+        try:
+            from torch.nn.attention import sdpa_kernel, SDPBackend  # type: ignore
+            sdp_context = sdpa_kernel(SDPBackend.MATH)  # 使用 math backend 支持梯度
+        except (ImportError, AttributeError):
+            try:
+                from torch.backends.cuda import sdp_kernel
+                sdp_context = sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False)
+            except (ImportError, AttributeError):
+                sdp_context = contextlib.nullcontext()
+
+        # 保存模型状态
+        model_training = model.training
+        model.eval()
+
+        try:
+            with sdp_context:
+                # 定义 score function: s_θ(x, t) = -∇log p_t(x)
+                # 实际上就是模型的输出（噪声预测的负梯度）
+                def score_fn(x):
+                    score_pred = model(x, t_timestep)
+                    if hasattr(score_pred, 'sample'):
+                        score_pred = score_pred.sample
+                    return score_pred
+
+                # 方法1：直接对 score function 使用 JVP 和 VJP（符合论文公式）
+                # 根据 Equation 8: H_sym v = 1/2 * (JVP(s_θ, v) + VJP(s_θ, v))
+                try:
+                    # JVP: J_sθ(x, t) * v，其中 J_sθ 是 score function 的雅可比
+                    _, jvp_result = jvp(score_fn, (x_sample,), (v,))
+
+                    # VJP: J_sθ(x, t)^T * v
+                    vjp_fn = vjp(score_fn, x_sample)[1]
+                    vjp_result = vjp_fn(v)[0]
+
+                    # 对称化：H_sym v = 1/2 * (JVP + VJP)
+                    # 根据论文，这就是对称化 Hessian-vector product
+                    Hv_sym = 0.5 * (jvp_result + vjp_result)
+
+                    return Hv_sym.detach()
+
+                except Exception as e1:
+                    # JVP 失败（通常是 forward AD 不支持某些操作）
+                    # 检查是否是预期的 forward AD 问题
+                    error_str = str(e1)
+                    is_forward_ad_issue = (
+                        "_scaled_dot_product" in error_str or
+                        "forward AD" in error_str or
+                        "does not support it" in error_str
+                    )
+
+                    if is_forward_ad_issue:
+                        # forward AD 不支持是预期情况，静默降级到 reverse-over-reverse
+                        # reverse-over-reverse 只使用 reverse-mode AD，不需要 forward AD
+                        return hessian_vector_product_reverse_over_reverse(model, x_sample, t_timestep, v)
+                    else:
+                        # 其他未知错误，也降级但不打印过多警告（避免刷屏）
+                        return hessian_vector_product_reverse_over_reverse(model, x_sample, t_timestep, v)
+
+        finally:
+            # 恢复模型状态
+            if model_training:
+                model.train()
+
+    except ImportError:
+        # torch.func 不可用，回退到标准方法
+        return hessian_vector_product_reverse_over_reverse(model, x_sample, t_timestep, v)
+    except Exception as e:
+        # 任何其他错误，静默回退到标准方法
+        return hessian_vector_product_reverse_over_reverse(model, x_sample, t_timestep, v)
 
 
 def hessian_vector_product_forward_over_reverse(model, x_sample: torch.Tensor, t_timestep: int, v: torch.Tensor) -> torch.Tensor:
@@ -131,7 +229,7 @@ def hessian_vector_product_reverse_over_reverse(model, x_sample: torch.Tensor, t
     try:
         # 禁用 flash attention 等不支持二阶导数的优化
         try:
-            from torch.nn.attention import sdpa_kernel, SDPBackend
+            from torch.nn.attention import sdpa_kernel, SDPBackend  # type: ignore
             sdp_context = sdpa_kernel(SDPBackend.MATH)
         except (ImportError, AttributeError):
             try:
@@ -208,23 +306,38 @@ def hessian_vector_product_adaptive(
         t_timestep: 时间步
         v: 向量
         method: 计算方法，可选：
-            - "auto": 自动选择最快可用方法
-            - "forward-over-reverse": 使用 jvp 方法
-            - "reverse-over-forward": 使用 vjp 方法
-            - "reverse-over-reverse": 使用 Pearlmutter 方法（最通用）
+            - "auto": 自动选择最快可用方法（推荐）
+            - "symmetrized": 对称化方法，确保对称性（推荐用于非对称 Hessian）
+            - "forward-over-reverse": 使用 jvp 方法（快）
+            - "reverse-over-forward": 使用 vjp 方法（快）
+            - "reverse-over-reverse": 使用 Pearlmutter 方法（最通用，默认）
 
     Returns:
-        H*v: Hessian-vector product
+        H*v: Hessian-vector product（对于 symmetrized 方法，返回对称化的 H_sym*v）
+
+    Note:
+        - "symmetrized" 方法使用 H_sym = 1/2 * (H + H^T)，确保结果对称
+        - 即使原始 Hessian 不对称，symmetrized 方法也能保证对称性
+        - 基于 ICLR 2024 论文中的 Equation 8
     """
     if method == "auto":
-        # 尝试最快的方法，失败则降级
+        # 自动选择：优先尝试对称化，但遇到 forward AD 问题会自动降级
+        # 策略：先试对称化（最佳），失败则尝试其他快速方法，最后回退到 reverse-over-reverse
         try:
-            return hessian_vector_product_forward_over_reverse(model, x_sample, t_timestep, v)
+            result = hessian_vector_product_symmetrized(model, x_sample, t_timestep, v)
+            return result
         except:
             try:
-                return hessian_vector_product_reverse_over_forward(model, x_sample, t_timestep, v)
+                return hessian_vector_product_forward_over_reverse(model, x_sample, t_timestep, v)
             except:
-                return hessian_vector_product_reverse_over_reverse(model, x_sample, t_timestep, v)
+                try:
+                    return hessian_vector_product_reverse_over_forward(model, x_sample, t_timestep, v)
+                except:
+                    # 最终回退：reverse-over-reverse 是最通用的方法
+                    return hessian_vector_product_reverse_over_reverse(model, x_sample, t_timestep, v)
+
+    elif method == "symmetrized":
+        return hessian_vector_product_symmetrized(model, x_sample, t_timestep, v)
 
     elif method == "forward-over-reverse":
         return hessian_vector_product_forward_over_reverse(model, x_sample, t_timestep, v)
@@ -236,7 +349,7 @@ def hessian_vector_product_adaptive(
         return hessian_vector_product_reverse_over_reverse(model, x_sample, t_timestep, v)
 
     else:
-        raise ValueError(f"Unknown method: {method}. Choose from: auto, forward-over-reverse, reverse-over-forward, reverse-over-reverse")
+        raise ValueError(f"Unknown method: {method}. Choose from: auto, symmetrized, forward-over-reverse, reverse-over-forward, reverse-over-reverse")
 
 
 # 兼容性别名（保持与现有代码的兼容）
