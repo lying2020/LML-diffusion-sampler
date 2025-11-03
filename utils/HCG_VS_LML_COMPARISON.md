@@ -28,7 +28,7 @@ inversed_pred = inversed_pred * norm_original / norm_corrected
 alpha_t, beta_t = lanczos_eigenvalue_estimation(...)
 
 # 2. 自适应 lambda_t
-lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_target) * lambda_scale
+lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_star) * lambda_scale
 
 # 3. CG 迭代求解 (H + lambda_t I)^{-1} * noise_pred
 corrected_noise = conjugate_gradient_solve(noise_pred, ...)

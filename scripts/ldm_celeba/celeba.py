@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument('--test_num', type=int, default=1)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=200, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
+    parser.add_argument('--num_inference_steps', type=int, default=20, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
 
     parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
@@ -80,7 +80,7 @@ def parse_args():
     parser.add_argument('--cg_max_iter', type=int, default=10, help='Maximum CG iterations')
     parser.add_argument('--cg_tol', type=float, default=1e-4, help='CG tolerance (default: 1e-3, tighter than 1e-2 for better convergence)')
 
-    parser.add_argument('--hvp_method', type=str, default='lml_advanced', choices=['explicit', 'hessian_free', 'lml_advanced', 'symmetrized', 'reverse-over-reverse', 'forward-over-reverse', 'reverse-over-forward', 'auto'], help='HVP computation method (default: auto, automatically selects best available method)')
+    parser.add_argument('--hvp_method', type=str, default='symmetrized', choices=['explicit', 'hessian_free', 'lml_advanced', 'symmetrized', 'reverse-over-reverse', 'forward-over-reverse', 'reverse-over-forward', 'auto'], help='HVP computation method (default: auto, automatically selects best available method)')
     # HCG (Hessian-Conjugate Gradient) parameters for eigenvalue estimation
     parser.add_argument('--unuse_lanczos_estimation', type=bool, default=True, help='Skip Lanczos estimation, use fixed eigenvalues for fast testing (default: False)')
     parser.add_argument('--lanczos_k', type=int, default=5, help='Number of Lanczos iterations for eigenvalue estimation')
@@ -88,13 +88,13 @@ def parse_args():
     parser.add_argument('--fixed_beta', type=float, default=0.1, help='Fixed beta_t when unuse_lanczos_estimation=True (default: 0.1)')
 
     # HCG (Hessian-Conjugate Gradient) parameters for spectral radius scaling
-    parser.add_argument('--use_spectral_radius', type=bool, default=False, help='Use spectral radius scaling c_t = beta_t + lambda_t (default: True, REQUIRED for HCG to work)')
+    parser.add_argument('--use_spectral_radius', type=bool, default=True, help='Use spectral radius scaling c_t = beta_t + lambda_t (default: True, REQUIRED for HCG to work)')
     parser.add_argument('--spectral_scaling', type=float, default=1.0, help='Spectral radius scaling factor when use_spectral_radius=False (default: 1.0, only used if disabled)')
     # HCG (Hessian-Conjugate Gradient) parameters for adaptive damping
-    parser.add_argument('--use_adaptive_lambda', type=bool, default=False, help='Use adaptive lambda_t (default: False, optimized). If False, use fixed lambda_t = lambda_base.')
+    parser.add_argument('--use_adaptive_lambda', type=bool, default=True, help='Use adaptive lambda_t (default: False, optimized). If False, use fixed lambda_t = lambda_base.')
     parser.add_argument('--lambda_base', type=float, default=0.004, help='Base lambda_t (default: 0.3, optimized). If use_adaptive_lambda=False, use fixed lambda_t = lambda_base.')
     parser.add_argument('--lambda_scale', type=float, default=0.3, help='Scaling factor for adaptive lambda_t (default: 0.3, optimized). If use_adaptive_lambda=True, use adaptive lambda_t = lambda_scale * lambda_t_base.')
-    parser.add_argument('--kappa_target', type=float, default=100.0, help='Target condition number for adaptive damping')
+    parser.add_argument('--kappa_star', type=float, default=2000.0, help='Target condition number for adaptive damping')
 
     parser.add_argument('--log_lambda_stats', type=bool, default=True, help='Log lambda_t statistics to understand its range during sampling (default: True).')
     parser.add_argument('--enable_eigenvalue_cache', type=bool, default=True, help='Enable eigenvalue caching for faster computation (default: True).')
@@ -220,7 +220,7 @@ def setup_scheduler_hcg(pipe, args):
     pipe.scheduler.args_cfg = args
 
     project.info(f"  Using DPM-Solver++ with HCG (Hessian-Conjugate Gradient) correction")
-    project.info(f"    kappa_target={args.kappa_target}, lanczos_k={args.lanczos_k}, cg_max_iter={args.cg_max_iter}")
+    project.info(f"    kappa_star={args.kappa_star}, lanczos_k={args.lanczos_k}, cg_max_iter={args.cg_max_iter}")
     project.info(f"    cg_tol={args.cg_tol}, use_spectral_radius={args.use_spectral_radius}, spectral_scaling={args.spectral_scaling}")
     project.info(f"    use_adaptive_lambda={args.use_adaptive_lambda}, lambda_base={args.lambda_base}, lambda_scale={args.lambda_scale:.4f}, log_lambda_stats={args.log_lambda_stats}")
     project.info(f"    enable_eigenvalue_cache={args.enable_eigenvalue_cache}, cache_interval={args.eigenvalue_cache_interval}")
@@ -343,7 +343,7 @@ def generate_images(results_save_dir, args, pipe):
                     # Extract key statistics
                     kappa_reg = vars_dict.get('kappa_regularized_history', [])
                     kappa_orig = vars_dict.get('kappa_original_history', [])
-                    kappa_target = vars_dict.get('kappa_target_history', [])
+                    kappa_star = vars_dict.get('kappa_target_history', [])
                     lambda_t_list = vars_dict.get('lambda_t_history', [])
                     c_t_list = vars_dict.get('c_t_history', [])
                     cg_iter = vars_dict.get('cg_iterations_history', [])
@@ -353,7 +353,7 @@ def generate_images(results_save_dir, args, pipe):
                     beta_t_list = vars_dict.get('beta_t_history', [])
 
                     if kappa_reg:
-                        kappa_target_val = kappa_target[0] if kappa_target and len(kappa_target) > 0 else None
+                        kappa_target_val = kappa_star[0] if kappa_star and len(kappa_star) > 0 else None
                         project.info(f"Condition Numbers (κ):")
                         if kappa_target_val is not None:
                             project.info(f"  Target κ*: {kappa_target_val:.2f}")

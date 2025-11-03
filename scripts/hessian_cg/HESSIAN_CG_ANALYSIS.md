@@ -112,7 +112,7 @@ def lm_correct_(noise_pred, noise_pred_ema, lamb, model, x, t, device):
 这是最新的实现方法，使用自适应阻尼和谱半径缩放：
 
 ```python
-def hcg_correct(noise_pred, model, x, t, device, kappa_target=10.0):
+def hcg_correct(noise_pred, model, x, t, device, kappa_star=10.0):
     """
     Hessian-Conjugate Gradient 校正使用自适应阻尼
 
@@ -151,7 +151,7 @@ def hcg_correct(noise_pred, model, x, t, device, kappa_target=10.0):
     # Step 2: 计算自适应阻尼参数
     # λ_t = max(0, (α_t - κ_* * β_t) / (κ_* - 1))
     # 确保 κ(H_sym + λ_t I) ≤ κ_*
-    lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+    lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_star)
 
     # Step 3: 计算谱半径缩放因子
     # c_t = 1 / (α_t + λ_t) = 1 / (λ_max + λ_t)
@@ -258,7 +258,7 @@ def adaptive_damping_function(condition_number, method='adaptive'):
 新的实现使用基于特征值的自适应阻尼公式：
 
 ```python
-def adaptive_damping_lambda(alpha_t, beta_t, kappa_target=10.0):
+def adaptive_damping_lambda(alpha_t, beta_t, kappa_star=10.0):
     """
     计算自适应阻尼参数 λ_t
 
@@ -271,16 +271,16 @@ def adaptive_damping_lambda(alpha_t, beta_t, kappa_target=10.0):
 
     这个公式确保: κ(H_sym + λ_t I) ≤ κ_*
     """
-    if kappa_target <= 1.0:
-        raise ValueError(f"kappa_target must be > 1, got {kappa_target}")
+    if kappa_star <= 1.0:
+        raise ValueError(f"kappa_star must be > 1, got {kappa_star}")
 
     kappa_current = alpha_t / (beta_t + 1e-8)
 
-    if kappa_current <= kappa_target:
+    if kappa_current <= kappa_star:
         return 0.0  # 无需阻尼
 
-    numerator = alpha_t - kappa_target * beta_t
-    denominator = kappa_target - 1.0
+    numerator = alpha_t - kappa_star * beta_t
+    denominator = kappa_star - 1.0
 
     lambda_t = max(0.0, numerator / denominator)
     return lambda_t
@@ -432,7 +432,7 @@ class DPMSolverMultistepHCGScheduler:
 configs = {
     'adaptive': {  # 最新推荐配置
         'use_hcg': True,
-        'kappa_target': 10.0,  # 目标条件数
+        'kappa_star': 10.0,  # 目标条件数
         'lanczos_k': 10,      # Lanczos 迭代次数
         'cg_max_iter': 20,    # CG 最大迭代次数
         'cg_tol': 1e-4,       # CG 容忍度
@@ -452,7 +452,7 @@ scheduler = DPMSolverMultistepHCGScheduler(
     solver_order=2,
     algorithm_type="dpmsolver++",
     use_hcg=True,                    # 启用 HCG 校正
-    kappa_target=10.0,               # 目标条件数
+    kappa_star=10.0,               # 目标条件数
     lanczos_k=10,                    # Lanczos 迭代次数
     cg_max_iter=20,                  # CG 最大迭代次数
     cg_tol=1e-4,                     # CG 容忍度
@@ -772,7 +772,7 @@ corrected_noise = corrected_noise * (||noise_pred|| / ||corrected_noise||)
 ### 3.3 代码实现关键部分
 
 ```python
-def hcg_correct(noise_pred, model, x, t, kappa_target=10.0, ...):
+def hcg_correct(noise_pred, model, x, t, kappa_star=10.0, ...):
     # 1. Hessian-Vector Product 函数
     def hessian_vector_product(v):
         # Pearlmutter 方法计算 Hv
@@ -794,7 +794,7 @@ def hcg_correct(noise_pred, model, x, t, kappa_target=10.0, ...):
     )
 
     # 3. 自适应阻尼
-    lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+    lambda_t = adaptive_damping_lambda(alpha_t, beta_t, kappa_star)
 
     # 4. 谱半径缩放
     c_t = 1.0 / (alpha_t + lambda_t + 1e-8)
@@ -821,7 +821,7 @@ def hcg_correct(noise_pred, model, x, t, kappa_target=10.0, ...):
 
 ### 3.4 参数说明
 
-- **`kappa_target`**: 目标条件数（通常 5.0-20.0，默认 10.0）
+- **`kappa_star`**: 目标条件数（通常 5.0-20.0，默认 10.0）
 - **`lanczos_k`**: Lanczos 迭代次数（通常 5-20）
 - **`cg_max_iter`**: CG 最大迭代次数（通常 10-30）
 - **`cg_tol`**: CG 收敛容忍度（通常 1e-4 到 1e-3）
@@ -887,7 +887,7 @@ if self.use_hcg and self.model is not None:
         model=self.model,
         x=sample,
         t=timestep,
-        kappa_target=self.kappa_target,
+        kappa_star=self.kappa_star,
         lanczos_k=self.lanczos_k,
         cg_max_iter=self.cg_max_iter,
         cg_tol=self.cg_tol,

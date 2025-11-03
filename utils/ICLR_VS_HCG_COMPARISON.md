@@ -180,7 +180,7 @@ num_vectors = 2  # 使用多个随机向量进行鲁棒估计
 
 #### **我们的 HCG 实现**
 ```python
-lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_star)
 lambda_t = lambda_scale * lambda_t_base
 ```
 
@@ -343,7 +343,7 @@ eigenvalue_cache_interval = 5  # 对应文档的 r
 修改后，建议运行以下验证：
 
 1. **验证 `κ(A_t) ≤ κ_*`**：
-   - 检查 `kappa_regularized_history` 是否大多数时间 ≤ `kappa_target`
+   - 检查 `kappa_regularized_history` 是否大多数时间 ≤ `kappa_star`
    - 特别关注使用 `r > 1` 时，剧烈变化阶段是否略微超出
 
 2. **验证 CG 收敛预测**：

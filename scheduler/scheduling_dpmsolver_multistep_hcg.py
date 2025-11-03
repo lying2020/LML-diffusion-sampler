@@ -452,7 +452,7 @@ def lanczos_eigenvalue_estimation(
 def adaptive_damping_lambda(
     alpha_t: torch.Tensor,
     beta_t: torch.Tensor,
-    kappa_target: float = 10.0
+    kappa_star: float = 10.0
 ) -> torch.Tensor:
     f"""
     Compute adaptive damping parameter lambda_t based on condition number.
@@ -467,24 +467,17 @@ def adaptive_damping_lambda(
     Args:
         alpha_t: Maximum eigenvalue (lambda_max)
         beta_t: Minimum eigenvalue (lambda_min)
-        kappa_target: Target condition number \kappa_* (>1)
+        kappa_star: Target condition number \kappa_* (>1)
 
     Returns:
         lambda_t: Adaptive damping parameter (base value, unscaled)
     """
-    if kappa_target <= 1.0:
-        raise ValueError(f"kappa_target must be > 1, got {kappa_target}")
-
-    # Current condition number
-    kappa_current = alpha_t / (beta_t + 1e-8)
-
-    if kappa_current <= kappa_target:
-        # No damping needed
-        return torch.tensor(0.0, dtype=alpha_t.dtype, device=alpha_t.device)
+    if kappa_star <= 1.0:
+        raise ValueError(f"kappa_star must be > 1, got {kappa_star}")
 
     # Compute adaptive damping
-    numerator = alpha_t - kappa_target * beta_t
-    denominator = kappa_target - 1.0
+    numerator = alpha_t - kappa_star * beta_t
+    denominator = kappa_star - 1.0
 
     lambda_t = torch.maximum(
         torch.tensor(0.0, dtype=alpha_t.dtype, device=alpha_t.device),
@@ -592,31 +585,15 @@ def hessian_free_correct(model, x_sample, t_timestep, noise_pred, lamb=1.0):
     Solves H^{-1}g using conjugate gradient without explicit Hessian
     """
 
-    batch_size, channels, height, width = noise_pred.shape
-
-    def hessian_vector_product(v):
-        """Compute Hv using Pearlmutter's method"""
-        # Ensure v requires grad
-        v_grad = v.clone().detach().requires_grad_(True)
-        x_grad = x_sample.clone().detach().requires_grad_(True)
-
-        with torch.enable_grad():
-            score_pred = model(x_grad, t_timestep)
-            if hasattr(score_pred, 'sample'):
-                score_pred = score_pred.sample
-            log_prob = -0.5 * torch.sum(score_pred ** 2, dim=(1, 2, 3))
-            log_prob = log_prob.sum()
-
-        # First gradient
-        grad = torch.autograd.grad(log_prob, x_grad, create_graph=True)[0]
-
-        # Hv = ∇(∇f · v)
-        grad_dot_v = torch.sum(grad * v_grad)
-        hv = torch.autograd.grad(grad_dot_v, x_grad, retain_graph=True)[0]
-        return hv
+    def hessian_vector_product_with_reg(v):
+        """Compute (H + λI)v using the global hessian_vector_product function"""
+        # Use the global hessian_vector_product which handles flash attention
+        Hv = hessian_vector_product(model, x_sample, t_timestep, v, method="reverse-over-reverse")
+        # Add regularization: (H + λI)v = Hv + λ * v
+        return Hv + lamb * v
 
     def cg_solve(b, max_iter=20, tol=1e-4):
-        """Solve Hx = b using CG"""
+        """Solve (H + λI)x = b using CG"""
         x_cg = torch.zeros_like(b)
         r = b.clone()
         p = r.clone()
@@ -624,11 +601,14 @@ def hessian_free_correct(model, x_sample, t_timestep, noise_pred, lamb=1.0):
         r_norm_sq = torch.sum(r ** 2)
         r_norm_0 = torch.sqrt(r_norm_sq)
 
+        if r_norm_0 < 1e-10:
+            return x_cg
+
         for i in range(max_iter):
-            Hp = hessian_vector_product(p)
+            Hp = hessian_vector_product_with_reg(p)
             p_Hp = torch.sum(p * Hp)
 
-            if p_Hp <= 0:
+            if p_Hp <= 1e-10:
                 break
 
             alpha = r_norm_sq / p_Hp
@@ -641,18 +621,16 @@ def hessian_free_correct(model, x_sample, t_timestep, noise_pred, lamb=1.0):
             if r_norm < tol * r_norm_0:
                 break
 
-            beta = r_norm_sq_new / r_norm_sq
-            p = r + beta * p
-            r_norm_sq = r_norm_sq_new
+            if i < max_iter - 1:
+                beta = r_norm_sq_new / (r_norm_sq + 1e-10)
+                p = r + beta * p
+                r_norm_sq = r_norm_sq_new
 
         return x_cg
 
-    # Solve H^{-1} * noise_pred using CG
-    # We want to solve Hx = noise_pred, so x = H^{-1} * noise_pred
+    # Solve (H + λI)^{-1} * noise_pred using CG
+    # We want to solve (H + λI)x = noise_pred, so x = (H + λI)^{-1} * noise_pred
     corrected_noise = cg_solve(noise_pred)
-
-    # Add regularization
-    corrected_noise = corrected_noise / (1.0 + lamb)
 
     # Normalize
     norm = torch.sqrt((noise_pred * noise_pred).sum(dim=(1, 2, 3), keepdim=True))
@@ -669,7 +647,7 @@ def hcg_correct(
     x_sample: torch.Tensor,
     t_timestep: int,
     device: str = 'cuda',
-    kappa_target: float = 10.0,
+    kappa_star: float = 10.0,
     lanczos_k: int = 10,
     cg_max_iter: int = 20,
     cg_tol: float = 1e-4,
@@ -706,7 +684,7 @@ def hcg_correct(
         x: Current sample
         t: Current timestep
         device: Device to use
-        kappa_target: Target condition number κ_*
+        kappa_star: Target condition number κ_*
         lanczos_k: Number of Lanczos iterations for eigenvalue estimation
         cg_max_iter: Maximum CG iterations
         cg_tol: CG tolerance
@@ -769,7 +747,7 @@ def hcg_correct(
     with profile("adaptive_damping_compute", get_profiler()):
         lambda_t_base = 0.0
     if use_adaptive_lambda:
-        lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_target)
+        lambda_t_base = adaptive_damping_lambda(alpha_t, beta_t, kappa_star)
         lambda_t = lambda_scale * lambda_t_base
     else:
         lambda_t = lambda_base
@@ -844,7 +822,7 @@ def hcg_correct(
         'lambda_t': lambda_t_val,
         'kappa_original': kappa_original,  # κ(H_sym) = α_t / β_t
         'kappa_regularized': kappa_regularized,  # κ(A_t) = (α_t + λ_t) / (β_t + λ_t)
-        'kappa_target': kappa_target,
+        'kappa_star': kappa_star,
         'c_t': c_t.item() if isinstance(c_t, torch.Tensor) else c_t,
         'cg_iterations': cg_iterations,  # k_obs: actual CG iterations
         'cg_final_residual': cg_final_residual,  # ||r^(k)|| / ||r^(0)||
@@ -954,7 +932,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
 
         '''
             use_hcg: bool = True,
-            kappa_target: float = 20.0,  # Increased from 10.0 for better performance
+            kappa_star: float = 20.0,  # Increased from 10.0 for better performance
             lanczos_k: int = 5,  # Reduced from 10 for faster computation
             cg_max_iter: int = 5,  # Reduced from 20 for faster computation
             cg_tol: float = 1e-3,  # Balanced: tighter than 1e-2 for better convergence, but not as strict as 1e-4
@@ -989,7 +967,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
                 return getattr(self.args_cfg, para, default_value)
 
         self.use_hcg = set_args('use_hcg', True)
-        self.kappa_target = set_args('kappa_target', 20.0)
+        self.kappa_star = set_args('kappa_star', 20.0)
         self.lanczos_k = set_args('lanczos_k', 5)
         self.cg_max_iter = set_args('cg_max_iter', 5)
         self.cg_tol = set_args('cg_tol', 1e-3)
@@ -1116,7 +1094,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             x_sample=sample,
             t_timestep=timestep,
             device=sample.device,
-            kappa_target=self.kappa_target,
+            kappa_star=self.kappa_star,
             lanczos_k=self.lanczos_k,
             cg_max_iter=self.cg_max_iter,
             cg_tol=self.cg_tol,
@@ -1163,7 +1141,7 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         self.hcg_intermediate_vars['lambda_t_history'].append(stats['lambda_t'])
         self.hcg_intermediate_vars['kappa_original_history'].append(stats['kappa_original'])
         self.hcg_intermediate_vars['kappa_regularized_history'].append(stats['kappa_regularized'])
-        self.hcg_intermediate_vars['kappa_target_history'].append(stats['kappa_target'])
+        self.hcg_intermediate_vars['kappa_target_history'].append(stats['kappa_star'])
         self.hcg_intermediate_vars['c_t_history'].append(stats['c_t'])
         self.hcg_intermediate_vars['cg_iterations_history'].append(stats['cg_iterations'])  # k_obs
         self.hcg_intermediate_vars['cg_final_residual_history'].append(stats['cg_final_residual'])

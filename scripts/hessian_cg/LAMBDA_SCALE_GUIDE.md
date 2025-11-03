@@ -159,7 +159,7 @@ done
 ## 七、注意事项
 
 1. **lambda_scale 不是越大越好**：过大的 scale 会导致过阻尼，采样质量可能下降
-2. **与 kappa_target 的交互**：调整 `kappa_target` 也会影响 `lambda_t_base` 的范围
+2. **与 kappa_star 的交互**：调整 `kappa_star` 也会影响 `lambda_t_base` 的范围
 3. **不同步数的差异**：不同采样步数可能需要不同的 `lambda_scale`
 4. **数据集相关**：不同数据集的最优 `lambda_scale` 可能不同
 

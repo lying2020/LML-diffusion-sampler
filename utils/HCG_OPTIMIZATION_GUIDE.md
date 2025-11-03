@@ -196,14 +196,14 @@ def fast_hessian_vector_product(v, model, x, t, eps=1e-3):
 
 **解决方案**:
 - **lambda_scale**: 当前默认 1.0，可能应该更小（0.1-0.5）
-- **kappa_target**: 当前 10.0，可以尝试 20-50（允许更大条件数）
+- **kappa_star**: 当前 10.0，可以尝试 20-50（允许更大条件数）
 - **lanczos_k**: 降低到 3-5
 - **cg_max_iter**: 降低到 5-10
 - **cg_tol**: 放宽到 1e-2 或 1e-3
 
 **建议的默认值**:
 ```python
-kappa_target = 20.0  # 从 10.0 增加到 20.0，减少过度正则化
+kappa_star = 20.0  # 从 10.0 增加到 20.0，减少过度正则化
 lambda_scale = 0.3  # 从 1.0 降低到 0.3，减少阻尼
 lanczos_k = 3  # 从 10 降低到 3
 num_vectors = 1  # 从 3 降低到 1
@@ -234,7 +234,7 @@ self.cache_interval = 5
 
 3. **调整超参数范围**
 ```python
-kappa_target: float = 20.0,  # 增加
+kappa_star: float = 20.0,  # 增加
 lambda_scale: float = 0.3,  # 降低
 ```
 
@@ -289,7 +289,7 @@ configs = [
 ### 6.1 快速模式（追求速度）
 ```python
 use_hcg = True
-kappa_target = 30.0
+kappa_star = 30.0
 lambda_scale = 0.2
 lanczos_k = 3
 num_vectors = 1
@@ -303,7 +303,7 @@ cache_interval = 5
 ### 6.2 平衡模式（速度与质量平衡）
 ```python
 use_hcg = True
-kappa_target = 20.0
+kappa_star = 20.0
 lambda_scale = 0.3
 lanczos_k = 5
 num_vectors = 2
@@ -317,7 +317,7 @@ cache_interval = 3
 ### 6.3 高质量模式（追求最佳效果）
 ```python
 use_hcg = True
-kappa_target = 15.0
+kappa_star = 15.0
 lambda_scale = 0.5
 lanczos_k = 7
 num_vectors = 2
