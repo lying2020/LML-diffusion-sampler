@@ -18,9 +18,9 @@ import matplotlib
 matplotlib.use('Agg')
 
 sys.path.append(os.getcwd())
-import project as project
 
-plot_results_dir = os.path.join(project.output_dir, "plots")
+current_path = os.path.dirname(os.path.abspath(__file__))
+plot_results_dir = os.path.join(current_path, "results")
 
 # Set matplotlib parameters for ICLR paper format
 plt.rcParams.update({

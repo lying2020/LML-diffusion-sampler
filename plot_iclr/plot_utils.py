@@ -57,7 +57,7 @@ default_image_info = {
     'x_axis_shift': 0.5,
     'step_denominator': 20,
     # X轴和Y轴标签的间距（用于避免标签被遮挡）
-    'xlabel_pad': 15,  # 增加 x 轴标签与轴的距离
+    'xlabel_pad': 10,  # 增加 x 轴标签与轴的距离
     'ylabel_pad': 10,  # y 轴标签与轴的距离
     # 数据相关配置（需要在各个 plot 文件中覆盖）
     'save_title': '',  # 必须提供

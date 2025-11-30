@@ -17,7 +17,6 @@ import glob
 from datetime import datetime
 import numpy as np
 from PIL import Image
-import cv2
 from scipy import stats
 from sklearn.metrics.pairwise import cosine_similarity
 import matplotlib.pyplot as plt
@@ -35,7 +34,6 @@ try:
     PROFILING_AVAILABLE = True
 except ImportError:
     PROFILING_AVAILABLE = False
-from evaluations.celeba_eva import evaluate_images
 import project as project
 
 celeba_model_path = "/home/liying/Documents/ldm-celebahq-256/"
@@ -48,14 +46,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=1)
+    parser.add_argument('--test_num', type=int, default=50)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=20, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
+    parser.add_argument('--num_inference_steps', type=int, default=200, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
 
     parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
-    parser.add_argument('--seed', type=int, default=102)
+    parser.add_argument('--seed', type=int, default=302)
 
     # Sampler selection
     parser.add_argument('--sampler_type', type=str, default='dpm_hcg',
@@ -107,6 +105,11 @@ def parse_args():
     parser.add_argument('--use_ema_smoothing', type=bool, default=True, help='Use EMA smoothing like LML (default: False)')
     parser.add_argument('--ema_kappa', type=float, default=1e-8, help='EMA smoothing factor kappa, same as LML kappa (default: 1e-8)')
 
+    # Batch processing options
+    parser.add_argument('--run_batch', action='store_true', default=True, help='Run batch experiments with multiple samplers and steps')
+    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'], help='List of samplers to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[20, 50, 200], help='List of inference steps to test in batch mode')
+
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', default=False, help='Run evaluation metrics')
     parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
@@ -122,11 +125,6 @@ def parse_args():
 
     # Logging options
     parser.add_argument('--log_dir', type=str, default=None, help='Directory to save log files (default: output/logs)')
-
-    # Batch processing options
-    parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
-    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'], help='List of samplers to test in batch mode')
-    parser.add_argument('--run_batch_steps', type=int, default=[20, 50, 200], help='List of inference steps to test in batch mode')
 
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
@@ -196,6 +194,23 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         raise ValueError(f"Unknown sampler type: {sampler_type}")
 
 def setup_scheduler_hcg(pipe, args):
+    # 获取原始配置并过滤掉运行时状态属性（避免警告）
+    original_config = pipe.scheduler.config
+    config_dict = {
+        k: v for k, v in original_config.items()
+        if k not in ['timestep_values', 'timesteps']  # 移除这些运行时状态属性
+    }
+
+    pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(config_dict)
+    pipe.scheduler.config.algorithm_type = "dpmsolver"
+    pipe.scheduler.config.solver_order = 3
+    pipe.scheduler.lamb = args.lamb
+    pipe.scheduler.lm = True
+    pipe.scheduler.kappa = args.kappa
+    pipe.scheduler.model = None
+    project.info(f"  Using DPM-Solver with LML correction (λ={args.lamb}, κ={args.kappa})")
+
+    return
     """Setup the HCG scheduler"""
     # 获取原始配置并过滤掉不需要的属性（避免警告）
     original_config = pipe.scheduler.config
@@ -424,6 +439,8 @@ def generate_images(results_save_dir, args, pipe):
     # Evaluate images if requested
     evaluation_results = None
     if args.evaluate and all_images:
+        # Lazy import to avoid Qt errors when evaluation is not needed
+        from evaluations.celeba_eva import evaluate_images
         evaluation_results = evaluate_images(all_images, args.sampler_type)
 
     return {

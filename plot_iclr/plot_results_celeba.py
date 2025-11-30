@@ -17,6 +17,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import matplotlib
 matplotlib.use('Agg')
 
+current_path = os.path.dirname(os.path.abspath(__file__))
+save_results_dir = os.path.join(current_path, "results")
+
 # Set matplotlib parameters for ICLR paper format
 plt.rcParams.update({
     'font.size': 14,
@@ -88,7 +91,7 @@ class ICLRFIDPlotter:
             'HILDA (Ours)': 'o'  # 圆形标记
         }
 
-    def plot_fid_results(self, save_dir='output/zigzag_cg_hessian'):
+    def plot_fid_results(self, save_dir=save_results_dir):
         """绘制FID结果折线图"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -174,7 +177,7 @@ class ICLRFIDPlotter:
 
         return save_path
 
-    def plot_fid_results_log_scale(self, save_dir='output/zigzag_cg_hessian'):
+    def plot_fid_results_log_scale(self, save_dir=save_results_dir):
         """绘制对数尺度的FID结果折线图（更符合论文格式）"""
         os.makedirs(save_dir, exist_ok=True)
 
@@ -261,7 +264,7 @@ class ICLRFIDPlotter:
 
         return save_path
 
-    def generate_fid_report(self, save_dir='output/zigzag_cg_hessian'):
+    def generate_fid_report(self, save_dir=save_results_dir):
         """生成FID结果报告"""
         os.makedirs(save_dir, exist_ok=True)
 
