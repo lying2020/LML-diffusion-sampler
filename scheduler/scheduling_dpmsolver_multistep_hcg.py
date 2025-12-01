@@ -442,7 +442,7 @@ def lanczos_eigenvalue_estimation(
     # Ensure positive definiteness with improved lower bound for numerical stability
     # Higher beta_min improves condition number control and numerical stability
     # Previously: 1e-6, now: 1e-5 (10x larger) to prevent extremely large condition numbers
-    beta_min = 1e-5  # Increased from 1e-6 for better numerical stability
+    beta_min = 1.0e-8  # Increased from 1e-6 for better numerical stability
     beta_t = torch.clamp(beta_t, min=beta_min)
     alpha_t = torch.clamp(alpha_t, min=beta_t.item())
 
@@ -703,7 +703,7 @@ def hcg_correct(
     batch_size, channels, height, width = noise_pred.shape
 
     # Step 1: Estimate eigenvalues using Lanczos (with caching if enabled)
-    beta_min = 1e-5  # Minimum eigenvalue lower bound for numerical stability
+    beta_min = 1e-8  # Minimum eigenvalue lower bound for numerical stability
 
     if unuse_lanczos_estimation:
         # For debugging: use fixed eigenvalues
@@ -714,7 +714,9 @@ def hcg_correct(
         alpha_t, beta_t = cached_eigenvalues
         # Ensure cached values also respect the minimum bound
         beta_t = torch.clamp(beta_t, min=beta_min)
-        alpha_t = torch.clamp(alpha_t, min=beta_t.item())
+        # Ensure alpha_t >= beta_t (max eigenvalue >= min eigenvalue)
+        beta_t_val = beta_t.item() if isinstance(beta_t, torch.Tensor) else beta_t
+        alpha_t = torch.clamp(alpha_t, min=beta_t_val)
     else:
         try:
             with profile("lanczos_eigenvalue_estimation", get_profiler()):
@@ -767,7 +769,7 @@ def hcg_correct(
     # Log statistics if requested (for understanding lambda_t range)
     if log_lambda_stats:
         lambda_t_item = lambda_t.item() if isinstance(lambda_t, torch.Tensor) else lambda_t
-        print(f"[HCG lambda stats] t={t_timestep}, alpha_t={alpha_t_val:.6f}, beta_t={beta_t_val:.6f}, "
+        print(f"[HCG lambda stats] t={t_timestep}, alpha_t={alpha_t_val:.6f}, beta_t={beta_t_val:.9f}, "
               f"kappa_original={kappa_original:.2f}, kappa_regularized={kappa_regularized:.2f}, "
               f"lambda_t={lambda_t_item:.6f}, "
               f"use_adaptive_lambda={use_adaptive_lambda}, lambda_base={lambda_base:.4f}, lambda_scale={lambda_scale:.4f}")
@@ -997,7 +999,8 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         self.eigenvalue_cache_interval = set_args('eigenvalue_cache_interval', 4)
         self.enable_eigenvalue_cache = set_args('enable_eigenvalue_cache', True)
         self.prev_cg_solution = None  # Cache for CG initial guess
-        self.eigenvalue_cache = {}
+        self.eigenvalue_cache = {}  # Stores: {timestep: (last_estimated_timestep, eigenvalues)}
+        self.last_eigenvalue_estimation_timestep = None  # Track when eigenvalues were last estimated
         self.model = None  # Will be set during sampling
         self.prev_noise = None
 
@@ -1082,11 +1085,15 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
             return corrected_noise
 
         cached_eigs = None
-        if self.enable_eigenvalue_cache and timestep in self.eigenvalue_cache:
-            # Check if cache is still valid (within interval)
-            cached_t, (alpha_cached, beta_cached) = self.eigenvalue_cache[timestep]
-            if abs(timestep - cached_t) < self.eigenvalue_cache_interval:
-                cached_eigs = (alpha_cached, beta_cached)
+        if self.enable_eigenvalue_cache:
+            # Check if we can reuse cached eigenvalues from a nearby timestep
+            # Find the closest cached timestep within the cache interval
+            if self.last_eigenvalue_estimation_timestep is not None:
+                timestep_diff = abs(timestep - self.last_eigenvalue_estimation_timestep)
+                if timestep_diff < self.eigenvalue_cache_interval:
+                    # Use cached eigenvalues if within interval
+                    if self.last_eigenvalue_estimation_timestep in self.eigenvalue_cache:
+                        _, cached_eigs = self.eigenvalue_cache[self.last_eigenvalue_estimation_timestep]
 
         corrected_noise, eigenvalues, cg_solution, stats = hcg_correct(
             noise_pred=noise,
@@ -1119,8 +1126,11 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         )
 
         # Cache eigenvalues and CG solution for next step
-        if self.enable_eigenvalue_cache:
+        # Only cache if eigenvalues were actually estimated (not from cache or fixed values)
+        if self.enable_eigenvalue_cache and cached_eigs is None:
+            # Only cache when we actually estimated eigenvalues (not using cache or fixed values)
             self.eigenvalue_cache[timestep] = (timestep, eigenvalues)
+            self.last_eigenvalue_estimation_timestep = timestep
         self.prev_cg_solution = cg_solution
 
         # Save intermediate variables and statistics (if enabled)
@@ -1241,6 +1251,8 @@ class DPMSolverMultistepHCGScheduler(SchedulerMixin, ConfigMixin):
         # Clear caches when timesteps are reset
         if hasattr(self, 'eigenvalue_cache'):
             self.eigenvalue_cache.clear()
+        if hasattr(self, 'last_eigenvalue_estimation_timestep'):
+            self.last_eigenvalue_estimation_timestep = None
         if hasattr(self, 'prev_cg_solution'):
             self.prev_cg_solution = None
 
