@@ -1,0 +1,67 @@
+
+
+\begin{table}[t]
+\centering
+\caption{FID ($\downarrow$) on MS-COCO-14 prompts.}
+\label{tab:fid_coco}
+\begin{tabular}{l|cccccccc}
+\hline
+Methods $\backslash$ NFEs
+    & \multicolumn{8}{c}{FID ($\downarrow$) on MS-COCO-14 prompts} \\
+\cline{2-9}
+& 5 & 6 & 8 & 10 & 12 & 15 & 20 & 30 \\
+\hline
+\multicolumn{9}{c}{SD-1.5} \\
+\hline
+DDIM [75]   & 29.14 & 27.11  & 22.36 & 21.22 & 19.91 & 19.36 & 16.20 & 13.11\\
+PNDM [50]   & 35.50 & 34.49 & 27.86 & 22.35 & 19.13 & 18.92 & 16.03 & 15.53\\
+DPM  [51]   & 22.07 & 20.58 & 19.64 & 19.34 & 19.30 & \underline{17.32} & 14.71 & 13.01\\
+DPM++ [52]  & 21.75 & \underline{20.14}  & \underline{19.32}
+            & \underline{19.13} & \underline{19.11} & 17.03 & 14.65 & 12.67 \\
+UniPC [91]  & \underline{21.72} & 20.30 & 19.67 & 19.40 & 19.41 & 19.29 & 15.48 & 12.01\\
+\textbf{HILDA (Ours)}
+            & \textbf{17.88} & \textbf{17.13} & \textbf{16.50}
+             & \textbf{16.30} & \textbf{16.05} & \textbf{15.48} & \textbf{13.04} & \textbf{10.33}\\
+\hline
+\multicolumn{9}{c}{SD2-base} \\
+\hline
+DDIM [75]   & 27.34 & 24.25 & 21.48 & 20.43 & 18.73 & 18.19 & 15.22 & 12.32 \\
+PNDM [50]   & 31.13 & 30.93 & 25.56 & 20.35 & \underline{17.39} & 16.47 & 15.26 & 14.27\\
+DPM  [51]   & 21.25 & 19.94 & 18.78 & 18.36 & 18.13 & \underline{15.84} & 13.45 & 11.90 \\
+DPM++ [52]  & 20.94 & 19.51  & \underline{18.43}
+            & \underline{18.06} & 17.86 & 15.99  & 14.57 & 10.85\\
+UniPC [91]  & 20.81 & 19.40 & 18.56 & 18.27 & 18.08 & 18.03 & 14.48 & 11.19 \\
+\textbf{HILDA (Ours)}
+            & \textbf{16.76} & \textbf{15.99} & \textbf{15.02}
+             & \textbf{14.95} & \textbf{14.76} & \textbf{14.14} &\textbf{12.28} &\textbf{9.89}\\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+
+
+\begin{table*}[t]
+    \centering
+    \footnotesize
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{0.9}
+    \begin{tabular}{l|cccccccccc}
+    \toprule
+    \multirow{2}{*}{Methods} & \multicolumn{10}{c}{FID (↓) on CIFAR-10 generation} \\
+    \cmidrule(lr){2-11}
+    & 5 NFEs & 6 NFEs & 7 NFEs & 8 NFEs & 9 NFEs & 10 NFEs & 12 NFEs & 15 NFEs & 20 NFEs & 30 NFEs \\
+    \midrule
+    DDIM [75] & 42.56 & 30.65 & 24.71 & 20.93 & 18.20 & 16.39 & 13.67 & 11.33 & 9.42  & 8.07 \\
+    PNDM [50] & 37.40 & 24.26 & 22.34 & 19.42 & 16.39 & 14.03 & 11.50 & 9.74 & 8.26  & 6.97 \\
+    DPM-Solver [51] & 32.63 & 22.56 & 17.21 & 14.21 & 12.46 & 11.14 & 9.34 & 5.12 & 4.12  & 3.75 \\
+    DPM-Solver++ [52] & 30.18 & 20.27 & 16.43 & 13.70 & 11.08 & 10.82 & 10.76 & 10.51 & 9.35 & 6.36 \\
+    UniPC [91] & 29.05 & 20.49 & 16.88 & 13.39 & 11.85 & 10.67 & 9.65 & 7.98 & 6.11 & 4.51 \\
+    \midrule
+    HILDA (Ours) & \textbf{16.81} & \textbf{13.34} & \textbf{10.67} & \textbf{7.98} & \textbf{7.40} & \textbf{6.24} & \textbf{5.87} & \textbf{4.78} & \textbf{4.02} & \textbf{3.38} \\
+    \bottomrule
+    \end{tabular}
+    \caption{Comparison of different samplers on FID score(↓) on CIFAR-10 unconditional generation. Best results are \textbf{bolded} and the second best results are underlined. The FID scores were obtained by generating 100,000 samples, and all samplers were tested using the same seeds on the same checkpoint. It is shown that our Hessian-Free always achieves the best FID across all different NFEs.}
+    \label{tab_cifar10_fid_comparison}
+\end{table*}
