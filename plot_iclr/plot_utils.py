@@ -136,10 +136,10 @@ data_info = {
         'total_timesteps': 5000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 6,
+        'linewidth': 5,
         'linestyle': 'solid',
         'marker': data_markers[5],
-        'markersize': 13,
+        'markersize': 10,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -153,10 +153,10 @@ data_info = {
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 6,
+        'linewidth': 3,
         'linestyle': 'dashed',
         'marker': data_markers[1],
-        'markersize': 13,
+        'markersize': 10,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -170,10 +170,10 @@ data_info = {
         'total_timesteps': 40000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 6,
+        'linewidth': 3,
         'linestyle': 'dashed',
         'marker': data_markers[0],
-        'markersize': 13,
+        'markersize': 10,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -187,10 +187,10 @@ data_info = {
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 6,
+        'linewidth': 3,
         'linestyle': 'dashed',
         'marker': data_markers[4],
-        'markersize': 13,
+        'markersize': 10,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -204,10 +204,10 @@ data_info = {
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 6,
+        'linewidth': 3,
         'linestyle': 'dashed',
         'marker': data_markers[3],
-        'markersize': 13,
+        'markersize': 10,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -221,10 +221,10 @@ data_info = {
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 6,
+        'linewidth': 3,
         'linestyle': 'dashed',
         'marker': data_markers[2],
-        'markersize': 13,
+        'markersize': 10,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -238,10 +238,10 @@ data_info = {
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 6,
+        'linewidth': 3,
         'linestyle': 'solid',
         'marker': data_markers[5],
-        'markersize': 13,
+        'markersize': 10,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -272,10 +272,10 @@ data_info = {
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 6,
+        'linewidth': 3,
         'linestyle': 'solid',
         'marker': data_markers[5],
-        'markersize': 13,
+        'markersize': 10,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -673,8 +673,10 @@ def configure_axes(ax, image_info, xticks=None, yticks=None, legend_handles=None
         图例句柄列表，如果提供则显示图例
     """
     # 设置标签
-    ax.set_xlabel(image_info['xlabel_name'], fontsize=image_info['fontsize'])
-    ax.set_ylabel(image_info['ylabel_name'][0], fontsize=image_info['fontsize'])
+    if image_info['xlabel_name'][0] != '':
+        ax.set_xlabel(image_info['xlabel_name'], fontsize=image_info['fontsize'])
+    if image_info['ylabel_name'][0] != '':
+        ax.set_ylabel(image_info['ylabel_name'][0], fontsize=image_info['fontsize'])
 
     # 设置范围
     x_boundary = image_info.get('x_boundary_shift', 0)

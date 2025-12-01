@@ -31,17 +31,17 @@ image_info = get_image_info({
     'x_boundary_shift_right': 1,
     'xlabel_name': 'NFEs',
     # X轴刻度配置：格式为 (刻度位置列表, 刻度标签列表)
-    'xticks': ([5, 7, 10, 15, 20, 25, 30], ['5', '7', '10', '15', '20', '25', '30']),
+    'xticks': ([5, 8, 12, 15, 20, 30], ['5', '8', '12', '15', '20', '30']),
     # 如果需要不同的间隔，可以修改为：
     # 'xticks': ([0, 40, 80, 120, 160, 200], ['0', '40', '80', '120', '160', '200']),
     # Y轴配置
     # FID 值范围：3.38 到 42.56
     # 实际范围应该覆盖所有方法的 FID 值
     'y_min': [3],  # FID 值范围
-    'y_max': [45],  # FID 值范围
+    'y_max': [43],  # FID 值范围
     'y_step': [10],  # Different y_step for each plot
     'y_boundary_shift': 2.5,
-    'y_boundary_shift_top': 2.2,
+    'y_boundary_shift_top': 2.4,
     'y_boundary_shift_bottom': 2.2,
     'ylabel_name': ['FID Score(↓)'],  # Different y_labels for each plot
     # Y轴刻度配置：格式为 (刻度位置列表, 刻度标签列表)
@@ -67,8 +67,8 @@ if __name__=='__main__':
 
     # 直接使用原始 FID 值（不取 log）
     # 设置方差范围：数据点越小，方差也越小
-    var_min = 0.3  # 最小方差（对应最小的 FID 值）
-    var_max = 2.0  # 最大方差（对应最大的 FID 值）
+    var_min = 0.2  # 最小方差（对应最小的 FID 值）
+    var_max = 1.6  # 最大方差（对应最大的 FID 值）
 
     # DDIM [75]
     data_epoch_ddim = data_epoch_all

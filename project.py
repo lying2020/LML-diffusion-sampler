@@ -163,13 +163,13 @@ def generate_experiment_summary(results_save_dir, args, experiment_results, star
 
 def generate_comparison_grid(results_save_dir, sampler_types, num_inference_steps=20, grid_test_num=6, grid_test_index=[], grid_title="COCO Generation Comparison"):
     """
-    生成类似截图的对比图组，6行多列展示不同采样方法的结果
+    生成类似截图的对比图组，方法作为行，相同图片的不同方法放在同一行
 
     Args:
         results_save_dir: 保存目录
         sampler_types: 采样器类型列表
         num_inference_steps: 推理步数
-        grid_test_num: 测试数量（行数）
+        grid_test_num: 测试图片数量（列数）
         grid_test_index: test pic grid index
         grid_title: 对比图组标题
     """
@@ -183,31 +183,50 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
 
     print(f"\n🎨 生成对比图组...")
     print(f"采样器: {sampler_types}")
-    print(f"行数: {grid_test_num}, 列数: {len(sampler_types)}")
+    print(f"行数（方法数）: {len(sampler_types)}, 列数（图片数）: {grid_test_num}")
     print(f"测试图片索引: {grid_test_index}")
 
-    # 创建图像网格
-    fig = plt.figure(figsize=(len(sampler_types) * 2.5, grid_test_num * 2.5))
-    gs = GridSpec(grid_test_num, len(sampler_types), figure=fig,
+    # 确定 HILDA 行的索引（如果存在）
+    lml_index = None
+    if 'dpm_hcg' in sampler_types:
+        # 优先使用，如果没有则使用dpm_lm
+        lml_index = sampler_types.index('dpm_hcg') if 'dpm_hcg' in sampler_types else sampler_types.index('dpm_lm')
+
+    # 创建图像网格：行 = 方法，列 = 测试图片
+    # 使用 height_ratios 来增加 HILDA 行前后的间距（1.5倍）
+    # 通过增加 HILDA 行前后行的高度，在视觉上形成更大的间距
+    height_ratios = [1.0] * len(sampler_types)
+    if lml_index is not None:
+        # 在 HILDA 行前后增加间距（通过增加这些行的高度比例）
+        # 只增加前后行的高度，HILDA 行本身保持正常高度
+        if lml_index > 0:
+            height_ratios[lml_index - 1] = 1.5  # HILDA 行前面的行，增加高度以形成更大间距
+        if lml_index < len(sampler_types) - 1:
+            height_ratios[lml_index + 1] = 1.5  # HILDA 行后面的行，增加高度以形成更大间距
+
+    fig = plt.figure(figsize=(grid_test_num * 2.5, len(sampler_types) * 2.5))
+    gs = GridSpec(len(sampler_types), grid_test_num, figure=fig,
                   hspace=0.1, wspace=0.05,
-                  left=0.05, right=0.95, top=0.95, bottom=0.05)
+                  left=0.05, right=0.95, top=0.95, bottom=0.05,
+                  height_ratios=height_ratios)
 
     # 方法名称映射
     method_names = {
         'ddim': 'DDIM',
         'ddim_lm': 'DDIM-LM',
         'pndm': 'PNDM',
-        'dpm': 'DPM-Solver',
-        'dpm++': 'DPM-Solver++',
+        'dpm': 'DPM',
+        'dpm++': 'DPM++',
         'unipc': 'UniPC',
         'dpm_lm': 'LML',
-        'dpm_hcg': 'HILDA (Ours)'
+        'dpm_hcg': 'HILDA\n(Ours)'
     }
 
     # 为每个采样器生成图像
     all_images = {}
+    max_images = 0
 
-    for col, sampler_type in enumerate(sampler_types):
+    for sampler_type in sampler_types:
         print(f"  生成 {sampler_type} 图像...")
 
         # 设置路径
@@ -217,24 +236,36 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         image_files = find_image_files(sampler_dir)
         if not image_files:
             print(f"  ⚠️  未找到 {sampler_type} 的图像文件")
+            all_images[sampler_type] = []
             continue
 
-        grid_test_num = min(grid_test_num, len(image_files))
-        # 按文件名排序，取前test_num个
+        # 按文件名排序
         image_files.sort()
-        selected_images = image_files[:grid_test_num]
-        if grid_test_index and max(grid_test_index) < grid_test_num:
-            selected_images = [image_files[i] for i in grid_test_index]
-        all_images[sampler_type] = selected_images
+        max_images = max(max_images, len(image_files))
+        all_images[sampler_type] = image_files
 
-    # 绘制图像网格
-    for row in range(grid_test_num):
-        for col, sampler_type in enumerate(sampler_types):
+    # 确定实际要显示的图片数量和索引
+    if grid_test_index and len(grid_test_index) > 0:
+        # 使用指定的索引
+        actual_test_num = len(grid_test_index)
+        pic_indices = grid_test_index
+    else:
+        # 使用前 grid_test_num 个图片
+        actual_test_num = min(grid_test_num, max_images)
+        pic_indices = list(range(actual_test_num))
+
+    # 绘制图像网格：行 = 方法，列 = 测试图片
+
+    for row, sampler_type in enumerate(sampler_types):
+        for col in range(actual_test_num):
             ax = fig.add_subplot(gs[row, col])
 
-            if sampler_type in all_images and row < len(all_images[sampler_type]):
+            # 获取图片索引
+            pic_idx = pic_indices[col]
+
+            if sampler_type in all_images and pic_idx < len(all_images[sampler_type]):
                 # 加载并显示图像
-                img_path = all_images[sampler_type][row]
+                img_path = all_images[sampler_type][pic_idx]
                 try:
                     img = Image.open(img_path)
                     ax.imshow(img)
@@ -251,28 +282,25 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
             ax.set_yticks([])
             ax.axis('off')
 
-            # 添加列标题（只在第一行）
-            if row == 0:
+            # 添加行标题（方法名称，只在第一列）
+            if col == 0:
                 method_name = method_names.get(sampler_type, sampler_type)
-                ax.set_title(method_name, fontsize=12, fontweight='bold', pad=10)
+                # 字体大小加倍：从 12 改为 24
+                # 使用 figure 坐标系来定位文字，确保在可见区域内
+                bbox = ax.get_position()
+                # 文字位置：在 subplot 左侧外部，使用 figure 坐标系
+                text_x = bbox.x0 - 0.01  # 在 subplot 左侧稍微偏左
+                text_y = bbox.y0 + bbox.height / 2  # subplot 的垂直中心
 
-            # # 添加行标签（只在第一列）
-            # if col == 0:
-            #     ax.text(-0.15, 0.5, f'Row {row+1}', ha='center', va='center',
-            #            transform=ax.transAxes, fontsize=10, rotation=90)
+                # 如果是 HILDA 行，文字使用深色（因为背景只在图像区域）
+                text_color = 'black'
 
-    # 添加分隔线（在LML或HILDA列后）
-    if 'dpm_lm' in sampler_types or 'dpm_hcg' in sampler_types:
-        # 优先使用，如果没有则使用dpm_lm
-        lml_index = sampler_types.index('dpm_hcg') if 'dpm_hcg' in sampler_types else sampler_types.index('dpm_lm')
-        if lml_index < len(sampler_types) - 1:
-            # 在LML/HILDA列后添加垂直分隔线
-            for row in range(grid_test_num):
-                ax = fig.add_subplot(gs[row, lml_index])
-                # 添加右侧边框
-                ax.add_patch(patches.Rectangle((0.95, 0), 0.05, 1,
-                                             transform=ax.transAxes,
-                                             facecolor='black', alpha=0.3))
+                # 在 figure 上添加文字
+                fig.text(text_x, text_y, method_name,
+                        ha='right', va='center',
+                        fontsize=24, fontweight='bold',
+                        color=text_color, zorder=200)
+
 
     # 设置整体标题
     # fig.suptitle(f'{grid_title} (Steps: {num_inference_steps})',

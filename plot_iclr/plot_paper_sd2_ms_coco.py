@@ -43,7 +43,8 @@ image_info = get_image_info({
     'y_boundary_shift': 1.5,
     'y_boundary_shift_top': 1.2,
     'y_boundary_shift_bottom': 0.6,
-    'ylabel_name': ['FID Score(↓)'],  # Different y_labels for each plot
+    # 'ylabel_name': ['FID Score(↓)'],  # Different y_labels for each plot
+    'ylabel_name': [''],  # Different y_labels for each plot
     # Y轴刻度配置：格式为 (刻度位置列表, 刻度标签列表)
     'yticks': ([10, 20, 30], ['10', '20', '30']),
     # 如果需要不同的间隔，可以修改为：
