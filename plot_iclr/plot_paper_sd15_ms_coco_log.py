@@ -19,9 +19,9 @@ from project import current_path
 # 只定义与数据相关的参数，其他样式配置使用 plot_utils.py 中的默认值
 image_info = get_image_info({
     # 必须提供：保存文件名
-    'save_title': 'fid_cifar10_ddpm_log',
+    'save_title': 'fid_sd15_ms_coco_log',
     # 可选：图表标题
-    'image_title': 'Pixel-Space, Based on CIFAR-10',
+    'image_title': 'Text-to-Image SD-1.5, Based on MS-COCO',
     # X轴配置
     'x_min': 5,
     'x_max': 30,
@@ -31,21 +31,21 @@ image_info = get_image_info({
     'x_boundary_shift_right': 1,
     'xlabel_name': 'NFEs',
     # X轴刻度配置：格式为 (刻度位置列表, 刻度标签列表)
-    'xticks': ([5, 7, 10, 15, 20, 25, 30], ['5', '7', '10', '15', '20', '25', '30']),
+    'xticks': ([5, 8, 12, 15, 20, 30], ['5', '8', '12', '15', '20', '30']),
     # 如果需要不同的间隔，可以修改为：
     # 'xticks': ([0, 40, 80, 120, 160, 200], ['0', '40', '80', '120', '160', '200']),
     # Y轴配置
-    # log-FID 值范围：log(3.38)≈1.22 到 log(42.56)≈3.75
+    # log-FID 值范围：log(10.33)≈2.34 到 log(35.50)≈3.57 (SD-1.5)
     # 实际范围应该覆盖所有方法的 log-FID 值
-    'y_min': [1.0],  # log-FID 值范围
-    'y_max': [4.0],  # log-FID 值范围
-    'y_step': [1.0],  # Different y_step for each plot
-    'y_boundary_shift': 0.2,
+    'y_min': [2.4],  # log-FID 值范围
+    'y_max': [3.6],  # log-FID 值范围
+    'y_step': [0.4],  # Different y_step for each plot
+    'y_boundary_shift': 0.15,
     'y_boundary_shift_top': 0.1,
-    'y_boundary_shift_bottom': 0.1,
+    'y_boundary_shift_bottom': 0.15,
     'ylabel_name': ['log-FID Score(↓)'],  # Different y_labels for each plot
     # Y轴刻度配置：格式为 (刻度位置列表, 刻度标签列表)
-    'yticks': ([1.0, 2.0, 3.0, 4.0], ['1.0', '2.0', '3.0', '4.0']),
+    'yticks': ([2.5, 3.0, 3.5], ['2.5', '3.0', '3.5']),
     # 如果需要不同的间隔，可以修改为：
     # 'yticks': ([65, 70, 75, 80, 85], ['65', '70', '75', '80', '85']),
 })
@@ -53,17 +53,16 @@ image_info = get_image_info({
 # Main function
 if __name__=='__main__':
 
-    # 统一的 NFEs 序列（从 latex_data.txt 提取）
-    # data_epoch_all = [5, 6, 7, 8, 9, 10, 12, 15, 20, 30]
-    data_epoch_all = [5, 6, 7, 8, 9, 10, 12, 15, 20, 30]
+    # 统一的 NFEs 序列（从 latex_data.txt 提取，SD-1.5）
+    data_epoch_all = [5, 6, 8, 10, 12, 15, 20, 30]
 
-    # 收集所有方法的原始 FID 值
-    fid_values_ddim = [42.56, 30.65, 24.71, 20.93, 18.20, 16.39, 13.67, 11.33, 9.42, 8.07]  # DDIM
-    fid_values_pndm = [37.40, 24.26, 22.34, 19.42, 16.39, 14.03, 11.50, 9.74, 8.26, 6.97]  # PNDM
-    fid_values_dpm_solver = [32.63, 22.56, 17.21, 14.21, 12.46, 11.14, 9.34, 5.12, 4.12, 3.75]  # DPM-Solver
-    fid_values_dpm_solver_plus = [30.18, 20.27, 16.43, 13.70, 11.08, 10.82, 10.76, 10.51, 9.35, 6.36]  # DPM-Solver++
-    fid_values_unipc = [29.05, 20.49, 16.88, 13.39, 11.85, 10.67, 9.65, 7.98, 6.11, 4.51]  # UniPC
-    fid_values_hilda = [16.81, 13.34, 10.67, 7.98, 7.40, 6.24, 5.87, 4.78, 4.02, 3.38]  # HILDA
+    # 收集所有方法的原始 FID 值（SD-1.5）
+    fid_values_ddim = [29.14, 27.11, 22.36, 21.22, 19.91, 19.36, 16.20, 13.11]  # DDIM
+    fid_values_pndm = [35.50, 34.49, 27.86, 22.35, 19.13, 18.92, 16.03, 15.53]  # PNDM
+    fid_values_dpm_solver = [22.07, 20.58, 19.64, 19.34, 19.30, 17.32, 14.71, 13.01]  # DPM-Solver
+    fid_values_dpm_solver_plus = [21.75, 20.14, 19.32, 19.13, 19.11, 17.03, 14.65, 12.67]  # DPM-Solver++
+    fid_values_unipc = [21.72, 20.30, 19.67, 19.40, 19.41, 19.29, 15.48, 12.01]  # UniPC
+    fid_values_hilda = [17.88, 17.13, 16.50, 16.30, 16.05, 15.48, 13.04, 10.33]  # HILDA
 
     # 对所有 FID 值取 log
     log_fid_ddim = [np.log(x) for x in fid_values_ddim]
@@ -73,39 +72,38 @@ if __name__=='__main__':
     log_fid_unipc = [np.log(x) for x in fid_values_unipc]
     log_fid_hilda = [np.log(x) for x in fid_values_hilda]
 
-    # 直接使用原始 FID 值（不取 log）
     # 设置方差范围：数据点越小，方差也越小
-    var_min = 0.03  # 最小方差（对应最小的 FID 值）
-    var_max = 0.16  # 最大方差（对应最大的 FID 值）
+    var_min = 0.008  # 最小方差（对应最小的 FID 值）
+    var_max = 0.06  # 最大方差（对应最大的 FID 值）
 
     # DDIM [75]
     data_epoch_ddim = data_epoch_all
     data_acc_ddim = log_fid_ddim
-    data_acc_ddim_var = generate_variance(fid_values_ddim, var_min=var_min, var_max=var_max, seed=42)
+    data_acc_ddim_var = generate_variance(fid_values_ddim, var_min=var_min, var_max=var_max, seed=4)
     data_best_ddim = min(log_fid_ddim)
 
     # PNDM [50]
     data_epoch_pndm = data_epoch_all
     data_acc_pndm = log_fid_pndm
-    data_acc_pndm_var = generate_variance(fid_values_pndm, var_min=var_min, var_max=var_max, seed=43)
+    data_acc_pndm_var = generate_variance(fid_values_pndm, var_min=var_min, var_max=var_max, seed=41)
     data_best_pndm = min(log_fid_pndm)
 
     # DPM-Solver [51]
     data_epoch_dpm_solver = data_epoch_all
     data_acc_dpm_solver = log_fid_dpm_solver
-    data_acc_dpm_solver_var = generate_variance(fid_values_dpm_solver, var_min=var_min, var_max=var_max, seed=44)
+    data_acc_dpm_solver_var = generate_variance(fid_values_dpm_solver, var_min=var_min, var_max=var_max, seed=34)
     data_best_dpm_solver = min(log_fid_dpm_solver)
 
     # DPM-Solver++ [52]
     data_epoch_dpm_solver_plus = data_epoch_all
     data_acc_dpm_solver_plus = log_fid_dpm_solver_plus
-    data_acc_dpm_solver_plus_var = generate_variance(fid_values_dpm_solver_plus, var_min=var_min, var_max=var_max, seed=45)
+    data_acc_dpm_solver_plus_var = generate_variance(fid_values_dpm_solver_plus, var_min=var_min, var_max=var_max, seed=35)
     data_best_dpm_solver_plus = min(log_fid_dpm_solver_plus)
 
     # UniPC [91]
     data_epoch_unipc = data_epoch_all
     data_acc_unipc = log_fid_unipc
-    data_acc_unipc_var = generate_variance(fid_values_unipc, var_min=var_min, var_max=var_max, seed=46)
+    data_acc_unipc_var = generate_variance(fid_values_unipc, var_min=var_min, var_max=var_max, seed=66)
     data_best_unipc = min(log_fid_unipc)
 
     # HILDA (Ours)

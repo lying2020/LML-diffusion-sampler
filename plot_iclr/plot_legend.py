@@ -41,5 +41,5 @@ def create_custom_legend():
 
 # 创建并保存图例
 fig = create_custom_legend()
-plt.savefig(os.path.join(results_iclr_path, 'legend.jpg'), bbox_inches='tight', dpi=300)
+plt.savefig(os.path.join(results_iclr_path, 'fid_legend.jpg'), bbox_inches='tight', dpi=300)
 plt.close(fig)
