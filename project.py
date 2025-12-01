@@ -41,6 +41,32 @@ def get_sampler_description(sampler_type):
     }
     return descriptions.get(sampler_type, 'Unknown sampler type')
 
+def find_image_files(directory, extensions=None):
+    """
+    Find image files in a directory, supporting multiple formats.
+
+    Args:
+        directory: Directory path to search
+        extensions: List of extensions to search for (default: ['.png', '.jpg', '.jpeg'])
+
+    Returns:
+        List of image file paths, sorted by filename
+    """
+    if extensions is None:
+        extensions = ['.png', '.jpg', '.jpeg']
+
+    image_files = []
+    for ext in extensions:
+        # Support both lowercase and uppercase extensions
+        pattern_lower = os.path.join(directory, f"*{ext.lower()}")
+        pattern_upper = os.path.join(directory, f"*{ext.upper()}")
+        image_files.extend(glob.glob(pattern_lower))
+        image_files.extend(glob.glob(pattern_upper))
+
+    # Remove duplicates and sort
+    image_files = sorted(list(set(image_files)))
+    return image_files
+
 def save_generation_log(results_save_dir, args, generation_stats):
     """Save generation log to JSON file"""
 
@@ -78,8 +104,8 @@ def save_generation_log(results_save_dir, args, generation_stats):
 def count_generated_images(results_save_dir):
     """Count the number of generated images in the save directory"""
     try:
-        png_files = glob.glob(os.path.join(results_save_dir, "*.png"))
-        return len(png_files)
+        image_files = find_image_files(results_save_dir)
+        return len(image_files)
     except Exception as e:
         print(f"Could not count images in {results_save_dir}: {e}")
         return 0
@@ -187,8 +213,8 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         # 设置路径
         sampler_dir = os.path.join(results_save_dir, "steps" + '_' + str(num_inference_steps), sampler_type)
 
-        # 查找该采样器生成的图像
-        image_files = glob.glob(os.path.join(sampler_dir, "*.png"))
+        # 查找该采样器生成的图像（支持 PNG 和 JPG）
+        image_files = find_image_files(sampler_dir)
         if not image_files:
             print(f"  ⚠️  未找到 {sampler_type} 的图像文件")
             continue
@@ -249,8 +275,8 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
                                              facecolor='black', alpha=0.3))
 
     # 设置整体标题
-    fig.suptitle(f'COCO Generation Comparison (Steps: {num_inference_steps})',
-                 fontsize=16, fontweight='bold', y=0.98)
+    # fig.suptitle(f'{grid_title} (Steps: {num_inference_steps})',
+    #              fontsize=16, fontweight='bold', y=0.98)
 
     # 保存图像
     # 获取 results_save_dir 的最后一级目录名
@@ -284,7 +310,7 @@ def generate_comparison_grid_from_existing(results_save_dir, args):
     available_samplers = []
     for sampler in sampler_types:
         sampler_dir = os.path.join(results_save_dir, "steps" + '_' + str(args.num_inference_steps), sampler)
-        if os.path.exists(sampler_dir) and glob.glob(os.path.join(sampler_dir, "*.png")):
+        if os.path.exists(sampler_dir) and find_image_files(sampler_dir):
             available_samplers.append(sampler)
 
     if not available_samplers:

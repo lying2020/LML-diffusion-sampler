@@ -46,10 +46,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=50)
+    parser.add_argument('--test_num', type=int, default=1)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=200, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
+    parser.add_argument('--num_inference_steps', type=int, default=50, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
 
     parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
@@ -106,13 +106,13 @@ def parse_args():
     parser.add_argument('--ema_kappa', type=float, default=1e-8, help='EMA smoothing factor kappa, same as LML kappa (default: 1e-8)')
 
     # Batch processing options
-    parser.add_argument('--run_batch', action='store_true', default=True, help='Run batch experiments with multiple samplers and steps')
+    parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
     parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'], help='List of samplers to test in batch mode')
     parser.add_argument('--run_batch_steps', type=int, default=[20, 50, 200], help='List of inference steps to test in batch mode')
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', default=False, help='Run evaluation metrics')
-    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="CelebA-HQ Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
     parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
