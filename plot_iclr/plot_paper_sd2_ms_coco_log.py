@@ -19,9 +19,9 @@ from project import current_path
 # 只定义与数据相关的参数，其他样式配置使用 plot_utils.py 中的默认值
 image_info = get_image_info({
     # 必须提供：保存文件名
-    'save_title': 'fid_cifar10_ddpm_log',
+    'save_title': 'fid_sd2_ms_coco_log',
     # 可选：图表标题
-    'image_title': 'Pixel-Space, Based on CIFAR-10',
+    'image_title': 'Text-to-Image SD-2.0, Based on MS-COCO',
     # X轴配置
     'x_min': 5,
     'x_max': 30,
