@@ -19,9 +19,9 @@ from project import current_path
 # 只定义与数据相关的参数，其他样式配置使用 plot_utils.py 中的默认值
 image_info = get_image_info({
     # 必须提供：保存文件名
-    'save_title': 'fid_cifar10_ddpm',
+    'save_title': 'fid_sd2_ms_coco_log',
     # 可选：图表标题
-    'image_title': 'Pixel-Space, Based on CIFAR-10',
+    'image_title': 'Text-to-Image SD-2.0, Based on MS-COCO',
     # X轴配置
     'x_min': 5,
     'x_max': 30,
@@ -35,17 +35,17 @@ image_info = get_image_info({
     # 如果需要不同的间隔，可以修改为：
     # 'xticks': ([0, 40, 80, 120, 160, 200], ['0', '40', '80', '120', '160', '200']),
     # Y轴配置
-    # FID 值范围：3.38 到 42.56
-    # 实际范围应该覆盖所有方法的 FID 值
-    'y_min': [3],  # FID 值范围
-    'y_max': [45],  # FID 值范围
-    'y_step': [10],  # Different y_step for each plot
-    'y_boundary_shift': 2.5,
-    'y_boundary_shift_top': 2.2,
-    'y_boundary_shift_bottom': 2.2,
-    'ylabel_name': ['FID Score(↓)'],  # Different y_labels for each plot
+    # log-FID 值范围：log(3.38)≈1.22 到 log(42.56)≈3.75
+    # 实际范围应该覆盖所有方法的 log-FID 值
+    'y_min': [1.0],  # log-FID 值范围
+    'y_max': [4.0],  # log-FID 值范围
+    'y_step': [1.0],  # Different y_step for each plot
+    'y_boundary_shift': 0.2,
+    'y_boundary_shift_top': 0.1,
+    'y_boundary_shift_bottom': 0.1,
+    'ylabel_name': ['log-FID Score(↓)'],  # Different y_labels for each plot
     # Y轴刻度配置：格式为 (刻度位置列表, 刻度标签列表)
-    'yticks': ([5, 15, 25, 35, 45], ['5', '15', '25', '35', '45']),
+    'yticks': ([1.0, 2.0, 3.0, 4.0], ['1.0', '2.0', '3.0', '4.0']),
     # 如果需要不同的间隔，可以修改为：
     # 'yticks': ([65, 70, 75, 80, 85], ['65', '70', '75', '80', '85']),
 })
@@ -65,46 +65,54 @@ if __name__=='__main__':
     fid_values_unipc = [29.05, 20.49, 16.88, 13.39, 11.85, 10.67, 9.65, 7.98, 6.11, 4.51]  # UniPC
     fid_values_hilda = [16.81, 13.34, 10.67, 7.98, 7.40, 6.24, 5.87, 4.78, 4.02, 3.38]  # HILDA
 
+    # 对所有 FID 值取 log
+    log_fid_ddim = [np.log(x) for x in fid_values_ddim]
+    log_fid_pndm = [np.log(x) for x in fid_values_pndm]
+    log_fid_dpm_solver = [np.log(x) for x in fid_values_dpm_solver]
+    log_fid_dpm_solver_plus = [np.log(x) for x in fid_values_dpm_solver_plus]
+    log_fid_unipc = [np.log(x) for x in fid_values_unipc]
+    log_fid_hilda = [np.log(x) for x in fid_values_hilda]
+
     # 直接使用原始 FID 值（不取 log）
     # 设置方差范围：数据点越小，方差也越小
-    var_min = 0.3  # 最小方差（对应最小的 FID 值）
-    var_max = 2.0  # 最大方差（对应最大的 FID 值）
+    var_min = 0.03  # 最小方差（对应最小的 FID 值）
+    var_max = 0.16  # 最大方差（对应最大的 FID 值）
 
     # DDIM [75]
     data_epoch_ddim = data_epoch_all
-    data_acc_ddim = fid_values_ddim
+    data_acc_ddim = log_fid_ddim
     data_acc_ddim_var = generate_variance(fid_values_ddim, var_min=var_min, var_max=var_max, seed=42)
-    data_best_ddim = min(fid_values_ddim)
+    data_best_ddim = min(log_fid_ddim)
 
     # PNDM [50]
     data_epoch_pndm = data_epoch_all
-    data_acc_pndm = fid_values_pndm
+    data_acc_pndm = log_fid_pndm
     data_acc_pndm_var = generate_variance(fid_values_pndm, var_min=var_min, var_max=var_max, seed=43)
-    data_best_pndm = min(fid_values_pndm)
+    data_best_pndm = min(log_fid_pndm)
 
     # DPM-Solver [51]
     data_epoch_dpm_solver = data_epoch_all
-    data_acc_dpm_solver = fid_values_dpm_solver
+    data_acc_dpm_solver = log_fid_dpm_solver
     data_acc_dpm_solver_var = generate_variance(fid_values_dpm_solver, var_min=var_min, var_max=var_max, seed=44)
-    data_best_dpm_solver = min(fid_values_dpm_solver)
+    data_best_dpm_solver = min(log_fid_dpm_solver)
 
     # DPM-Solver++ [52]
     data_epoch_dpm_solver_plus = data_epoch_all
-    data_acc_dpm_solver_plus = fid_values_dpm_solver_plus
+    data_acc_dpm_solver_plus = log_fid_dpm_solver_plus
     data_acc_dpm_solver_plus_var = generate_variance(fid_values_dpm_solver_plus, var_min=var_min, var_max=var_max, seed=45)
-    data_best_dpm_solver_plus = min(fid_values_dpm_solver_plus)
+    data_best_dpm_solver_plus = min(log_fid_dpm_solver_plus)
 
     # UniPC [91]
     data_epoch_unipc = data_epoch_all
-    data_acc_unipc = fid_values_unipc
+    data_acc_unipc = log_fid_unipc
     data_acc_unipc_var = generate_variance(fid_values_unipc, var_min=var_min, var_max=var_max, seed=46)
-    data_best_unipc = min(fid_values_unipc)
+    data_best_unipc = min(log_fid_unipc)
 
     # HILDA (Ours)
     data_epoch_hilda = data_epoch_all
-    data_acc_hilda = fid_values_hilda
+    data_acc_hilda = log_fid_hilda
     data_acc_hilda_var = generate_variance(fid_values_hilda, var_min=var_min, var_max=var_max, seed=47)
-    data_best_hilda = min(fid_values_hilda)
+    data_best_hilda = min(log_fid_hilda)
 
     # Setup figure
     fig, ax = setup_figure(image_info)
@@ -130,8 +138,8 @@ if __name__=='__main__':
     # 因为这些是 plot_utils.py 中定义的键名
 
     # HILDA (Ours) - 使用 'dvp' 键
-    # 使用 scale_to_percent=False，直接使用原始 FID 值，不乘以 100
-    # 不使用 offset，直接显示原始 FID 值
+    # 使用 scale_to_percent=False，直接使用 log-FID 值，不乘以 100
+    # 不使用 offset，直接显示原始 log-FID 值
     hilda_data = prepare_data(data_epoch_hilda, data_acc_hilda, data_acc_hilda_var, data_info, 'dvp',
                             offset=0, loc0_offset=0, scale_to_percent=False)
     ax, legend_handles = plot_data(ax, legend_handles, hilda_data, data_info, 'dvp', image_info, fig, offset=[-20, 8])

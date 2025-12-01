@@ -19,29 +19,54 @@ import project
 from project import results_iclr_path, current_path
 
 # 定义颜色和标签
-# colors = ['magenta', 'red', 'blue', 'orange', 'olive', 'green']
+# data_colors = ['magenta', 'red', 'blue', 'orange', 'olive', 'green']
 # 定义颜色和标签 - 使用两组渐变色和橘黄色
 # DDIM, PNDM, DPM-Solver 使用蓝色渐变: ['#D1E9FC', '#85C1E9', '#5DADE2']
 # SMM, UniPC 使用绿色渐变: ['#D5F4E6', '#82E0AA']
 # AE-VP 使用橘黄色: '#FFA500'
-# data_colors = ['blue', 'red', 'orange', 'purple', 'green',
-#         'olive', 'brown', 'magenta', 'cyan', 'crimson', 'gray', 'black']
+# data_colors = ['blue', 'red', 'orange', 'purple', 'green', 'olive', 'brown', 'magenta', 'cyan', 'crimson', 'gray', 'black']
 # ICLR paper color scheme: monochromatic blue tones with teal and dark gray
-# Index mapping: [0: DDIM, 1: AutoVP, 2: DPM-Solver, 3: DPM-Solver++, 4: UniPC, 5: AE-VP(Ours)]
-# Color scheme: Blue gradient from deep to light, with teal and dark gray accents
-# AE-VP (Ours) uses the deepest blue (#1A237E) for prominence
-# data_colors = ['#D1E9FC', '#85C1E9', '#5DADE2', '#D5F4E6', '#82E0AA', '#FFA500']  # 蓝色渐变 + 绿色渐变 + 橘黄色
-# data_colors = ['#3498DB', '#9B59B6', '#27AE60', '#E67E22', '#34495E', '#E74C3C']  # Blue, Purple, Green, Orange, Dark Gray, Red (Ours)
-data_colors = ['#5DADE2', '#3498DB', '#2980B9', '#16A085', '#34495E',  '#FFA500'] # '#1A237E']  # Light blue, Medium blue, Deep blue, Teal, Dark gray, Deep indigo (Ours)
+# Index mapping: [0: DDIM, 1: PNDM, 2: DPM-Solver, 3: DPM-Solver++, 4: UniPC, 5: HILDA(Ours)]
+# Color scheme from provided image:
+# 0: 珊瑚粉 (Coral Pink) #FF6B6B
+# 1: 钴蓝色 (Cobalt Blue) #4A6FA7
+# 2: 柠檬黄 (Lemon Yellow) #FFD166
+# 3: 电光紫 (Electric Purple) #9B5DE5
+# 4: 清新绿 (Fresh Green) #06D6A0
+# 5: 深橙色 (Deep Orange) #FF8C42 - 新增颜色，与现有配色协调
+# data_colors = ['#FF6B6B', '#4A6FA7', '#FFD166', '#9B5DE5', '#06D6A0', '#FF8C42']
+# Color scheme from provided image (blue gradient from dark to light):
+# 0: DDIM - #1A237E (深蓝色)
+# 1: PNDM - #283593 (中深蓝色)
+# 2: DPM-Solver - #303F9F (中深蓝色)
+# 3: DPM-Solver++ - #5C6BC0 (中蓝色)
+# 4: UniPC - #9FA8DA (浅蓝/淡紫色)
+# 5: HILDA(Ours) - #EAEAF4 (极浅，接近白色)
+# data_colors = ['#1A237E', '#303F9F', '#5C6BC0', '#9FA8DA', '#EAEAF4', '#283593']
+
+# Color scheme from provided gradient images:
+# 调整颜色顺序，让 HILDA (Ours) 使用最醒目的颜色
+# 0: DDIM - 青绿色 (Teal Green) #2ad4af
+# 1: PNDM - 天蓝色 (Sky Blue) #27a6cc
+# 2: DPM-Solver - 青柠绿 (Lime Green) #98be2c
+# 3: DPM-Solver++ - 深绿色 (Deep Green) #00b168
+# 4: UniPC - 粉红色 (Pink) #fcc5c5
+# 5: HILDA (Ours) - 橙色 (Orange) #fcbd60 - 最醒目的颜色
+data_colors = ['#2ad4af', '#27a6cc', '#98be2c', '#00b168', '#fcc5c5', '#fcbd60']
+
 data_labels = ['DDIM', 'PNDM', 'DPM-Solver', 'DPM-Solver++', 'UniPC', 'HILDA(Ours)']
-data_markers = ['s', 'o', 'D', 'v', '*', 'p']
+# data_markers = ['s', 'o', 'D', 'v', '*', 'p']
+# Marker options: 'o' (circle), 's' (square), 'D' (diamond), 'v' (triangle down),
+# '^' (triangle up), 'h' (hexagon), 'H' (hexagon2), '8' (octagon), 'p' (pentagon),
+# 'P' (plus filled), 'X' (x filled), '+' (plus), 'x' (x)
+data_markers = ['o', 's', 'D', 'v', '^', 'p']  # 将 '*' 替换为 '^' (正三角)
 
 # 默认的 image_info 模板，包含所有样式相关的配置
 # 各个 plot 文件只需要覆盖数据相关的参数（save_title, x/y 轴范围、标签等）
 default_image_info = {
     # 样式配置（所有图保持一致）
     'width': 16,
-    'height': 12,
+    'height': 9,
     'fontsize': 45,
     'markersize': 25,
     'mark_last_point': 1,
@@ -105,50 +130,50 @@ def get_image_info(custom_config):
 
 data_info = {
     'dvp': {
-        'wandb_project': 'AE-VP_cifar100_image',
+        'wandb_project': 'HILDA-FID',
         'run_id_list': ['r135lkqo'],
         'metric': 'test_acc',
         'total_timesteps': 5000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 8,
+        'linewidth': 6,
         'linestyle': 'solid',
         'marker': data_markers[5],
-        'markersize': 35,
+        'markersize': 13,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
         'color':  data_colors[5],
-        'label': 'AE-VP'
+        'label': 'HILDA (Ours)'
     },
     'autovp': {
-        'wandb_project': 'AE-VP_cifar100_image',
+        'wandb_project': 'HILDA-FID',
         'run_id_list': ['t6cb54mn'],
         'metric': 'test_acc',
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 8,
-        'linestyle': 'solid',
+        'linewidth': 6,
+        'linestyle': 'dashed',
         'marker': data_markers[1],
-        'markersize': 35,
+        'markersize': 13,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
         'color':  data_colors[1],
-        'label': 'AutoVP',
+        'label': 'PNDM',
     },
     'ilm_vp': {
-        'wandb_project': 'AE-VP_cifar100_image',
+        'wandb_project': 'HILDA-FID',
         'run_id_list': ['va2zt7b7'],
         'metric': 'test_acc',
         'total_timesteps': 40000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 8,
-        'linestyle': 'solid',
+        'linewidth': 6,
+        'linestyle': 'dashed',
         'marker': data_markers[0],
-        'markersize': 35,
+        'markersize': 13,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -156,16 +181,16 @@ data_info = {
         'label': 'DDIM',
     },
     'clip_lp': {
-        'wandb_project': 'AE-VP_cifar100_image',
+        'wandb_project': 'HILDA-FID',
         'run_id_list': ['y2160vor'],
         'metric': 'test_acc',
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 8,
-        'linestyle': 'solid',
+        'linewidth': 6,
+        'linestyle': 'dashed',
         'marker': data_markers[4],
-        'markersize': 35,
+        'markersize': 13,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -173,16 +198,16 @@ data_info = {
         'label': 'UniPC',
     },
     'smm': {
-        'wandb_project': 'AE-VP_cifar100_image',
+        'wandb_project': 'HILDA-FID',
         'run_id_list': ['y2160vor'],
         'metric': 'test_acc',
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 8,
-        'linestyle': 'solid',
+        'linewidth': 6,
+        'linestyle': 'dashed',
         'marker': data_markers[3],
-        'markersize': 35,
+        'markersize': 13,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -190,16 +215,16 @@ data_info = {
         'label': 'DPM-Solver++',
     },
     'dam_vp': {
-        'wandb_project': 'AE-VP_cifar100_image',
+        'wandb_project': 'HILDA-FID',
         'run_id_list': ['y2160vor'],
         'metric': 'test_acc',
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 8,
-        'linestyle': 'solid',
+        'linewidth': 6,
+        'linestyle': 'dashed',
         'marker': data_markers[2],
-        'markersize': 35,
+        'markersize': 13,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -213,10 +238,10 @@ data_info = {
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 8,
+        'linewidth': 6,
         'linestyle': 'solid',
         'marker': data_markers[5],
-        'markersize': 35,
+        'markersize': 13,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -247,10 +272,10 @@ data_info = {
         'total_timesteps': 20000,
         'window_len_smooth': 1, # 100
         'min_window_len_smooth': 1,
-        'linewidth': 8,
+        'linewidth': 6,
         'linestyle': 'solid',
         'marker': data_markers[5],
-        'markersize': 35,
+        'markersize': 13,
         'markevery': 1,
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
@@ -376,7 +401,60 @@ def downsample_data_interp(epochs, accs, num_points):
     return resampled_epochs, resampled_accs
 
 
-def prepare_data(epochs, values, value_var=None, config_info=None, data_name="", offset=0, loc0_offset=0):
+def generate_variance(data_points, var_min=0.1, var_max=2.0, seed=None):
+    """
+    根据数据点的大小生成对应的方差值。
+    数据点越小，方差也越小；数据点越大，方差也越大。
+
+    参数:
+    -----
+    data_points : list or np.array
+        原始数据点列表
+    var_min : float, default=0.1
+        最小方差值（对应最小的数据点）
+    var_max : float, default=2.0
+        最大方差值（对应最大的数据点）
+    seed : int, optional
+        随机种子，用于添加随机扰动。如果为None，则不添加随机扰动。
+        如果提供种子，会在基于数据点大小的方差基础上添加小的随机扰动。
+
+    返回:
+    ------
+    list
+        每个数据点对应的方差值列表，长度与 data_points 相同
+    """
+    if len(data_points) == 0:
+        return []
+
+    data_points = np.array(data_points)
+
+    # 找到数据点的最小值和最大值
+    data_min = np.min(data_points)
+    data_max = np.max(data_points)
+
+    # 如果所有数据点相同，返回 var_min 和 var_max 的平均值
+    if data_max == data_min:
+        var_values = np.full(len(data_points), (var_min + var_max) / 2.0)
+    else:
+        # 根据数据点的大小，线性插值到 var_min 到 var_max 的范围
+        # 数据点越小 -> var 越小，数据点越大 -> var 越大
+        # 归一化到 [0, 1]，然后映射到 [var_min, var_max]
+        normalized = (data_points - data_min) / (data_max - data_min)
+        var_values = var_min + normalized * (var_max - var_min)
+
+    # 如果提供了随机种子，添加小的随机扰动（±10%）
+    if seed is not None:
+        np.random.seed(seed)
+        # 为每个方差值添加 ±10% 的随机扰动
+        perturbation = np.random.uniform(-0.1, 0.1, len(var_values))
+        var_values = var_values * (1 + perturbation)
+        # 确保方差值仍在 [var_min, var_max] 范围内
+        var_values = np.clip(var_values, var_min, var_max)
+
+    return var_values.tolist()
+
+
+def prepare_data(epochs, values, value_var=None, config_info=None, data_name="", offset=0, loc0_offset=0, scale_to_percent=True):
     """
     准备绘图数据，包括归一化和平滑处理。
 
@@ -398,14 +476,17 @@ def prepare_data(epochs, values, value_var=None, config_info=None, data_name="",
         数据偏移量（用于对齐最佳性能值）
     loc0_offset : float
         第一个数据点的额外偏移量
+    scale_to_percent : bool, default=True
+        是否将 values 乘以 100 转换为百分比。如果为 False，则直接使用原始值。
 
     返回:
     ------
     pd.DataFrame
         包含 'step', 'avg', 'var' 列的DataFrame
     """
-    # 转换values为百分比
-    values = [100 * i for i in values]  # 转换为百分比
+    # 转换values为百分比（可选）
+    if scale_to_percent:
+        values = [100 * i for i in values]  # 转换为百分比
     data = pd.DataFrame({'step': epochs, 'avg': values})
 
     # 处理方差数据
@@ -414,19 +495,20 @@ def prepare_data(epochs, values, value_var=None, config_info=None, data_name="",
             # 检查长度是否相等
             if len(value_var) != len(values):
                 raise ValueError(f"value_var的长度({len(value_var)})必须与values的长度({len(values)})相等")
-            # value_var表示95%置信区间的波动范围，已经是百分比形式，直接使用
-            # 如果value_var是0-1之间的小数，需要转换为百分比
-            if max(value_var) <= 1.0:
+            # value_var表示95%置信区间的波动范围
+            # 如果scale_to_percent为True且value_var是0-1之间的小数，需要转换为百分比
+            if scale_to_percent and max(value_var) <= 1.0:
                 value_var = [100 * v for v in value_var]
             data['var'] = value_var
         else:
             # 单个float值
-            if value_var <= 1.0:
+            if scale_to_percent and value_var <= 1.0:
                 value_var = 100 * value_var
             data['var'] = np.full_like(data['avg'], value_var)
     else:
         # 使用默认值
-        data['var'] = np.full_like(data['avg'], 0.01)
+        default_var = 0.01 if scale_to_percent else 0.01
+        data['var'] = np.full_like(data['avg'], default_var)
 
     # 应用移动平均平滑
     if data_name is None or data_name == "":
@@ -481,12 +563,15 @@ def plot_data(ax, legend_handles, data, config_info, data_name, image_info, fig,
                linestyle=info['linestyle'])
     )
 
-    # 绘制主线条
+    # 绘制主线条，在每个数据点显示 marker
     ax.plot(data['step'], data['avg'],
             linestyle=info['linestyle'],
             color=info['color'],
             linewidth=info['linewidth'],
-            alpha=info['alpha_smooth'])
+            alpha=info['alpha_smooth'],
+            marker=info['marker'],
+            markersize=info['markersize'],
+            markevery=info['markevery'])
 
     # 填充置信区间
     ax.fill_between(data['step'],
@@ -495,23 +580,23 @@ def plot_data(ax, legend_handles, data, config_info, data_name, image_info, fig,
                      color=info['color'],
                      alpha=info['fill_in_alpha'])
 
-    # 标记最后一个点
-    if image_info.get('mark_last_point', 0):
-        last_step = data['step'].iloc[-1]
-        last_avg = data['avg'].iloc[-1]
-        ax.plot(last_step, last_avg,
-                marker=info['marker'],
-                color=info['color'],
-                markersize=info['markersize'])
+    # # 标记最后一个点
+    # if image_info.get('mark_last_point', 0):
+    #     last_step = data['step'].iloc[-1]
+    #     last_avg = data['avg'].iloc[-1]
+    #     ax.plot(last_step, last_avg,
+    #             marker=info['marker'],
+    #             color=info['color'],
+    #             markersize=info['markersize'])
 
-        # 添加文本标签
-        ax.text(last_step, last_avg, f'{last_avg:.2f}',
-                color=info['color'],
-                fontsize=image_info['fontsize'],
-                ha='center',
-                va='bottom',
-                transform=ax.transData + matplotlib.transforms.ScaledTranslation(
-                    offset[0]*1/72, offset[1]*1/72, fig.dpi_scale_trans))
+    #     # 添加文本标签
+    #     ax.text(last_step, last_avg, f'{last_avg:.2f}',
+    #             color=info['color'],
+    #             fontsize=image_info['fontsize'],
+    #             ha='center',
+    #             va='bottom',
+    #             transform=ax.transData + matplotlib.transforms.ScaledTranslation(
+    #                 offset[0]*1/72, offset[1]*1/72, fig.dpi_scale_trans))
 
     return ax, legend_handles
 
