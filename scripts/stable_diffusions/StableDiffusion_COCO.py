@@ -62,24 +62,25 @@ def parse_args():
     parser = argparse.ArgumentParser(description="COCO sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=40)
+    parser.add_argument('--test_num', type=int, default=1)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=20, choices=[5, 10, 20, 30, 40, 50, 80, 100])
+    parser.add_argument('--num_inference_steps', type=int, default=10, choices=[5, 10, 20, 30, 40, 50, 80, 100])
 
     parser.add_argument('--guidance', type=float, default=7.5)
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm_hcg',
+    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='coco')
     parser.add_argument('--model_path', type=str, default=coco_model_path)
-    parser.add_argument('--model_type', type=str, default='stable-diffusion-2-base', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
+    parser.add_argument('--model_type', type=str, default='stable-diffusion-v1-5', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
     parser.add_argument('--coco_prompts_file', type=str, default="coco_top_40_prompts.json", choices=['coco_top_40_prompts.json', 'coco_3w_prompts.json', 'fid_1k_json.json', 'fid_3w_json.json'])
+    parser.add_argument('--display_prompts_file', type=str, default="coco_top_40_prompts_display.json")
 
     # LML parameters
     parser.add_argument('--lamb', type=float, default=0.001)
@@ -93,15 +94,15 @@ def parse_args():
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
     parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="COCO Generation Comparison", help='Title of comparison grid')
-    parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
-    parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
+    parser.add_argument('--grid_test_num', type=int, default=10, help='Number of images to test in grid')
+    parser.add_argument('--grid_test_index', type=list, default=[2, 4, 11, 17, 18, 19, 25, 37, 38, 39], help='Index of images to test in grid')
     parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_hcg'],
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
-    parser.add_argument('--run_batch', action='store_true', default=True, help='Run batch experiments with multiple samplers and steps')
+    parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
     parser.add_argument('--run_batch_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_hcg'], help='List of samplers to test in batch mode')
-    parser.add_argument('--run_batch_steps', type=int, default=[10, 20, 50], help='List of inference steps to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[5, 10, 20, 50], help='List of inference steps to test in batch mode')
 
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)

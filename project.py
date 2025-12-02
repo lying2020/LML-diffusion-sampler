@@ -1,6 +1,7 @@
 import os
 import json
 import glob
+import textwrap
 from datetime import datetime
 from pathlib import Path
 
@@ -161,7 +162,7 @@ def generate_experiment_summary(results_save_dir, args, experiment_results, star
     else:
         print("🎉 所有实验都成功完成!")
 
-def generate_comparison_grid(results_save_dir, sampler_types, num_inference_steps=20, grid_test_num=6, grid_test_index=[], grid_title="COCO Generation Comparison"):
+def generate_comparison_grid(results_save_dir, sampler_types, num_inference_steps=20, grid_test_num=6, grid_test_index=[], grid_title="COCO Generation Comparison", coco_prompts_file=None):
     """
     生成类似截图的对比图组，方法作为行，相同图片的不同方法放在同一行
 
@@ -172,6 +173,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         grid_test_num: 测试图片数量（列数）
         grid_test_index: test pic grid index
         grid_title: 对比图组标题
+        coco_prompts_file: COCO prompts文件名（可选，用于SD模型显示prompt文本）
     """
     import matplotlib.pyplot as plt
     import matplotlib
@@ -193,19 +195,19 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         lml_index = sampler_types.index('dpm_hcg') if 'dpm_hcg' in sampler_types else sampler_types.index('dpm_lm')
 
     # 创建图像网格：行 = 方法，列 = 测试图片
-    # 使用 height_ratios 来增加 HILDA 行前后的间距（1.5倍）
-    # 通过增加 HILDA 行前后行的高度，在视觉上形成更大的间距
-    height_ratios = [1.0] * len(sampler_types)
-    if lml_index is not None:
-        # 在 HILDA 行前后增加间距（通过增加这些行的高度比例）
-        # 只增加前后行的高度，HILDA 行本身保持正常高度
-        if lml_index > 0:
-            height_ratios[lml_index - 1] = 1.5  # HILDA 行前面的行，增加高度以形成更大间距
-        if lml_index < len(sampler_types) - 1:
-            height_ratios[lml_index + 1] = 1.5  # HILDA 行后面的行，增加高度以形成更大间距
+    # 所有图片大小一致（所有行的height_ratios都是1.0）
+    # 通过稍微增加HILDA行之前一行的height_ratio来增加间距
+    total_rows = len(sampler_types)
+    height_ratios = [1.0] * total_rows
 
-    fig = plt.figure(figsize=(grid_test_num * 2.5, len(sampler_types) * 2.5))
-    gs = GridSpec(len(sampler_types), grid_test_num, figure=fig,
+    # 如果存在HILDA行且不是第一行，稍微增加上一行的height_ratio来增加间距
+    if lml_index is not None and lml_index > 0:
+        # 增加上一行的height_ratio，这样可以增加HILDA行与上一行之间的间距
+        # 使用1.15来稍微增加间距，不会太明显影响图片大小
+        height_ratios[lml_index - 1] = 1.0
+
+    fig = plt.figure(figsize=(grid_test_num * 2.5, total_rows * 2.5))
+    gs = GridSpec(total_rows, grid_test_num, figure=fig,
                   hspace=0.1, wspace=0.05,
                   left=0.05, right=0.95, top=0.95, bottom=0.05,
                   height_ratios=height_ratios)
@@ -254,8 +256,36 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         actual_test_num = min(grid_test_num, max_images)
         pic_indices = list(range(actual_test_num))
 
-    # 绘制图像网格：行 = 方法，列 = 测试图片
+    # 检测是否是SD模型，并加载COCO prompts（如果需要）
+    is_sd_model = False
+    coco_prompts_dict = {}
+    if any(keyword in results_save_dir.lower() for keyword in ['stable-diffusion', 'coco', 'sd']):
+        is_sd_model = True
+        # 如果提供了coco_prompts_file参数，尝试加载
+        if coco_prompts_file:
+            try:
+                coco_prompts_path = os.path.join(project_dir, "evaluations", "coco_prompts", coco_prompts_file)
+                if os.path.exists(coco_prompts_path):
+                    with open(coco_prompts_path, 'r') as f:
+                        coco_prompts_dict = json.load(f)
+                    print(f"  ✓ 加载COCO prompts: {coco_prompts_file}")
+                else:
+                    print(f"  ⚠️  COCO prompts文件不存在: {coco_prompts_path}")
+            except Exception as e:
+                print(f"  ⚠️  无法加载COCO prompts: {e}")
 
+    # 如果是SD模型，调整top位置为第一行的文本留出空间
+    top_margin = 0.95
+    if is_sd_model:
+        top_margin = 0.92  # 为文本留出更多空间
+
+    fig = plt.figure(figsize=(grid_test_num * 2.5, total_rows * 2.5))
+    gs = GridSpec(total_rows, grid_test_num, figure=fig,
+                  hspace=0.1, wspace=0.05,
+                  left=0.05, right=0.95, top=top_margin, bottom=0.05,
+                  height_ratios=height_ratios)
+
+    # 绘制图像网格：行 = 方法，列 = 测试图片
     for row, sampler_type in enumerate(sampler_types):
         for col in range(actual_test_num):
             ax = fig.add_subplot(gs[row, col])
@@ -269,6 +299,30 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
                 try:
                     img = Image.open(img_path)
                     ax.imshow(img)
+
+                    # 如果是第一行且是SD模型，在图片上方添加prompt文本
+                    if row == 0 and is_sd_model and coco_prompts_dict:
+                        # 从文件名中提取key
+                        filename = os.path.basename(img_path)
+                        parts = filename.split('_')
+                        if len(parts) >= 2:
+                            key = parts[1]  # key在第一个下划线和第二个下划线之间
+                            prompt_text = coco_prompts_dict.get(key, '')
+                            if prompt_text:
+                                # 在图片上方添加文本
+                                bbox = ax.get_position()
+                                text_x = bbox.x0 + bbox.width / 2  # 图片中心
+                                text_y = bbox.y0 + bbox.height + 0.015  # 图片上方
+                                # 限制文本长度，如果太长则截断并换行
+                                max_length = 50
+                                if len(prompt_text) > max_length:
+                                    # 使用textwrap来换行
+                                    wrapped_text = '\n'.join(textwrap.wrap(prompt_text, width=max_length))
+                                    prompt_text = wrapped_text
+                                fig.text(text_x, text_y, prompt_text,
+                                        ha='center', va='bottom',
+                                        fontsize=9, color='black',
+                                        zorder=200)
                 except Exception as e:
                     print(f"  ⚠️  无法加载图像 {img_path}: {e}")
                     ax.text(0.5, 0.5, 'Error', ha='center', va='center', transform=ax.transAxes)
@@ -309,12 +363,23 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
     # 保存图像
     # 获取 results_save_dir 的最后一级目录名
     last_dir_name = os.path.basename(os.path.normpath(results_save_dir))
-    output_path = os.path.join(results_save_dir, f'comparison_grid_{last_dir_name}_steps_{num_inference_steps}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+
+    # 保存PNG格式（降低DPI以减小文件大小）
+    output_path_png = os.path.join(results_save_dir, f'comparison_grid_{last_dir_name}_steps_{num_inference_steps}.png')
+    # 使用150 DPI而不是300，可以显著减小文件大小，同时保持足够的清晰度
+    # 如果需要更小的文件，可以进一步降低DPI（如100或120）
+    plt.savefig(output_path_png, dpi=150, bbox_inches='tight', facecolor='white', format='png')
+
+    # 保存PDF格式（矢量格式，适合打印和缩放）
+    output_path_pdf = os.path.join(results_save_dir, f'comparison_grid_{last_dir_name}_steps_{num_inference_steps}.pdf')
+    plt.savefig(output_path_pdf, bbox_inches='tight', facecolor='white', format='pdf')
+
     plt.close()
 
-    print(f"✅ 对比图组已保存到: {output_path}")
-    return output_path
+    print(f"✅ 对比图组已保存到:")
+    print(f"   PNG: {output_path_png}")
+    print(f"   PDF: {output_path_pdf}")
+    return output_path_png
 
 def generate_comparison_grid_from_existing(results_save_dir, args):
     """
@@ -327,6 +392,7 @@ def generate_comparison_grid_from_existing(results_save_dir, args):
         args.grid_samplers: 采样器类型列表
         args.grid_test_index: 测试图片索引
         args.grid_title: 对比图组标题
+        args.coco_prompts_file: COCO prompts文件名（可选，用于SD模型显示prompt文本）
     """
     # 定义采样器类型
     if args.grid_samplers is None:
@@ -347,8 +413,11 @@ def generate_comparison_grid_from_existing(results_save_dir, args):
 
     print(f"找到 {len(available_samplers)} 个采样器的图像: {available_samplers}")
 
+    # 获取coco_prompts_file参数（如果存在）
+    coco_prompts_file = getattr(args, 'display_prompts_file', None)
+
     # 生成对比图组
-    return generate_comparison_grid(results_save_dir, available_samplers, args.num_inference_steps, args.grid_test_num, args.grid_test_index, args.grid_title)
+    return generate_comparison_grid(results_save_dir, available_samplers, args.num_inference_steps, args.grid_test_num, args.grid_test_index, args.grid_title, coco_prompts_file)
 
 # Logger functions are now imported from utils.logger
 # All logger-related code has been moved to utils/logger.py
