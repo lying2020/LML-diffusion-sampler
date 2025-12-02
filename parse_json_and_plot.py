@@ -338,10 +338,10 @@ def run_performance_analysis(output_dir, save_dir):
 if __name__ == "__main__":
 
     # 设置日志系统
-    logger = project.setup_logging(name='celeba', level=project.logging.INFO)
+    logger = project.setup_logging(name='cifar10_ddpm', level=project.logging.INFO)
 
-    save_dir = "celeba"
-    model_type = "ldm"
+    save_dir = "cifar10"
+    model_type = "ddpm"
     results_save_dir = os.path.join(project.output_dir, save_dir + '_' + model_type)
 
     output_dir = results_save_dir
@@ -371,7 +371,7 @@ if __name__ == "__main__":
 
     project.info("\n在实验总结中添加性能分析结果...")
 
-    analyzer = CelebAPerformanceAnalyzer(args.performance_output_dir)
+    analyzer = CelebAPerformanceAnalyzer(performance_save_dir)
     analyzer.analyze_performance()
     if not analyzer.df.empty:
         # 生成性能摘要并添加到总结中
