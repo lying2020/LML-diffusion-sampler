@@ -248,9 +248,9 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
 
     # 确定实际要显示的图片数量和索引
     if grid_test_index and len(grid_test_index) > 0:
-        # 使用指定的索引
-        actual_test_num = len(grid_test_index)
-        pic_indices = grid_test_index
+        # 使用指定的索引，但确保不超过grid_test_num
+        actual_test_num = min(len(grid_test_index), grid_test_num)
+        pic_indices = grid_test_index[:actual_test_num]  # 只取前actual_test_num个索引
     else:
         # 使用前 grid_test_num 个图片
         actual_test_num = min(grid_test_num, max_images)
@@ -312,16 +312,16 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
                                 # 在图片上方添加文本
                                 bbox = ax.get_position()
                                 text_x = bbox.x0 + bbox.width / 2  # 图片中心
-                                text_y = bbox.y0 + bbox.height + 0.015  # 图片上方
+                                text_y = bbox.y0 + bbox.height + 0.01  # 图片上方
                                 # 限制文本长度，如果太长则截断并换行
-                                max_length = 50
+                                max_length = 30
                                 if len(prompt_text) > max_length:
                                     # 使用textwrap来换行
                                     wrapped_text = '\n'.join(textwrap.wrap(prompt_text, width=max_length))
                                     prompt_text = wrapped_text
                                 fig.text(text_x, text_y, prompt_text,
                                         ha='center', va='bottom',
-                                        fontsize=9, color='black',
+                                        fontsize=11, color='black',
                                         zorder=200)
                 except Exception as e:
                     print(f"  ⚠️  无法加载图像 {img_path}: {e}")

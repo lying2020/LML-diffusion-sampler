@@ -78,7 +78,7 @@ def parse_args():
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='coco')
     parser.add_argument('--model_path', type=str, default=coco_model_path)
-    parser.add_argument('--model_type', type=str, default='stable-diffusion-v1-5', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
+    parser.add_argument('--model_type', type=str, default='stable-diffusion-2-base', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
     parser.add_argument('--coco_prompts_file', type=str, default="coco_top_40_prompts.json", choices=['coco_top_40_prompts.json', 'coco_3w_prompts.json', 'fid_1k_json.json', 'fid_3w_json.json'])
     parser.add_argument('--display_prompts_file', type=str, default="coco_top_40_prompts_display.json")
 

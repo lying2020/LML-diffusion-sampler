@@ -49,7 +49,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CIFAR-10 sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=2)
+    parser.add_argument('--test_num', type=int, default=20)
     parser.add_argument('--start_index', type=int, default=8)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_inference_steps', type=int, default=20)
@@ -59,7 +59,7 @@ def parse_args():
 
     # Sampler selection
     parser.add_argument('--sampler_type', type=str, default='dpm_lm',
-                        choices=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', ''])
+                        choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
@@ -77,17 +77,17 @@ def parse_args():
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
-    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="CIFAR-10 Generation Comparison", help='Title of comparison grid')
-    parser.add_argument('--grid_test_num', type=int, default=6, help='Number of images to test in grid')
-    parser.add_argument('--grid_test_index', type=list, default=[9, 1, 8, 3, 4, 5], help='Index of images to test in grid')
-    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', ''],
+    parser.add_argument('--grid_test_num', type=int, default=16, help='Number of images to test in grid')
+    parser.add_argument('--grid_test_index', type=list, default=[9, 1, 8, 3, 4, 5, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19], help='Index of images to test in grid')
+    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_hcg'],
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
-    parser.add_argument('--run_batch', action='store_true', default=False, help='Run batch experiments with multiple samplers and steps')
-    parser.add_argument('--run_batch_samplers', default=['pndm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', ''], help='List of samplers to test in batch mode')
-    parser.add_argument('--run_batch_steps', type=int, default=[10, 20, 50], help='List of inference steps to test in batch mode')
+    parser.add_argument('--run_batch', action='store_true', default=True, help='Run batch experiments with multiple samplers and steps')
+    parser.add_argument('--run_batch_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_hcg'], help='List of samplers to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[5, 10, 20, 30, 50], help='List of inference steps to test in batch mode')
 
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
@@ -134,17 +134,25 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         pipe.scheduler = UniPCMultistepHCGScheduler.from_config(pipe.scheduler.config)
         print(f"  Using UniPC scheduler")
 
-    elif sampler_type == '':
-        pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
+    elif sampler_type == 'dpm_hcg':
+        pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
         pipe.scheduler.config.solver_order = 3
         pipe.scheduler.config.algorithm_type = "dpmsolver++"
         pipe.scheduler.lamb = lamb
         pipe.scheduler.lm = True
         pipe.scheduler.kappa = kappa
-        pipe.scheduler.hessian_method = ''
-        # 设置模型用于Hessian计算
-        pipe.scheduler.set_model(pipe.unet)
-        print(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
+        print(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
+
+        # pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
+        # pipe.scheduler.config.solver_order = 3
+        # pipe.scheduler.config.algorithm_type = "dpmsolver++"
+        # pipe.scheduler.lamb = lamb
+        # pipe.scheduler.lm = True
+        # pipe.scheduler.kappa = kappa
+        # pipe.scheduler.hessian_method = ''
+        # # 设置模型用于Hessian计算
+        # pipe.scheduler.set_model(pipe.unet)
+        # print(f"  Using DPM-Solver++ with Hessian-Free LML correction (λ={lamb}, κ={kappa})")
 
     else:
         raise ValueError(f"Unknown sampler type: {sampler_type}")
