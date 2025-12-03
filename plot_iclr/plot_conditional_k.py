@@ -11,24 +11,25 @@ from plot_utils import get_image_info, setup_figure, save_figure, configure_axes
 
 
 
-# 5, 7， 10   ||  16.81, 10.67， 6.24
+# CIFAR10: 5, 7， 10   ||  16.81, 10.67， 6.24
 
 
-lambda_values = [400, 800, 1200, 1600, 2000, 2400, 2800, 3200]
+# lambda_values = [20, 50, 100, 200, 400, 500, 1000, 1600, 2000, 2500]
 
+lambda_values = [200, 400, 600, 800, 1000, 1200, 1400, 1600, 1800, 2000]
 # NFE=5 (Blue line) - FID values
 # Pattern: decrease then increase, minimum at position 5 (2000) = 16.81
-fid_nfe10 = [27.63, 23.0, 19.0, 16.5, 16.81, 17.0, 19.5, 22.0]
+fid_nfe10 = [31.93, 31.10, 28.0, 25.0, 22.5, 20.0, 18.0, 17.2, 16.81, 16.77]
 baseline_nfe10 = 32.63  # Horizontal dashed line at first point (400)
 
 # NFE=10 (Red line) - FID values
 # Pattern: decrease then increase, minimum at position 5 (2000) = 6.24
-fid_nfe20 = [16.21, 15.5, 13.3, 12.4, 12.24, 12.5, 13.2, 14.5]
+fid_nfe20 = [16.28, 16.18, 15.3, 14.8, 14.1, 13.2, 12.2, 11.5, 10.77, 10.87]
 baseline_nfe20 = 16.21  # Horizontal dashed line at first point (400)
 
 # NFE=20 (Green line) - FID values
 # Pattern: decrease then increase, minimum at position 5 (2000) = 4.02
-fid_nfe50 = [11.14, 10.5, 9.8, 9.2, 8.6, 8.5, 8.8, 9.5]
+fid_nfe50 = [11.14, 10.9, 10.3, 9.9, 9.2, 8.8, 8.1, 7.2, 6.24, 6.25]
 baseline_nfe50 = 11.14  # Horizontal dashed line at first point (400)
 
 # Convert to numpy arrays and filter out None values
@@ -80,16 +81,16 @@ image_info = get_image_info({
     'grid_linewidth': 2.1,
     'background_color': 'white',
     # X轴配置
-    'x_min': 400,
-    'x_max': 3200,
-    'x_step': 800,
+    'x_min': 200,
+    'x_max': 2000,
+    'x_step': 500,
     'x_boundary_shift': 40,
     'x_boundary_shift_left': 40,
     'x_boundary_shift_right': 40,
     'xlabel_name': '$K^*$',
     # X轴刻度配置：格式为 (刻度位置列表, 刻度标签列表) - 使用更稀疏的刻度
-    'xticks': ([500, 1000, 1500, 2000, 2500, 3000], ['500', '1000', '1500', '2000', '2500', '3000']),
-    'y_min': [2.0],  # log-FID range
+    'xticks': ([200, 400, 800, 1200, 1600, 2000], ['20', '50', '200', '800', '1600', '2400']),
+    'y_min': [1.7],  # log-FID range
     'y_max': [3.6],  # log-FID range
     'y_step': [0.2],
     'y_boundary_shift': 0.1,
@@ -99,6 +100,8 @@ image_info = get_image_info({
     # Y轴刻度配置：使用更稀疏的刻度
     'yticks': ([2.0, 2.5, 3.0, 3.5], ['2.0', '2.5', '3.0', '3.5']),
 })
+
+# lambda_values = [20, 50, 100, 200, 400, 500, 1000, 1600, 2000, 2500]
 
 # Create figure using plot_utils
 fig, ax = setup_figure(image_info)
@@ -149,7 +152,7 @@ ax.scatter([lambda_nfe50[min_idx_50]], [fid_nfe50_array[min_idx_50]],
 first_idx_10 = 0
 # Add small offset to move label slightly inside (to the right of the point)
 x_offset = (max(lambda_values) - min(lambda_values)) * 0.03  # 3% of x-axis range
-ax.text(lambda_nfe10[first_idx_10] + x_offset, fid_nfe10_array[first_idx_10]-0.25, 'NFE=5',
+ax.text(lambda_nfe10[first_idx_10] + x_offset, fid_nfe10_array[first_idx_10]-0.15, 'NFE=5',
         color=color_nfe10, fontsize=28, fontweight='bold',
         ha='left', va='center', zorder=5)
 

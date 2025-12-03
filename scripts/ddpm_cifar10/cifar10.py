@@ -49,7 +49,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CIFAR-10 sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=20)
+    parser.add_argument('--test_num', type=int, default=100)
     parser.add_argument('--start_index', type=int, default=8)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_inference_steps', type=int, default=20)
@@ -77,7 +77,7 @@ def parse_args():
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
-    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="CIFAR-10 Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=16, help='Number of images to test in grid')
     parser.add_argument('--grid_test_index', type=list, default=[9, 1, 8, 3, 4, 5, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19], help='Index of images to test in grid')
@@ -87,7 +87,7 @@ def parse_args():
     # Batch processing options
     parser.add_argument('--run_batch', action='store_true', default=True, help='Run batch experiments with multiple samplers and steps')
     parser.add_argument('--run_batch_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_hcg'], help='List of samplers to test in batch mode')
-    parser.add_argument('--run_batch_steps', type=int, default=[5, 10, 20, 30, 50], help='List of inference steps to test in batch mode')
+    parser.add_argument('--run_batch_steps', type=int, default=[5, 6, 8, 10, 12, 15, 20, 30, 50], help='List of inference steps to test in batch mode')
 
     # Additional options
     parser.add_argument('--save_log', action='store_true', default=True)
@@ -173,9 +173,9 @@ def generate_images(results_save_dir, args, pipe):
     print(f"Save directory: {results_save_dir}")
     print(f"{'='*60}")
 
+    test_start_time = time.time()
     for seed in range(args.seed, args.seed + args.test_num):
         print(f"\nGenerating batch {seed - args.seed + 1}/{args.test_num} (seed={seed})")
-        batch_start_time = time.time()
         torch.manual_seed(seed)
         if args.use_generator:
             generator = torch.Generator(device='cuda').manual_seed(seed)
@@ -191,12 +191,10 @@ def generate_images(results_save_dir, args, pipe):
             filepath = os.path.join(results_save_dir, filename)
             image.save(filepath)
 
-        batch_time = time.time() - batch_start_time
-        generation_times.append(batch_time)
-        total_time += batch_time
+        # print(f"  ✓ Generated {len(images)} images in {batch_time:.3f}s")
+        # print(f"  ✓ Saved to: {results_save_dir}")
 
-        print(f"  ✓ Generated {len(images)} images in {batch_time:.3f}s")
-        print(f"  ✓ Saved to: {results_save_dir}")
+    total_time = time.time() - test_start_time
 
     # Print summary
     avg_time = total_time / args.test_num
