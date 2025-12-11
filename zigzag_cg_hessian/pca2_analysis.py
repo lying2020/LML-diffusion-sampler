@@ -62,53 +62,51 @@ plt.rcParams.update({
 class PCA2Analysis:
     """PCA2 Analysis"""
 
-    def __init__(self, n_samples=10, num_inference_steps=1000, num_trajectories=20):
-        self.n_samples = n_samples
+    def __init__(self, method='ddim', model='ddpm_ema_cifar10', num_inference_steps=1000, num_trajectories=20):
+        self.method = method
+        self.model = model
         self.num_inference_steps = num_inference_steps
         self.num_trajectories = num_trajectories
-        self.method = 'ddim'
-        self.model = 'ddpm_ema_cifar10'
+
+        self.pic_postfix_name = f'{self.method}_{self.model}_{self.num_inference_steps}_{self.num_trajectories}'
 
         print(f"🔧 PCA2 Analysis Configuration:")
-        print(f"   - CIFAR-10 samples for PCA: {self.n_samples}")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
         print(f"   - Number of trajectories: {self.num_trajectories}")
 
-    def load_pipeline(self, method_name='ddim', model_type='ddpm_ema_cifar10'):
+    def load_pipeline(self):
 
-        self.model = model_type
-        self.method = method_name
-        print(f"\n🔧 Loading {method_name.upper()} {self.model.upper()} pipeline...")
+        print(f"\n🔧 Loading {self.method.upper()} {self.model.upper()} pipeline...")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        if model_type == 'ddpm_ema_cifar10':
+        if self.model == 'ddpm_ema_cifar10':
             pipe = DDPMPipeline.from_pretrained(cifar10_model_path, torch_dtype=torch.float32, use_safetensors=False)
             pipe.unet.to(device)
-            self.setup_cifar10_scheduler(pipe, method_name)
+            self.setup_cifar10_scheduler(pipe, self.method)
 
-        elif model_type == 'ldm_celebahq_256':
+        elif self.model == 'ldm_celebahq_256':
             pipe = LDMPipeline.from_pretrained(celeba_model_path, torch_dtype=torch.float32, use_safetensors=False)
             pipe.unet.to(device)
             pipe.vqvae.to(device)
             pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
-            self.setup_celeba_scheduler(pipe, method_name)
+            self.setup_celeba_scheduler(pipe, self.method)
 
-        elif model_type == 'stable-diffusion-2-base':
+        elif self.model == 'stable-diffusion-2-base':
             pipe = StableDiffusionPipeline.from_pretrained(coco_sd2_model_path, torch_dtype=torch.float32, use_safetensors=False)
             pipe.unet.to(device)
-            self.setup_sd_scheduler(pipe, method_name)
+            self.setup_sd_scheduler(pipe, self.method)
 
-        elif model_type == 'stable-diffusion-xl-base-1.0':
+        elif self.model == 'stable-diffusion-xl-base-1.0':
             pipe = StableDiffusionXLPipeline.from_pretrained(coco_sdxl_model_path, torch_dtype=torch.float32, use_safetensors=False, safety_checker=None, added_cond_kwargs={})
             pipe.unet.to(device)
-            self.setup_sd_scheduler(pipe, method_name)
+            self.setup_sd_scheduler(pipe, self.method)
 
-        elif model_type == 'stable-diffusion-v1-5':
+        elif self.model == 'stable-diffusion-v1-5':
             pipe = StableDiffusionPipeline.from_pretrained(coco_sd15_model_path, torch_dtype=torch.float32, use_safetensors=False)
             pipe.unet.to(device)
-            self.setup_sd_scheduler(pipe, method_name)
+            self.setup_sd_scheduler(pipe, self.method)
 
         else:
-            raise ValueError(f"Unknown model type: {model_type}")
+            raise ValueError(f"Unknown model type: {self.model}")
 
         pipe = pipe.to(device)
 
@@ -302,7 +300,6 @@ class PCA2Analysis:
                 "00004": "a vintage car parked on the street",
                 "00005": "a delicious plate of pasta"
             }
-
 
     def generate_trajectories(self, pipe, seed=42):
         """Generate multiple trajectories for statistical analysis"""
@@ -565,7 +562,6 @@ class PCA2Analysis:
             trajectory_data[key] = np.array(trajectory_data[key])
         return trajectory_data
 
-
     def create_pca_models(self, trajectories):
         """Create PCA models for both XT and Score analysis"""
         print(f"\n📊 Creating PCA models...")
@@ -600,7 +596,7 @@ class PCA2Analysis:
         print(f"\n📊 Calculating PC2/PC1 ratio per step...")
 
         # Collect all step data
-        step_ratios = []
+        xt_step_ratios = []
         for step in range(self.num_inference_steps):
             step_data = []
             for traj in trajectories:
@@ -617,20 +613,20 @@ class PCA2Analysis:
             pc2_var = step_pca.explained_variance_[1]
             ratio = pc2_var / pc1_var if pc1_var > 0 else 0
 
-            step_ratios.append(ratio)
+            xt_step_ratios.append(ratio)
 
             if step % 5 == 0:
                 print(f"  Step {step}: PC2/PC1 = {ratio:.6f}")
 
-        return np.array(step_ratios)
+        return np.array(xt_step_ratios)
 
-    def find_high_slope_points(self, step_ratios, num_points=3):
+    def find_high_slope_points(self, xt_step_ratios, num_points=3):
         """Find points with high slope changes in PC2/PC1 ratio, one from each third of the trajectory"""
         # Calculate slope (first derivative)
-        slopes = np.diff(step_ratios)
+        slopes = np.diff(xt_step_ratios)
 
         # Divide trajectory into 3 equal parts
-        total_steps = len(step_ratios)
+        total_steps = len(xt_step_ratios)
         part_size = total_steps // 3
 
         # Define three intervals: early, middle, late
@@ -659,41 +655,17 @@ class PCA2Analysis:
 
         return selected_points[:num_points]
 
-    def plot_local_window(self, Z2d, t, ax, title):
-        """
-        在给定 Axes 上绘制 [t-3, t-2, t-1, t, t+1, t+2, t+3] 的投影折线
-        Z2d: [T, 2] 的投影坐标
-        """
-        assert 3 <= t <= Z2d.shape[0]-4, f"t={t} 超出可取 7 帧窗口的范围"
-        idx = np.arange(t-3, t+4)
-        pts = Z2d[idx]  # [7, 2]
+    def plot_xt_space_pca2(self, trajectories, xt_pca, results_dir=results_dir):
+        """Plot XT Space PCA2 Analysis as a separate figure"""
 
-        ax.plot(pts[:, 0], pts[:, 1], "-o", linewidth=2, markersize=5)
-        # 用方块标注中心帧 t
-        ax.scatter(pts[3, 0], pts[3, 1], s=120, marker='s', zorder=3, label=f"t={t}")
-        ax.legend(frameon=False, loc="best")
-        ax.set_title(title)
-        ax.set_xlabel("PC1")
-        ax.set_ylabel("PC2")
-        ax.axis("equal")
-        ax.grid(True, linestyle=":")
-
-    def plot_iclr_1x3_analysis(self, trajectories, xt_pca, score_pca, step_ratios, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
-        """Plot ICLR 1x3 analysis for PCA2"""
-        os.makedirs(save_dir, exist_ok=True)
-
-        # Create figure with 1x3 subplots
-        fig, axes = plt.subplots(1, 3, figsize=(17, 5))
-        fig.suptitle('PCA2 Analysis: XT Space PCA2, PC2/PC1 Ratio',
-                     fontsize=16, fontweight='bold', y=0.95)
+        # Create figure
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
         # Define colors
         start_color = '#27AE60'  # Green
         end_color = '#E67E22'    # Orange
-        method_color = '#3498DB'  # Blue for DDIM
 
-        # Subplot 1: XT Space PCA2 Analysis
-        ax1 = axes[0]
+        # XT Space PCA2 Analysis
         traj = trajectories[0]  # Use first trajectory
         xt_pca_proj = xt_pca.transform(traj['xt'])
         n_points = len(xt_pca_proj)
@@ -701,46 +673,63 @@ class PCA2Analysis:
 
         # Plot trajectory
         for j in range(n_points - 1):
-            ax1.plot([xt_pca_proj[j, 0], xt_pca_proj[j+1, 0]],
+            ax.plot([xt_pca_proj[j, 0], xt_pca_proj[j+1, 0]],
                    [xt_pca_proj[j, 1], xt_pca_proj[j+1, 1]],
                    color=colors[j], linewidth=3, alpha=0.9)
 
         # Mark start and end points
-        ax1.scatter(xt_pca_proj[0, 0], xt_pca_proj[0, 1],
+        ax.scatter(xt_pca_proj[0, 0], xt_pca_proj[0, 1],
                   c=start_color, s=200, marker='o', label='Start', zorder=5,
                   edgecolors='black', linewidth=2)
-        ax1.scatter(xt_pca_proj[-1, 0], xt_pca_proj[-1, 1],
+        ax.scatter(xt_pca_proj[-1, 0], xt_pca_proj[-1, 1],
                   c=end_color, s=200, marker='s', label='End', zorder=5,
                   edgecolors='black', linewidth=2)
 
         # Add step markers
         for j in range(0, n_points, max(1, n_points//8)):
-            ax1.scatter(xt_pca_proj[j, 0], xt_pca_proj[j, 1],
+            ax.scatter(xt_pca_proj[j, 0], xt_pca_proj[j, 1],
                       c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
 
-        ax1.set_xlabel('PC1', fontsize=12, fontweight='bold')
-        ax1.set_ylabel('PC2', fontsize=12, fontweight='bold')
-        ax1.set_title('XT Space PCA2 Analysis', fontsize=14, fontweight='bold')
-        ax1.legend(fontsize=10, loc='upper right')
-        ax1.grid(True, alpha=0.3)
-        ax1.axis('equal')
+        ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+        ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+        ax.set_title('XT Space PCA2 Analysis', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10, loc='upper right')
+        ax.grid(True, alpha=0.3)
+        ax.axis('equal')
 
-        # Subplot 2: PC2/PC1 Ratio per Step (最多显示40个点)
-        ax2 = axes[1]
+        # Adjust layout
+        plt.tight_layout()
+
+        # Save the plot
+        save_path = os.path.join(results_dir, f'xt_space_pca2_{self.pic_postfix_name}.png')
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        print(f"✓ XT Space PCA2 plot saved to: {save_path}")
+
+        plt.close()
+
+    def plot_pc2_pc1_ratio(self, xt_step_ratios, results_dir=results_dir):
+        """Plot PC2/PC1 Ratio per Step as a separate figure"""
+        # Create figure
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+        # Define colors
+        method_color = '#3498DB'  # Blue
+
+        # PC2/PC1 Ratio per Step (最多显示40个点)
         steps = np.arange(self.num_inference_steps)
 
         # 如果步数超过40，则均匀采样40个点
         if len(steps) > 40:
             sample_indices = np.linspace(0, len(steps)-1, 40, dtype=int)
             sampled_steps = steps[sample_indices]
-            sampled_ratios = step_ratios[sample_indices]
+            sampled_ratios = xt_step_ratios[sample_indices]
         else:
             sampled_steps = steps
-            sampled_ratios = step_ratios
+            sampled_ratios = xt_step_ratios
 
-        ax2.plot(sampled_steps, sampled_ratios, 'o-', color=method_color, linewidth=3, markersize=6)
-        ax2.axhline(y=1.0, color='red', linestyle='--', linewidth=2, alpha=0.7, label='Theoretical (1.0)')
-        ax2.set_xlabel('Step', fontsize=12, fontweight='bold')
+        ax.plot(sampled_steps, sampled_ratios, 'o-', color=method_color, linewidth=3, markersize=6)
+        ax.axhline(y=1.0, color='red', linestyle='--', linewidth=2, alpha=0.7, label='Theoretical (1.0)')
+        ax.set_xlabel('Step', fontsize=12, fontweight='bold')
 
         # 设置x轴刻度 - 显示整十或整百的刻度
         if len(steps) > 100:
@@ -755,12 +744,9 @@ class PCA2Analysis:
 
             # 生成整百/整十刻度
             tick_steps = np.arange(0, max_step + 1, tick_interval)
-            # # 确保包含最后一个点
-            # if tick_steps[-1] < max_step:
-            #     tick_steps = np.append(tick_steps, max_step)
 
-            ax2.set_xticks(tick_steps)
-            ax2.set_xticklabels([str(int(x)) for x in tick_steps])
+            ax.set_xticks(tick_steps)
+            ax.set_xticklabels([str(int(x)) for x in tick_steps])
         elif len(steps) > 10:
             # 对于中等范围，使用整十刻度
             max_step = steps[-1]
@@ -769,20 +755,38 @@ class PCA2Analysis:
             if tick_steps[-1] < max_step:
                 tick_steps = np.append(tick_steps, max_step)
 
-            ax2.set_xticks(tick_steps)
-            ax2.set_xticklabels([str(int(x)) for x in tick_steps])
+            ax.set_xticks(tick_steps)
+            ax.set_xticklabels([str(int(x)) for x in tick_steps])
         else:
             # 对于小范围，显示所有刻度
-            ax2.set_xticks(steps)
-            ax2.set_xticklabels([str(int(x)) for x in steps])
+            ax.set_xticks(steps)
+            ax.set_xticklabels([str(int(x)) for x in steps])
 
-        ax2.set_ylabel('PC2/PC1 Ratio', fontsize=12, fontweight='bold')
-        ax2.set_title('PC2/PC1 Ratio per Step', fontsize=14, fontweight='bold')
-        ax2.legend(fontsize=10)
-        ax2.grid(True, alpha=0.3)
+        ax.set_ylabel('PC2/PC1 Ratio', fontsize=12, fontweight='bold')
+        ax.set_title('PC2/PC1 Ratio per Step', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
 
-        # Subplot 3: Score Space PCA2 Analysis
-        ax3 = axes[2]
+        # Adjust layout
+        plt.tight_layout()
+
+        # Save the plot
+        save_path = os.path.join(results_dir, f'pc2_pc1_ratio_{self.pic_postfix_name}.png')
+        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        print(f"✓ PC2/PC1 Ratio plot saved to: {save_path}")
+
+        plt.close()
+
+    def plot_score_space_pca2(self, trajectories, score_pca, results_dir=results_dir):
+        """Plot Score Space PCA2 Analysis as a separate figure"""
+        # Create figure
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+        # Define colors
+        start_color = '#27AE60'  # Green
+        end_color = '#E67E22'    # Orange
+
+        # Score Space PCA2 Analysis
         traj = trajectories[0]  # Use first trajectory
         score_pca_proj = score_pca.transform(traj['score'])
         n_points = len(score_pca_proj)
@@ -790,21 +794,21 @@ class PCA2Analysis:
 
         # Plot trajectory
         for j in range(n_points - 1):
-            ax3.plot([score_pca_proj[j, 0], score_pca_proj[j+1, 0]],
+            ax.plot([score_pca_proj[j, 0], score_pca_proj[j+1, 0]],
                    [score_pca_proj[j, 1], score_pca_proj[j+1, 1]],
                    color=colors[j], linewidth=3, alpha=0.9)
 
         # Mark start and end points
-        ax3.scatter(score_pca_proj[0, 0], score_pca_proj[0, 1],
+        ax.scatter(score_pca_proj[0, 0], score_pca_proj[0, 1],
                   c=start_color, s=200, marker='o', label='Start', zorder=5,
                   edgecolors='black', linewidth=2)
-        ax3.scatter(score_pca_proj[-1, 0], score_pca_proj[-1, 1],
+        ax.scatter(score_pca_proj[-1, 0], score_pca_proj[-1, 1],
                   c=end_color, s=200, marker='s', label='End', zorder=5,
                   edgecolors='black', linewidth=2)
 
         # Add step markers
         for j in range(0, n_points, max(1, n_points//8)):
-            ax3.scatter(score_pca_proj[j, 0], score_pca_proj[j, 1],
+            ax.scatter(score_pca_proj[j, 0], score_pca_proj[j, 1],
                       c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
 
         # 自适应调整x轴显示范围，让图例占满坐标轴的至少2/3
@@ -825,34 +829,46 @@ class PCA2Analysis:
         y_display_range = y_range / display_ratio
 
         # 设置坐标轴范围
-        ax3.set_xlim(x_center - x_display_range/2, x_center + x_display_range/2)
-        ax3.set_ylim(y_center - y_display_range/2, y_center + y_display_range/2)
+        ax.set_xlim(x_center - x_display_range/2, x_center + x_display_range/2)
+        ax.set_ylim(y_center - y_display_range/2, y_center + y_display_range/2)
 
-        ax3.set_xlabel('PC1', fontsize=12, fontweight='bold')
-        ax3.set_ylabel('PC2', fontsize=12, fontweight='bold')
-        ax3.set_title('Score Space PCA2 Analysis', fontsize=14, fontweight='bold')
-        ax3.legend(fontsize=10, loc='upper right')
-        ax3.grid(True, alpha=0.3)
+        ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+        ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+        ax.set_title('Score Space PCA2 Analysis', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10, loc='upper right')
+        ax.grid(True, alpha=0.3)
 
         # Adjust layout
-        plt.tight_layout(rect=[0, 0, 1, 0.92])
+        plt.tight_layout()
 
         # Save the plot
-        save_path = os.path.join(results_dir, f'pca2_analysis_{self.method}_{self.model}.png')
+        save_path = os.path.join(results_dir, f'score_space_pca2_{self.pic_postfix_name}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
-        print(f"\n✓ {self.method} {self.model} PCA2 analysis plot saved to: {save_path}")
+        print(f"✓ Score Space PCA2 plot saved to: {save_path}")
 
         plt.close()
 
-        # 生成局部轨迹图
-        self.plot_local_trajectory_windows(trajectories, xt_pca, step_ratios, save_dir)
+    def plot_iclr_1x3_analysis(self, trajectories, xt_pca, score_pca, xt_step_ratios, results_dir=results_dir):
+        """Plot ICLR 1x3 analysis for PCA2 - now calls three separate plot functions"""
 
-    def plot_local_trajectory_windows(self, trajectories, xt_pca, step_ratios, save_dir):
+        print(f"\n📊 Generating separate PCA2 analysis plots...")
+
+        # Plot and save each figure separately
+        self.plot_xt_space_pca2(trajectories, xt_pca, results_dir)
+        self.plot_pc2_pc1_ratio(xt_step_ratios, results_dir)
+        self.plot_score_space_pca2(trajectories, score_pca, results_dir)
+
+        print(f"\n✓ All PCA2 analysis plots saved separately")
+
+        # 生成局部轨迹图
+        self.plot_local_trajectory_windows(trajectories, xt_pca, xt_step_ratios, results_dir)
+
+    def plot_local_trajectory_windows(self, trajectories, xt_pca, xt_step_ratios, results_dir=results_dir):
         """Generate local trajectory windows at high slope points"""
         print(f"\n📊 Generating local trajectory windows...")
 
         # 找到高斜率变化点
-        high_slope_points = self.find_high_slope_points(step_ratios, num_points=3)
+        high_slope_points = self.find_high_slope_points(xt_step_ratios, num_points=3)
         print(f"  High slope points: {high_slope_points}")
 
         # 使用第一条轨迹进行局部窗口分析
@@ -866,22 +882,40 @@ class PCA2Analysis:
 
         for i, t in enumerate(high_slope_points):
             ax = axes[i]
-            self.plot_local_window(xt_pca_proj, t, ax, f"Local 7-step around t={t}\n(Slope: {np.diff(step_ratios)[t-1]:.4f})")
+            self.plot_local_window(xt_pca_proj, t, ax, f"Local 7-step around t={t}\n(Slope: {np.diff(xt_step_ratios)[t-1]:.4f})")
 
         plt.tight_layout()
 
         # 保存局部窗口图
-        local_windows_path = os.path.join(results_dir, f'local_windows_{self.method}_{self.model}.png')
+        local_windows_path = os.path.join(results_dir, f'local_windows_{self.pic_postfix_name}.png')
         plt.savefig(local_windows_path, dpi=200, bbox_inches='tight', facecolor='white', edgecolor='none')
-        print(f"✓ {self.method} {self.model} local trajectory windows plot saved to: {local_windows_path}")
+        print(f"✓ {self.pic_postfix_name} local trajectory windows plot saved to: {local_windows_path}")
 
         plt.close()
 
-    def generate_analysis_report(self, xt_pca, score_pca, step_ratios, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
-        """Generate analysis report"""
-        os.makedirs(save_dir, exist_ok=True)
+    def plot_local_window(self, Z2d, t, ax, title):
+        """
+        在给定 Axes 上绘制 [t-3, t-2, t-1, t, t+1, t+2, t+3] 的投影折线
+        Z2d: [T, 2] 的投影坐标
+        """
+        assert 3 <= t <= Z2d.shape[0]-4, f"t={t} 超出可取 7 帧窗口的范围"
+        idx = np.arange(t-3, t+4)
+        pts = Z2d[idx]  # [7, 2]
 
-        report_path = os.path.join(results_dir, f'pca2_analysis_report_{self.method}_{self.model}.txt')
+        ax.plot(pts[:, 0], pts[:, 1], "-o", linewidth=2, markersize=5)
+        # 用方块标注中心帧 t
+        ax.scatter(pts[3, 0], pts[3, 1], s=120, marker='s', zorder=3, label=f"t={t}")
+        ax.legend(frameon=False, loc="best")
+        ax.set_title(title)
+        ax.set_xlabel("PC1")
+        ax.set_ylabel("PC2")
+        ax.axis("equal")
+        ax.grid(True, linestyle=":")
+
+    def generate_analysis_report(self, xt_pca, score_pca, xt_step_ratios, results_dir=results_dir):
+        """Generate analysis report"""
+
+        report_path = os.path.join(results_dir, f'pca2_analysis_report_{self.pic_postfix_name}.txt')
 
         with open(report_path, 'w') as f:
             f.write(f"{self.method} {self.model} PCA2 Analysis Report\n")
@@ -910,24 +944,24 @@ class PCA2Analysis:
 
             f.write("PC2/PC1 RATIO PER STEP ANALYSIS:\n")
             f.write("-" * 32 + "\n")
-            f.write(f"Mean ratio: {np.mean(step_ratios):.6f}\n")
-            f.write(f"Std ratio: {np.std(step_ratios):.6f}\n")
-            f.write(f"Min ratio: {np.min(step_ratios):.6f}\n")
-            f.write(f"Max ratio: {np.max(step_ratios):.6f}\n")
-            f.write(f"Deviation from 1.0: {np.mean(np.abs(step_ratios - 1.0)):.6f}\n\n")
+            f.write(f"Mean ratio: {np.mean(xt_step_ratios):.6f}\n")
+            f.write(f"Std ratio: {np.std(xt_step_ratios):.6f}\n")
+            f.write(f"Min ratio: {np.min(xt_step_ratios):.6f}\n")
+            f.write(f"Max ratio: {np.max(xt_step_ratios):.6f}\n")
+            f.write(f"Deviation from 1.0: {np.mean(np.abs(xt_step_ratios - 1.0)):.6f}\n\n")
 
             # 添加高斜率点信息
-            high_slope_points = self.find_high_slope_points(step_ratios, num_points=3)
+            high_slope_points = self.find_high_slope_points(xt_step_ratios, num_points=3)
             f.write("HIGH SLOPE POINTS FOR LOCAL WINDOWS:\n")
             f.write("-" * 35 + "\n")
             for i, t in enumerate(high_slope_points):
-                slope = np.diff(step_ratios)[t-1] if t > 0 else 0
+                slope = np.diff(xt_step_ratios)[t-1] if t > 0 else 0
                 f.write(f"Point {i+1}: t={t}, slope={slope:.6f}\n")
             f.write("\n")
 
             f.write("STEP-BY-STEP RATIOS:\n")
             f.write("-" * 20 + "\n")
-            for i, ratio in enumerate(step_ratios):
+            for i, ratio in enumerate(xt_step_ratios):
                 f.write(f"Step {i:2d}: {ratio:.6f}\n")
 
         print(f"\n✓ Analysis report saved to: {report_path}")
@@ -948,15 +982,15 @@ class PCA2Analysis:
         print(f"PC1/PC2 ratio: {score_pca.explained_variance_[0]/score_pca.explained_variance_[1]:.6f}")
 
         print(f"\nPC2/PC1 Ratio per Step:")
-        print(f"Mean: {np.mean(step_ratios):.6f}")
-        print(f"Std: {np.std(step_ratios):.6f}")
-        print(f"Deviation from 1.0: {np.mean(np.abs(step_ratios - 1.0)):.6f}")
+        print(f"Mean: {np.mean(xt_step_ratios):.6f}")
+        print(f"Std: {np.std(xt_step_ratios):.6f}")
+        print(f"Deviation from 1.0: {np.mean(np.abs(xt_step_ratios - 1.0)):.6f}")
 
         # 打印高斜率点信息
-        high_slope_points = self.find_high_slope_points(step_ratios, num_points=3)
+        high_slope_points = self.find_high_slope_points(xt_step_ratios, num_points=3)
         print(f"\nHigh Slope Points for Local Windows:")
         for i, t in enumerate(high_slope_points):
-            slope = np.diff(step_ratios)[t-1] if t > 0 else 0
+            slope = np.diff(xt_step_ratios)[t-1] if t > 0 else 0
             print(f"  Point {i+1}: t={t}, slope={slope:.6f}")
 
 def main():
@@ -965,18 +999,17 @@ def main():
     method_name = 'ddim'
     model_type = 'ddpm_ema_cifar10'
     num_inference_steps = 1000
-    num_trajectories = 20
-    n_samples = 10
+    num_trajectories = 10
 
     # Initialize analyzer
-    analyzer = PCA2Analysis(n_samples=n_samples, num_inference_steps=num_inference_steps, num_trajectories=num_trajectories)
+    analyzer = PCA2Analysis(method=method_name, model=model_type, num_inference_steps=num_inference_steps, num_trajectories=num_trajectories)
 
     try:
         # Load pipeline
         print(f"\n{'='*60}")
         print(f"Loading {method_name.upper()} {model_type.upper()} Pipeline")
         print(f"{'='*60}")
-        pipe = analyzer.load_pipeline(method_name=method_name, model_type=model_type)
+        pipe = analyzer.load_pipeline()
 
         # Generate trajectories
         print(f"\n{'='*60}")
@@ -994,19 +1027,19 @@ def main():
         print(f"\n{'='*60}")
         print(f"Calculating PC2/PC1 Ratio per Step for {method_name.upper()} {model_type.upper()}")
         print(f"{'='*60}")
-        step_ratios = analyzer.calculate_pc2_pc1_ratio_per_step(trajectories, xt_pca)
+        xt_step_ratios = analyzer.calculate_pc2_pc1_ratio_per_step(trajectories, xt_pca)
 
         # Create ICLR 1x3 analysis plots
         print(f"\n{'='*60}")
         print(f"Creating PCA2 Analysis Plots for {method_name.upper()} {model_type.upper()}")
         print(f"{'='*60}")
-        analyzer.plot_iclr_1x3_analysis(trajectories, xt_pca, score_pca, step_ratios)
+        analyzer.plot_iclr_1x3_analysis(trajectories, xt_pca, score_pca, xt_step_ratios)
 
         # Generate analysis report
         print(f"\n{'='*60}")
         print(f"Generating Analysis Report for {method_name.upper()} {model_type.upper()}")
         print(f"{'='*60}")
-        analyzer.generate_analysis_report(xt_pca, score_pca, step_ratios)
+        analyzer.generate_analysis_report(xt_pca, score_pca, xt_step_ratios)
 
         print(f"\n✅ PCA2 analysis completed successfully!")
 
