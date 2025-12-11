@@ -9,6 +9,7 @@ from sklearn.decomposition import PCA
 import torch
 import sys
 import os
+import argparse
 from datetime import datetime
 
 # Add project root to path
@@ -62,13 +63,14 @@ plt.rcParams.update({
 class PCA2Analysis:
     """PCA2 Analysis"""
 
-    def __init__(self, method='ddim', model='ddpm_ema_cifar10', num_inference_steps=1000, num_trajectories=20):
+    def __init__(self, method='ddim', model='ddpm_ema_cifar10', num_inference_steps=1000, num_trajectories=20, seed=42):
         self.method = method
         self.model = model
         self.num_inference_steps = num_inference_steps
         self.num_trajectories = num_trajectories
+        self.seed = seed
 
-        self.pic_postfix_name = f'{self.method}_{self.model}_{self.num_inference_steps}_{self.num_trajectories}'
+        self.pic_postfix_name = f'{self.model}_{self.method}_steps-{self.num_inference_steps}_trajs-{self.num_trajectories}_seed-{self.seed}'
 
         print(f"🔧 PCA2 Analysis Configuration:")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
@@ -301,34 +303,40 @@ class PCA2Analysis:
                 "00005": "a delicious plate of pasta"
             }
 
-    def generate_trajectories(self, pipe, seed=42):
+    def generate_trajectories(self, pipe):
         """Generate multiple trajectories for statistical analysis"""
         print(f"\n🚀 Generating {self.num_trajectories} trajectories using {self.method.upper()}...")
 
         trajectories = []
-        torch.manual_seed(seed)
+        torch.manual_seed(self.seed)
 
         for i in range(self.num_trajectories):
             if i % 10 == 0:
                 print(f"  Generating trajectory {i+1}/{self.num_trajectories}")
 
-            trajectory_data = self._generate_single_trajectory(pipe, seed + i, self.model)
+            trajectory_data = self._generate_single_trajectory(pipe, self.seed + i, self.model)
             trajectories.append(trajectory_data)
 
         print(f"✓ Generated {len(trajectories)} trajectories")
         return trajectories
 
     def _generate_single_trajectory(self, pipe, seed, model_type="ddpm_ema_cifar10"):
+        torch.manual_seed(seed)
+        coco_prompts_dict = self.load_coco_prompts()
+        if seed in coco_prompts_dict:
+            prompt = coco_prompts_dict[seed]
+        else:
+            prompt = "a beautiful landscape with mountains and trees"
         if model_type == 'ddpm_ema_cifar10':
             trajectory_data = self._generate_single_trajectory_cifar10(pipe, seed)
         elif model_type == 'ldm_celebahq_256':
             trajectory_data = self._generate_single_trajectory_celeba(pipe, seed)
         elif model_type == 'stable-diffusion-2-base':
-            trajectory_data = self._generate_single_trajectory_sd(pipe, seed)
+            trajectory_data = self._generate_single_trajectory_sd(pipe, seed, prompt)
         elif model_type == 'stable-diffusion-xl-base-1.0':
-            trajectory_data = self._generate_single_trajectory_sd(pipe, seed)
+            trajectory_data = self._generate_single_trajectory_sd(pipe, seed, prompt)
         elif model_type == 'stable-diffusion-v1-5':
-            trajectory_data = self._generate_single_trajectory_sd(pipe, seed)
+            trajectory_data = self._generate_single_trajectory_sd(pipe, seed, prompt)
         else:
             raise ValueError(f"Unknown model type: {model_type}")
         return trajectory_data
@@ -1003,52 +1011,46 @@ class PCA2Analysis:
             slope = np.diff(xt_step_ratios)[t-1] if t > 0 else 0
             print(f"  Point {i+1}: t={t}, slope={slope:.6f}")
 
-def main():
+def main(args):
     """Main function to run PCA2 analysis"""
 
-    method_name = 'ddim'
-    model_type = 'ddpm_ema_cifar10'
-    num_inference_steps = 1000
-    num_trajectories = 20
-    seed = 42
-
     # Initialize analyzer
-    analyzer = PCA2Analysis(method=method_name, model=model_type, num_inference_steps=num_inference_steps, num_trajectories=num_trajectories)
+    analyzer = PCA2Analysis(method=args.method, model=args.model, num_inference_steps=args.num_inference_steps, num_trajectories=args.num_trajectories, seed=args.seed)
 
     try:
         # Load pipeline
         print(f"\n{'='*60}")
-        print(f"Loading {method_name.upper()} {model_type.upper()} Pipeline")
+        print(f"Loading {args.method.upper()} {args.model.upper()} Pipeline")
         print(f"{'='*60}")
         pipe = analyzer.load_pipeline()
 
         # Generate trajectories
         print(f"\n{'='*60}")
-        print(f"Generating {num_trajectories} Trajectories")
+        print(f"Generating {args.num_trajectories} Trajectories")
         print(f"{'='*60}")
-        trajectories = analyzer.generate_trajectories(pipe, seed=seed)
+        trajectories = analyzer.generate_trajectories(pipe)
 
         # Create PCA models
         print(f"\n{'='*60}")
-        print(f"Creating PCA Models for {method_name.upper()} {model_type.upper()}")
+        print(f"Creating PCA Models for {args.method.upper()} {args.model.upper()}")
         print(f"{'='*60}")
         xt_pca, score_pca, xt_data, score_data = analyzer.create_pca_models(trajectories)
 
         # Calculate PC2/PC1 ratio per step
         print(f"\n{'='*60}")
-        print(f"Calculating PC2/PC1 Ratio per Step for {method_name.upper()} {model_type.upper()}")
+        print(f"Calculating PC2/PC1 Ratio per Step for {args.method.upper()} {args.model.upper()}")
         print(f"{'='*60}")
         xt_step_ratios = analyzer.calculate_pc2_pc1_ratio_per_step(trajectories, xt_pca)
 
         # Create ICLR 1x3 analysis plots
         print(f"\n{'='*60}")
-        print(f"Creating PCA2 Analysis Plots for {method_name.upper()} {model_type.upper()}")
+        print(f"Creating PCA2 Analysis Plots for {args.method.upper()} {args.model.upper()}")
         print(f"{'='*60}")
         analyzer.plot_iclr_1x3_analysis(trajectories, xt_pca, score_pca, xt_step_ratios)
 
         # Generate analysis report
         print(f"\n{'='*60}")
-        print(f"Generating Analysis Report for {method_name.upper()} {model_type.upper()}")
+        print(f"Generating Analysis Report for {args.method.upper()} {args.model.upper()}")
         print(f"{'='*60}")
         analyzer.generate_analysis_report(xt_pca, score_pca, xt_step_ratios)
 
@@ -1060,4 +1062,45 @@ def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
-    main()
+    """Main function to run PCA2 analysis"""
+    print("🚀 PCA2 Analysis")
+
+    method_name = 'ddim'
+    # model_type = 'ddpm_ema_cifar10'
+    model_type = 'ldm_celebahq_256'
+    # model_type = 'stable-diffusion-2-base'
+    # model_type = 'stable-diffusion-xl-base-1.0'
+    # model_type = 'stable-diffusion-v1-5'
+    num_inference_steps = 1000
+    num_trajectories = 10
+    seed = 32
+
+    parser = argparse.ArgumentParser(description="PCA2 Analysis")
+    parser.add_argument("--method", type=str, default="ddim", help="Method to use")
+    parser.add_argument("--model", type=str, default="stable-diffusion-2-base", choices=["ddpm_ema_cifar10", "ldm_celebahq_256", "stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"], help="Model to use")
+    parser.add_argument("--num_inference_steps", type=int, default=20, help="Number of inference steps")
+    parser.add_argument("--num_trajectories", type=int, default=12, help="Number of trajectories")
+    parser.add_argument("--seed", type=int, default=12, help="Seed for random number generator")
+    args = parser.parse_args()
+
+    main(args)
+
+    for num_inference_steps in [100, 200, 500, 1000]:
+        for model in ["ddpm_ema_cifar10", "ldm_celebahq_256"]:
+            for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
+                for num_trajectories in [6, 10, 20, 40]:
+                    args.method = method
+                    args.model = model
+                    args.num_inference_steps = num_inference_steps
+                    args.num_trajectories = num_trajectories
+                    main(args)
+
+    for num_inference_steps in [10, 20, 50, 100, 200]:
+        for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
+            for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
+                for num_trajectories in [6, 10, 20, 40]:
+                    args.method = method
+                    args.model = model
+                    args.num_inference_steps = num_inference_steps
+                    args.num_trajectories = num_trajectories
+                    main(args)
