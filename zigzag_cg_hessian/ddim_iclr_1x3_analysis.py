@@ -316,13 +316,28 @@ class PCA2Analysis:
             if i % 10 == 0:
                 print(f"  Generating trajectory {i+1}/{self.num_trajectories}")
 
-            trajectory_data = self._generate_single_trajectory(pipe, seed + i)
+            trajectory_data = self._generate_single_trajectory(pipe, seed + i, self.model)
             trajectories.append(trajectory_data)
 
         print(f"✓ Generated {len(trajectories)} trajectories")
         return trajectories
 
-    def _generate_single_trajectory(self, pipe, seed):
+    def _generate_single_trajectory(self, pipe, seed, model_type="ddpm_ema_cifar10"):
+        if model_type == 'ddpm_ema_cifar10':
+            trajectory_data = self._generate_single_trajectory_cifar10(pipe, seed)
+        elif model_type == 'ldm_celebahq_256':
+            trajectory_data = self._generate_single_trajectory_celeba(pipe, seed)
+        elif model_type == 'stable-diffusion-2-base':
+            trajectory_data = self._generate_single_trajectory_sd(pipe, seed)
+        elif model_type == 'stable-diffusion-xl-base-1.0':
+            trajectory_data = self._generate_single_trajectory_sd(pipe, seed)
+        elif model_type == 'stable-diffusion-v1-5':
+            trajectory_data = self._generate_single_trajectory_sd(pipe, seed)
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
+        return trajectory_data
+
+    def _generate_single_trajectory_cifar10(self, pipe, seed):
         """Generate a single trajectory and collect intermediate states"""
         torch.manual_seed(seed)
 
@@ -367,6 +382,190 @@ class PCA2Analysis:
             trajectory_data[key] = np.array(trajectory_data[key])
 
         return trajectory_data
+
+    def _generate_single_trajectory_celeba(self, pipe, seed):
+        """
+        Generate a single trajectory for CelebA pipeline and optionally collect intermediate states.
+        Compatible with _generate_single_trajectory from ddim_iclr_1x3_analysis.py
+
+        Args:
+            pipe: LDMPipeline instance
+            seed: Random seed
+        Returns:
+            trajectory_data
+        """
+        torch.manual_seed(seed)
+        device = pipe.unet.device
+
+        # Initialize latents (for LDM, we need to get the latent shape from VAE)
+        # LDM uses VAE encoder, but for generation we start with random latents
+        height = pipe.vqvae.config.sample_size if hasattr(pipe.vqvae.config, 'sample_size') else 256
+        width = height
+        latent_channels = pipe.unet.config.in_channels
+        shape = (1, latent_channels, height // 8, width // 8)  # VAE downsampling factor is 8
+        latents = torch.randn(shape, device=device, dtype=pipe.unet.dtype)
+
+        # Set timesteps
+        pipe.scheduler.set_timesteps(self.num_inference_steps, device=device)
+
+        # Store trajectory data
+        trajectory_data = {
+            'xt': [],      # 待生成的图片状态向量
+            'score': [],   # 分数/漂移向量
+            'timesteps': [],
+            'noise_pred': []
+        }
+
+        scheduler = pipe.scheduler
+
+        # Manual sampling loop (similar to _generate_single_trajectory)
+        for j, t in enumerate(scheduler.timesteps):
+            # Store current state
+            xt_flat = latents.detach().view(1, -1).cpu().numpy().flatten()
+            trajectory_data['xt'].append(xt_flat)
+            trajectory_data['timesteps'].append(t.item() if isinstance(t, torch.Tensor) else t)
+
+            # Predict noise
+            with torch.no_grad():
+                noise_pred = pipe.unet(latents, t).sample
+
+            # Store noise prediction
+            noise_pred_flat = noise_pred.detach().view(1, -1).cpu().numpy().flatten()
+            trajectory_data['noise_pred'].append(noise_pred_flat)
+
+            # Compute score/drift vector
+            score = -noise_pred_flat
+            trajectory_data['score'].append(score)
+
+            # Scheduler step
+            latents = scheduler.step(noise_pred, t, latents).prev_sample
+
+        # Convert trajectory data to numpy arrays
+        for key in ['xt', 'score', 'timesteps', 'noise_pred']:
+            trajectory_data[key] = np.array(trajectory_data[key])
+        return trajectory_data
+
+    def _generate_single_trajectory_sd(self, pipe, seed,
+                                    prompt="a beautiful landscape with mountains and trees", negative_prompt="", guidance_scale=7.5):
+        """
+        Generate a single trajectory for Stable Diffusion pipeline and optionally collect intermediate states.
+        Compatible with _generate_single_trajectory from ddim_iclr_1x3_analysis.py
+
+        Args:
+            pipe: StableDiffusionPipeline or StableDiffusionXLPipeline instance
+            prompt: Text prompt
+            negative_prompt: Negative text prompt
+            seed: Random seed
+            guidance_scale: Guidance scale for classifier-free guidance
+
+        Returns:
+            trajectory_data
+        """
+        torch.manual_seed(seed)
+        device = pipe.device
+
+        # Prepare text embeddings
+        text_inputs = pipe.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        text_embeddings = pipe.text_encoder(text_inputs.input_ids.to(device))[0]
+
+        # Prepare negative prompt embeddings if provided
+        if negative_prompt is None:
+            negative_prompt = ""
+        uncond_tokens = pipe.tokenizer(
+            negative_prompt,
+            padding="max_length",
+            max_length=pipe.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        uncond_embeddings = pipe.text_encoder(uncond_tokens.input_ids.to(device))[0]
+
+        # Concatenate for classifier-free guidance
+        text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
+
+        # Initialize latents
+        # Get VAE scale factor (8 for SD, may vary for SDXL)
+        vae_scale_factor = getattr(pipe, 'vae_scale_factor', 8)
+        if hasattr(pipe.unet.config, 'sample_size'):
+            height = width = pipe.unet.config.sample_size * vae_scale_factor
+        else:
+            # Default to 512 for standard SD, 1024 for SDXL
+            height = width = 512 if 'xl' not in pipe.__class__.__name__.lower() else 1024
+        latent_channels = pipe.unet.config.in_channels
+        shape = (1, latent_channels, height // vae_scale_factor, width // vae_scale_factor)
+        latents = torch.randn(shape, device=device, dtype=text_embeddings.dtype)
+
+        # Set timesteps
+        pipe.scheduler.set_timesteps(self.num_inference_steps, device=device)
+
+        # Scale latents
+        latents = latents * pipe.scheduler.init_noise_sigma
+
+        # Store trajectory data
+        trajectory_data = {
+            'xt': [],      # 待生成的图片状态向量
+            'score': [],   # 分数/漂移向量
+            'timesteps': [],
+            'noise_pred': []
+        }
+
+        scheduler = pipe.scheduler
+
+        # Manual sampling loop (similar to _generate_single_trajectory)
+        for j, t in enumerate(scheduler.timesteps):
+            # Expand latents for classifier-free guidance
+            latent_model_input = torch.cat([latents] * 2)
+            latent_model_input = scheduler.scale_model_input(latent_model_input, t)
+
+            # Store current state
+            xt_flat = latents.detach().view(1, -1).cpu().numpy().flatten()
+            trajectory_data['xt'].append(xt_flat)
+            trajectory_data['timesteps'].append(t.item() if isinstance(t, torch.Tensor) else t)
+
+            # Predict noise
+            with torch.no_grad():
+                noise_pred = pipe.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=text_embeddings,
+                ).sample
+
+            # Perform classifier-free guidance
+            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+            noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+            # Store the final guided noise prediction
+            noise_pred_flat = noise_pred.detach().view(1, -1).cpu().numpy().flatten()
+            trajectory_data['noise_pred'].append(noise_pred_flat)
+
+            # Compute score/drift vector
+            score = -noise_pred_flat
+            trajectory_data['score'].append(score)
+
+            # Scheduler step
+            latents = scheduler.step(noise_pred, t, latents).prev_sample
+
+        # # Decode latents to images using VAE
+        # from PIL import Image
+        # with torch.no_grad():
+        #     latents = 1 / pipe.vae.config.scaling_factor * latents
+        #     image = pipe.vae.decode(latents).sample
+        #     image = (image / 2 + 0.5).clamp(0, 1)
+        #     image = image.cpu().permute(0, 2, 3, 1).numpy()
+        #     image = (image * 255).round().astype("uint8")
+        #     image = Image.fromarray(image[0])
+
+        # Convert trajectory data to numpy arrays
+        for key in ['xt', 'score', 'timesteps', 'noise_pred']:
+            trajectory_data[key] = np.array(trajectory_data[key])
+        return trajectory_data
+
 
     def create_pca_models(self, trajectories):
         """Create PCA models for both XT and Score analysis"""

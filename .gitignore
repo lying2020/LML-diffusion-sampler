@@ -4,8 +4,7 @@ __pycache__/
 *$py.class
 
 plot_iclr/results/
-results
-
+zigzag_cg_hessian/results
 # C extensions
 *.so
 .vscode
