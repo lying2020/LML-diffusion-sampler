@@ -1268,7 +1268,7 @@ if __name__ == "__main__":
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="PCA2 Analysis: Analyze diffusion trajectories using PCA")
-    parser.add_argument("--method", type=str, default="ddim",
+    parser.add_argument("--method", type=str, default="dpm_lm",
                         help="Sampling method: ddim, dpm, dpm_lm, unipc, etc.")
     parser.add_argument("--model", type=str, default="ddpm_ema_cifar10",
                         choices=["ddpm_ema_cifar10", "ldm_celebahq_256", "stable-diffusion-2-base",
@@ -1307,7 +1307,7 @@ if __name__ == "__main__":
     # Batch run 2: Stable Diffusion models
     print("Batch run 2: Stable Diffusion models")
     # These models typically use fewer inference steps (10-200)
-    for num_inference_steps in [100, 20, 50, 10, 200]:
+    for num_inference_steps in [500, 100, 20, 50, 10, 200]:
         for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
             for num_trajectories in [60, 10, 6, 20, 40]:
                 for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
