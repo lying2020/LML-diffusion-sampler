@@ -882,7 +882,7 @@ class PCA2Analysis:
 
         for i, t in enumerate(high_slope_points):
             ax = axes[i]
-            self.plot_local_window(xt_pca_proj, t, ax, f"Local 7-step around t={t}\n(Slope: {np.diff(xt_step_ratios)[t-1]:.4f})")
+            self.plot_local_window(xt_pca_proj, t, ax, f"Local 7-step around t={t}")
 
         plt.tight_layout()
 
@@ -911,6 +911,16 @@ class PCA2Analysis:
         ax.set_ylabel("PC2")
         ax.axis("equal")
         ax.grid(True, linestyle=":")
+
+        # 设置 x 和 y 轴只显示 3 个刻度，保留4位有效数字
+        x_min, x_max = ax.get_xlim()
+        y_min, y_max = ax.get_ylim()
+        x_ticks = [x_min, (x_min + x_max) / 2, x_max]
+        y_ticks = [y_min, (y_min + y_max) / 2, y_max]
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels([f"{x:.4g}" for x in x_ticks])
+        ax.set_yticks(y_ticks)
+        ax.set_yticklabels([f"{y:.4g}" for y in y_ticks])
 
     def generate_analysis_report(self, xt_pca, score_pca, xt_step_ratios, results_dir=results_dir):
         """Generate analysis report"""
@@ -999,7 +1009,8 @@ def main():
     method_name = 'ddim'
     model_type = 'ddpm_ema_cifar10'
     num_inference_steps = 1000
-    num_trajectories = 10
+    num_trajectories = 20
+    seed = 42
 
     # Initialize analyzer
     analyzer = PCA2Analysis(method=method_name, model=model_type, num_inference_steps=num_inference_steps, num_trajectories=num_trajectories)
@@ -1015,7 +1026,7 @@ def main():
         print(f"\n{'='*60}")
         print(f"Generating {num_trajectories} Trajectories")
         print(f"{'='*60}")
-        trajectories = analyzer.generate_trajectories(pipe, seed=42)
+        trajectories = analyzer.generate_trajectories(pipe, seed=seed)
 
         # Create PCA models
         print(f"\n{'='*60}")
