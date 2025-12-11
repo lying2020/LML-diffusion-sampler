@@ -61,20 +61,48 @@ plt.rcParams.update({
 })
 
 class PCA2Analysis:
-    """PCA2 Analysis"""
+    """
+    PCA2 Analysis class for analyzing diffusion sampling trajectories.
+
+    This class performs Principal Component Analysis (PCA) on diffusion trajectories
+    in both the XT space (image state space) and Score space (gradient space).
+    It generates visualizations and statistics to analyze the anisotropy and
+    evolution of diffusion trajectories.
+
+    Key analyses:
+    - XT Space PCA2: 2D projection of image state evolution
+    - Score Space PCA2: 2D projection of gradient/score evolution
+    - PC2/PC1 Ratio: Measures anisotropy at each inference step
+    - Local trajectory windows: Detailed view at high-slope points
+    """
 
     def __init__(self, method='ddim', model='ddpm_ema_cifar10', num_inference_steps=1000, num_trajectories=20, seed=42):
+        """
+        Initialize PCA2 Analysis.
+
+        Args:
+            method: Sampling method (ddim, dpm, dpm_lm, unipc, etc.)
+            model: Model type (ddpm_ema_cifar10, ldm_celebahq_256, stable-diffusion-2-base, etc.)
+            num_inference_steps: Number of inference steps in the diffusion process
+            num_trajectories: Number of trajectories to generate for statistical analysis
+            seed: Random seed for reproducibility
+        """
         self.method = method
         self.model = model
         self.num_inference_steps = num_inference_steps
         self.num_trajectories = num_trajectories
         self.seed = seed
 
+        # Generate postfix for output file names
+        # Format: {model}_{method}_steps-{num_inference_steps}_trajs-{num_trajectories}_seed-{seed}
         self.pic_postfix_name = f'{self.model}_{self.method}_steps-{self.num_inference_steps}_trajs-{self.num_trajectories}_seed-{self.seed}'
 
         print(f"🔧 PCA2 Analysis Configuration:")
+        print(f"   - Method: {self.method}")
+        print(f"   - Model: {self.model}")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
         print(f"   - Number of trajectories: {self.num_trajectories}")
+        print(f"   - Seed: {self.seed}")
 
     def load_pipeline(self):
 
@@ -304,16 +332,33 @@ class PCA2Analysis:
             }
 
     def generate_trajectories(self, pipe):
-        """Generate multiple trajectories for statistical analysis"""
+        """
+        Generate multiple trajectories for statistical analysis.
+
+        Each trajectory contains intermediate states at each inference step:
+        - xt: Image state vector at step t
+        - score: Score/drift vector (negative of noise prediction)
+        - timesteps: Timestep values
+        - noise_pred: Noise prediction from the UNet
+
+        Args:
+            pipe: Loaded diffusion pipeline
+
+        Returns:
+            trajectories: List of trajectory dictionaries, each containing the above fields
+        """
         print(f"\n🚀 Generating {self.num_trajectories} trajectories using {self.method.upper()}...")
 
         trajectories = []
+        # Set base seed for reproducibility
         torch.manual_seed(self.seed)
 
+        # Generate multiple trajectories with different seeds (seed, seed+1, seed+2, ...)
         for i in range(self.num_trajectories):
             if i % 10 == 0:
                 print(f"  Generating trajectory {i+1}/{self.num_trajectories}")
 
+            # Each trajectory uses a different seed (seed + i) for variation
             trajectory_data = self._generate_single_trajectory(pipe, self.seed + i, self.model)
             trajectories.append(trajectory_data)
 
@@ -321,21 +366,38 @@ class PCA2Analysis:
         return trajectories
 
     def _generate_single_trajectory(self, pipe, seed, model_type="ddpm_ema_cifar10"):
+        """
+        Generate a single trajectory based on model type.
+
+        Args:
+            pipe: Pipeline instance
+            seed: Random seed for trajectory generation
+            model_type: Type of model ('ddpm_ema_cifar10', 'ldm_celebahq_256',
+                      'stable-diffusion-2-base', etc.)
+
+        Returns:
+            trajectory_data: Dictionary containing 'xt', 'score', 'timesteps', 'noise_pred'
+        """
         torch.manual_seed(seed)
+
+        # Load COCO prompts for Stable Diffusion models
+        # For text-to-image models, we need prompts for generation
         coco_prompts_dict = self.load_coco_prompts()
         if seed in coco_prompts_dict:
             prompt = coco_prompts_dict[seed]
         else:
+            # Default prompt if seed not found in COCO prompts
             prompt = "a beautiful landscape with mountains and trees"
+
+        # Route to appropriate trajectory generation function based on model type
         if model_type == 'ddpm_ema_cifar10':
+            # CIFAR-10 unconditional generation (no prompt needed)
             trajectory_data = self._generate_single_trajectory_cifar10(pipe, seed)
         elif model_type == 'ldm_celebahq_256':
+            # CelebA-HQ unconditional generation (no prompt needed)
             trajectory_data = self._generate_single_trajectory_celeba(pipe, seed)
-        elif model_type == 'stable-diffusion-2-base':
-            trajectory_data = self._generate_single_trajectory_sd(pipe, seed, prompt)
-        elif model_type == 'stable-diffusion-xl-base-1.0':
-            trajectory_data = self._generate_single_trajectory_sd(pipe, seed, prompt)
-        elif model_type == 'stable-diffusion-v1-5':
+        elif model_type in ['stable-diffusion-2-base', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-v1-5']:
+            # Stable Diffusion text-to-image generation (requires prompt)
             trajectory_data = self._generate_single_trajectory_sd(pipe, seed, prompt)
         else:
             raise ValueError(f"Unknown model type: {model_type}")
@@ -600,29 +662,50 @@ class PCA2Analysis:
         return xt_pca, score_pca, xt_data, score_data
 
     def calculate_pc2_pc1_ratio_per_step(self, trajectories, xt_pca):
-        """Calculate PC2/PC1 ratio for each step"""
+        """
+        Calculate PC2/PC1 ratio for each inference step.
+
+        This ratio measures the anisotropy of the trajectory at each step.
+        - Ratio = 1.0: Isotropic (equal variance in PC1 and PC2)
+        - Ratio < 1.0: More variance in PC1 (anisotropic)
+        - Ratio > 1.0: More variance in PC2 (anisotropic)
+
+        For each step, we perform PCA on all trajectories at that step,
+        then compute the ratio of explained variances.
+
+        Args:
+            trajectories: List of trajectory dictionaries
+            xt_pca: Global PCA model (not used here, but kept for consistency)
+
+        Returns:
+            xt_step_ratios: Array of PC2/PC1 ratios, one for each inference step
+        """
         print(f"\n📊 Calculating PC2/PC1 ratio per step...")
 
         # Collect all step data
         xt_step_ratios = []
         for step in range(self.num_inference_steps):
+            # Collect XT data from all trajectories at this step
             step_data = []
             for traj in trajectories:
                 step_data.append(traj['xt'][step])
 
             step_data = np.array(step_data)
 
-            # Calculate PCA for this step
+            # Calculate PCA for this specific step
+            # This gives us the local anisotropy at this step
             step_pca = PCA(n_components=2, svd_solver='randomized')
             step_pca.fit(step_data)
 
-            # Calculate PC2/PC1 ratio
+            # Calculate PC2/PC1 ratio from explained variances
+            # explained_variance_ is the variance explained by each component
             pc1_var = step_pca.explained_variance_[0]
             pc2_var = step_pca.explained_variance_[1]
             ratio = pc2_var / pc1_var if pc1_var > 0 else 0
 
             xt_step_ratios.append(ratio)
 
+            # Print progress every 5 steps
             if step % 5 == 0:
                 print(f"  Step {step}: PC2/PC1 = {ratio:.6f}")
 
@@ -1012,43 +1095,72 @@ class PCA2Analysis:
             print(f"  Point {i+1}: t={t}, slope={slope:.6f}")
 
 def main(args):
-    """Main function to run PCA2 analysis"""
+    """
+    Main function to run PCA2 analysis.
 
-    # Initialize analyzer
-    analyzer = PCA2Analysis(method=args.method, model=args.model, num_inference_steps=args.num_inference_steps, num_trajectories=args.num_trajectories, seed=args.seed)
+    This function performs the complete PCA2 analysis pipeline:
+    1. Initialize analyzer with specified parameters
+    2. Load the diffusion pipeline
+    3. Generate multiple trajectories
+    4. Create PCA models for XT and Score spaces
+    5. Calculate PC2/PC1 ratio per step
+    6. Generate visualization plots (separate figures for each analysis)
+    7. Generate analysis report
+
+    Args:
+        args: Argument object containing:
+            - method: Sampling method (ddim, dpm, dpm_lm, unipc, etc.)
+            - model: Model type (ddpm_ema_cifar10, ldm_celebahq_256, stable-diffusion-2-base, etc.)
+            - num_inference_steps: Number of inference steps
+            - num_trajectories: Number of trajectories to generate
+            - seed: Random seed for reproducibility
+    """
+    # Initialize analyzer with specified parameters
+    analyzer = PCA2Analysis(
+        method=args.method,
+        model=args.model,
+        num_inference_steps=args.num_inference_steps,
+        num_trajectories=args.num_trajectories,
+        seed=args.seed
+    )
 
     try:
-        # Load pipeline
+        # Step 1: Load the diffusion pipeline
         print(f"\n{'='*60}")
         print(f"Loading {args.method.upper()} {args.model.upper()} Pipeline")
         print(f"{'='*60}")
         pipe = analyzer.load_pipeline()
 
-        # Generate trajectories
+        # Step 2: Generate multiple trajectories for statistical analysis
+        # Each trajectory contains intermediate states (xt, score, timesteps, noise_pred)
         print(f"\n{'='*60}")
         print(f"Generating {args.num_trajectories} Trajectories")
         print(f"{'='*60}")
         trajectories = analyzer.generate_trajectories(pipe)
 
-        # Create PCA models
+        # Step 3: Create PCA models for both XT space and Score space
+        # PCA is performed on all trajectory data to find principal components
         print(f"\n{'='*60}")
         print(f"Creating PCA Models for {args.method.upper()} {args.model.upper()}")
         print(f"{'='*60}")
         xt_pca, score_pca, xt_data, score_data = analyzer.create_pca_models(trajectories)
 
-        # Calculate PC2/PC1 ratio per step
+        # Step 4: Calculate PC2/PC1 ratio for each inference step
+        # This ratio indicates the anisotropy of the trajectory at each step
         print(f"\n{'='*60}")
         print(f"Calculating PC2/PC1 Ratio per Step for {args.method.upper()} {args.model.upper()}")
         print(f"{'='*60}")
         xt_step_ratios = analyzer.calculate_pc2_pc1_ratio_per_step(trajectories, xt_pca)
 
-        # Create ICLR 1x3 analysis plots
+        # Step 5: Generate visualization plots
+        # Creates three separate figures: XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2
         print(f"\n{'='*60}")
         print(f"Creating PCA2 Analysis Plots for {args.method.upper()} {args.model.upper()}")
         print(f"{'='*60}")
         analyzer.plot_iclr_1x3_analysis(trajectories, xt_pca, score_pca, xt_step_ratios)
 
-        # Generate analysis report
+        # Step 6: Generate detailed analysis report
+        # Saves statistics and step-by-step ratios to a text file
         print(f"\n{'='*60}")
         print(f"Generating Analysis Report for {args.method.upper()} {args.model.upper()}")
         print(f"{'='*60}")
@@ -1062,9 +1174,24 @@ def main(args):
         traceback.print_exc()
 
 if __name__ == "__main__":
-    """Main function to run PCA2 analysis"""
+    """
+    Main entry point for PCA2 Analysis.
+
+    This script can be run in two modes:
+    1. Single run: Use command-line arguments to run a single analysis
+    2. Batch run: Automatically runs multiple configurations (commented out by default)
+
+    Usage examples:
+        # Single run with default parameters
+        python pca2_analysis.py
+
+        # Single run with custom parameters
+        python pca2_analysis.py --method ddim --model ddpm_ema_cifar10 --num_inference_steps 1000 --num_trajectories 20 --seed 42
+    """
     print("🚀 PCA2 Analysis")
 
+    # Default configuration (used if command-line args not provided)
+    # These can be overridden by command-line arguments
     method_name = 'ddim'
     # model_type = 'ddpm_ema_cifar10'
     model_type = 'ldm_celebahq_256'
@@ -1075,30 +1202,52 @@ if __name__ == "__main__":
     num_trajectories = 10
     seed = 32
 
-    parser = argparse.ArgumentParser(description="PCA2 Analysis")
-    parser.add_argument("--method", type=str, default="ddim", help="Method to use")
-    parser.add_argument("--model", type=str, default="stable-diffusion-2-base", choices=["ddpm_ema_cifar10", "ldm_celebahq_256", "stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"], help="Model to use")
-    parser.add_argument("--num_inference_steps", type=int, default=20, help="Number of inference steps")
-    parser.add_argument("--num_trajectories", type=int, default=12, help="Number of trajectories")
-    parser.add_argument("--seed", type=int, default=12, help="Seed for random number generator")
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="PCA2 Analysis: Analyze diffusion trajectories using PCA")
+    parser.add_argument("--method", type=str, default="ddim",
+                        help="Sampling method: ddim, dpm, dpm_lm, unipc, etc.")
+    parser.add_argument("--model", type=str, default="stable-diffusion-2-base",
+                        choices=["ddpm_ema_cifar10", "ldm_celebahq_256", "stable-diffusion-2-base",
+                                "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"],
+                        help="Model type to analyze")
+    parser.add_argument("--num_inference_steps", type=int, default=20,
+                        help="Number of inference steps in the diffusion process")
+    parser.add_argument("--num_trajectories", type=int, default=12,
+                        help="Number of trajectories to generate for statistical analysis")
+    parser.add_argument("--seed", type=int, default=12,
+                        help="Random seed for reproducibility")
     args = parser.parse_args()
 
+    # Run single analysis with provided arguments
     main(args)
 
+    # ============================================================================
+    # BATCH RUN MODE (commented out by default)
+    # Uncomment the following sections to run batch experiments
+    # ============================================================================
+
+    # Batch run 1: CIFAR-10 and CelebA-HQ models
+    print("Batch run 1: CIFAR-10 and CelebA-HQ models")
+    # These models support more inference steps (100-1000)
     for num_inference_steps in [100, 200, 500, 1000]:
         for model in ["ddpm_ema_cifar10", "ldm_celebahq_256"]:
             for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
                 for num_trajectories in [6, 10, 20, 40]:
+                    print(f"Running: method: {method}, model: {model}, num_inference_steps: {num_inference_steps}, num_trajectories: {num_trajectories}")
                     args.method = method
                     args.model = model
                     args.num_inference_steps = num_inference_steps
                     args.num_trajectories = num_trajectories
                     main(args)
 
+    # Batch run 2: Stable Diffusion models
+    print("Batch run 2: Stable Diffusion models")
+    # These models typically use fewer inference steps (10-200)
     for num_inference_steps in [10, 20, 50, 100, 200]:
         for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
             for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
                 for num_trajectories in [6, 10, 20, 40]:
+                    print(f"Running: method: {method}, model: {model}, num_inference_steps: {num_inference_steps}, num_trajectories: {num_trajectories}")
                     args.method = method
                     args.model = model
                     args.num_inference_steps = num_inference_steps
