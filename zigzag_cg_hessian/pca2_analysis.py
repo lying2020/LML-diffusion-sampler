@@ -1013,10 +1013,35 @@ class PCA2Analysis:
         ax.set_yticks(y_ticks)
         ax.set_yticklabels([f"{y:.4g}" for y in y_ticks])
 
-    def generate_analysis_report(self, xt_pca, score_pca, xt_step_ratios, results_dir=results_dir):
-        """Generate analysis report"""
+    def generate_analysis_report(self, trajectories, xt_pca, score_pca, xt_step_ratios, results_dir=results_dir):
+        """
+        Generate analysis report with detailed statistics and arrays.
 
+        Args:
+            trajectories: List of trajectory dictionaries (needed to calculate per-step PC1/PC2 values)
+            xt_pca: Global PCA model for XT space
+            score_pca: Global PCA model for Score space
+            xt_step_ratios: Array of PC2/PC1 ratios for each step
+            results_dir: Directory to save the report
+        """
         report_path = os.path.join(results_dir, f'pca2_analysis_report_{self.pic_postfix_name}.txt')
+
+        # Calculate per-step PC1 and PC2 true values
+        print(f"\n📊 Calculating per-step PC1/PC2 values for report...")
+        xt_step_pc1_values = []
+        xt_step_pc2_values = []
+        for step in range(self.num_inference_steps):
+            step_data = []
+            for traj in trajectories:
+                step_data.append(traj['xt'][step])
+            step_data = np.array(step_data)
+            step_pca = PCA(n_components=2, svd_solver='randomized')
+            step_pca.fit(step_data)
+            xt_step_pc1_values.append(step_pca.explained_variance_[0])
+            xt_step_pc2_values.append(step_pca.explained_variance_[1])
+
+        xt_step_pc1_values = np.array(xt_step_pc1_values)
+        xt_step_pc2_values = np.array(xt_step_pc2_values)
 
         with open(report_path, 'w') as f:
             f.write(f"{self.method} {self.model} PCA2 Analysis Report\n")
@@ -1031,15 +1056,19 @@ class PCA2Analysis:
 
             f.write("XT SPACE PCA2 ANALYSIS:\n")
             f.write("-" * 25 + "\n")
-            f.write(f"PC1 explained variance: {xt_pca.explained_variance_ratio_[0]:.6f}\n")
-            f.write(f"PC2 explained variance: {xt_pca.explained_variance_ratio_[1]:.6f}\n")
+            f.write(f"PC1 explained variance ratio: {xt_pca.explained_variance_ratio_[0]:.6f}\n")
+            f.write(f"PC2 explained variance ratio: {xt_pca.explained_variance_ratio_[1]:.6f}\n")
+            f.write(f"PC1 explained variance (true value): {xt_pca.explained_variance_[0]:.6f}\n")
+            f.write(f"PC2 explained variance (true value): {xt_pca.explained_variance_[1]:.6f}\n")
             f.write(f"Total explained variance: {np.sum(xt_pca.explained_variance_ratio_):.6f}\n")
             f.write(f"PC1/PC2 ratio: {xt_pca.explained_variance_[0]/xt_pca.explained_variance_[1]:.6f}\n\n")
 
             f.write("SCORE SPACE PCA2 ANALYSIS:\n")
             f.write("-" * 28 + "\n")
-            f.write(f"PC1 explained variance: {score_pca.explained_variance_ratio_[0]:.6f}\n")
-            f.write(f"PC2 explained variance: {score_pca.explained_variance_ratio_[1]:.6f}\n")
+            f.write(f"PC1 explained variance ratio: {score_pca.explained_variance_ratio_[0]:.6f}\n")
+            f.write(f"PC2 explained variance ratio: {score_pca.explained_variance_ratio_[1]:.6f}\n")
+            f.write(f"PC1 explained variance (true value): {score_pca.explained_variance_[0]:.6f}\n")
+            f.write(f"PC2 explained variance (true value): {score_pca.explained_variance_[1]:.6f}\n")
             f.write(f"Total explained variance: {np.sum(score_pca.explained_variance_ratio_):.6f}\n")
             f.write(f"PC1/PC2 ratio: {score_pca.explained_variance_[0]/score_pca.explained_variance_[1]:.6f}\n\n")
 
@@ -1060,10 +1089,41 @@ class PCA2Analysis:
                 f.write(f"Point {i+1}: t={t}, slope={slope:.6f}\n")
             f.write("\n")
 
-            f.write("STEP-BY-STEP RATIOS:\n")
-            f.write("-" * 20 + "\n")
-            for i, ratio in enumerate(xt_step_ratios):
-                f.write(f"Step {i:2d}: {ratio:.6f}\n")
+            # Write arrays in a more readable format (one value per line)
+            # This format is easy to parse programmatically
+            f.write("ARRAYS (ONE VALUE PER LINE):\n")
+            f.write("-" * 35 + "\n")
+
+            # XT Step PC1 values array
+            f.write("XT_STEP_PC1_VALUES:\n")
+            f.write(f"# Array length: {len(xt_step_pc1_values)}\n")
+            f.write(f"# Format: one value per line\n")
+            for val in xt_step_pc1_values:
+                f.write(f"{val:.6f}\n")
+            f.write("\n")
+
+            # XT Step PC2 values array
+            f.write("XT_STEP_PC2_VALUES:\n")
+            f.write(f"# Array length: {len(xt_step_pc2_values)}\n")
+            f.write(f"# Format: one value per line\n")
+            for val in xt_step_pc2_values:
+                f.write(f"{val:.6f}\n")
+            f.write("\n")
+
+            # XT Step Ratios (PC2/PC1) array
+            f.write("XT_STEP_RATIOS (PC2/PC1):\n")
+            f.write(f"# Array length: {len(xt_step_ratios)}\n")
+            f.write(f"# Format: one value per line\n")
+            for ratio in xt_step_ratios:
+                f.write(f"{ratio:.6f}\n")
+            f.write("\n")
+
+            # Also write step-by-step format for backward compatibility
+            f.write("STEP-BY-STEP DETAILED VIEW:\n")
+            f.write("-" * 30 + "\n")
+            f.write("# Format: Step | PC1 | PC2 | PC2/PC1 Ratio\n")
+            for i in range(self.num_inference_steps):
+                f.write(f"Step {i:2d}: PC1={xt_step_pc1_values[i]:.6f}, PC2={xt_step_pc2_values[i]:.6f}, Ratio={xt_step_ratios[i]:.6f}\n")
 
         print(f"\n✓ Analysis report saved to: {report_path}")
 
@@ -1073,13 +1133,17 @@ class PCA2Analysis:
         print("="*80)
 
         print(f"\nXT Space PCA2:")
-        print(f"PC1 explained variance: {xt_pca.explained_variance_ratio_[0]:.6f}")
-        print(f"PC2 explained variance: {xt_pca.explained_variance_ratio_[1]:.6f}")
+        print(f"PC1 explained variance ratio: {xt_pca.explained_variance_ratio_[0]:.6f}")
+        print(f"PC2 explained variance ratio: {xt_pca.explained_variance_ratio_[1]:.6f}")
+        print(f"PC1 explained variance (true value): {xt_pca.explained_variance_[0]:.6f}")
+        print(f"PC2 explained variance (true value): {xt_pca.explained_variance_[1]:.6f}")
         print(f"PC1/PC2 ratio: {xt_pca.explained_variance_[0]/xt_pca.explained_variance_[1]:.6f}")
 
         print(f"\nScore Space PCA2:")
-        print(f"PC1 explained variance: {score_pca.explained_variance_ratio_[0]:.6f}")
-        print(f"PC2 explained variance: {score_pca.explained_variance_ratio_[1]:.6f}")
+        print(f"PC1 explained variance ratio: {score_pca.explained_variance_ratio_[0]:.6f}")
+        print(f"PC2 explained variance ratio: {score_pca.explained_variance_ratio_[1]:.6f}")
+        print(f"PC1 explained variance (true value): {score_pca.explained_variance_[0]:.6f}")
+        print(f"PC2 explained variance (true value): {score_pca.explained_variance_[1]:.6f}")
         print(f"PC1/PC2 ratio: {score_pca.explained_variance_[0]/score_pca.explained_variance_[1]:.6f}")
 
         print(f"\nPC2/PC1 Ratio per Step:")
@@ -1164,7 +1228,7 @@ def main(args):
         print(f"\n{'='*60}")
         print(f"Generating Analysis Report for {args.method.upper()} {args.model.upper()}")
         print(f"{'='*60}")
-        analyzer.generate_analysis_report(xt_pca, score_pca, xt_step_ratios)
+        analyzer.generate_analysis_report(trajectories, xt_pca, score_pca, xt_step_ratios)
 
         print(f"\n✅ PCA2 analysis completed successfully!")
 
@@ -1206,13 +1270,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PCA2 Analysis: Analyze diffusion trajectories using PCA")
     parser.add_argument("--method", type=str, default="ddim",
                         help="Sampling method: ddim, dpm, dpm_lm, unipc, etc.")
-    parser.add_argument("--model", type=str, default="stable-diffusion-2-base",
+    parser.add_argument("--model", type=str, default="ddpm_ema_cifar10",
                         choices=["ddpm_ema_cifar10", "ldm_celebahq_256", "stable-diffusion-2-base",
                                 "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"],
                         help="Model type to analyze")
-    parser.add_argument("--num_inference_steps", type=int, default=20,
+    parser.add_argument("--num_inference_steps", type=int, default=200,
                         help="Number of inference steps in the diffusion process")
-    parser.add_argument("--num_trajectories", type=int, default=12,
+    parser.add_argument("--num_trajectories", type=int, default=20,
                         help="Number of trajectories to generate for statistical analysis")
     parser.add_argument("--seed", type=int, default=12,
                         help="Random seed for reproducibility")
@@ -1229,10 +1293,10 @@ if __name__ == "__main__":
     # Batch run 1: CIFAR-10 and CelebA-HQ models
     print("Batch run 1: CIFAR-10 and CelebA-HQ models")
     # These models support more inference steps (100-1000)
-    for num_inference_steps in [100, 200, 500, 1000]:
-        for model in ["ddpm_ema_cifar10", "ldm_celebahq_256"]:
-            for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
-                for num_trajectories in [6, 10, 20, 40]:
+    for num_inference_steps in [1000, 200, 500, 100]:
+       for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
+            for num_trajectories in [60, 10, 6, 20, 40]:
+                for model in ["ddpm_ema_cifar10", "ldm_celebahq_256"]:
                     print(f"Running: method: {method}, model: {model}, num_inference_steps: {num_inference_steps}, num_trajectories: {num_trajectories}")
                     args.method = method
                     args.model = model
@@ -1243,10 +1307,10 @@ if __name__ == "__main__":
     # Batch run 2: Stable Diffusion models
     print("Batch run 2: Stable Diffusion models")
     # These models typically use fewer inference steps (10-200)
-    for num_inference_steps in [10, 20, 50, 100, 200]:
-        for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
-            for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
-                for num_trajectories in [6, 10, 20, 40]:
+    for num_inference_steps in [100, 20, 50, 10, 200]:
+        for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
+            for num_trajectories in [60, 10, 6, 20, 40]:
+                for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
                     print(f"Running: method: {method}, model: {model}, num_inference_steps: {num_inference_steps}, num_trajectories: {num_trajectories}")
                     args.method = method
                     args.model = model
