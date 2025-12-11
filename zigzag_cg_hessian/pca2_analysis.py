@@ -839,7 +839,7 @@ class PCA2Analysis:
         plt.tight_layout(rect=[0, 0, 1, 0.92])
 
         # Save the plot
-        save_path = os.path.join(results_dir, f'{self.method}_{self.model}_pca2_analysis.png')
+        save_path = os.path.join(results_dir, f'pca2_analysis_{self.method}_{self.model}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"\n✓ {self.method} {self.model} PCA2 analysis plot saved to: {save_path}")
 
@@ -872,7 +872,7 @@ class PCA2Analysis:
         plt.tight_layout()
 
         # 保存局部窗口图
-        local_windows_path = os.path.join(results_dir, f'{self.method}_{self.model}_local_windows.png')
+        local_windows_path = os.path.join(results_dir, f'local_windows_{self.method}_{self.model}.png')
         plt.savefig(local_windows_path, dpi=200, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"✓ {self.method} {self.model} local trajectory windows plot saved to: {local_windows_path}")
 
@@ -882,7 +882,7 @@ class PCA2Analysis:
         """Generate analysis report"""
         os.makedirs(save_dir, exist_ok=True)
 
-        report_path = os.path.join(results_dir, f'ddim_iclr_1x3_analysis_report.txt')
+        report_path = os.path.join(results_dir, f'pca2_analysis_report_{self.method}_{self.model}.txt')
 
         with open(report_path, 'w') as f:
             f.write(f"{self.method} {self.model} PCA2 Analysis Report\n")
