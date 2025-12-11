@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-DDIM ICLR 1x3 Analysis: XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2
-专门针对DDIM方法的1×3 ICLR格式分析
+PCA2 Analysis: XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2
 """
 
 import numpy as np
@@ -61,7 +60,7 @@ plt.rcParams.update({
 })
 
 class PCA2Analysis:
-    """DDIM ICLR 1x3 Analysis"""
+    """PCA2 Analysis"""
 
     def __init__(self, n_samples=10, num_inference_steps=1000, num_trajectories=20):
         self.n_samples = n_samples
@@ -70,7 +69,7 @@ class PCA2Analysis:
         self.method = 'ddim'
         self.model = 'ddpm_ema_cifar10'
 
-        print(f"🔧 DDIM ICLR 1x3 Analysis Configuration:")
+        print(f"🔧 PCA2 Analysis Configuration:")
         print(f"   - CIFAR-10 samples for PCA: {self.n_samples}")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
         print(f"   - Number of trajectories: {self.num_trajectories}")
@@ -680,12 +679,12 @@ class PCA2Analysis:
         ax.grid(True, linestyle=":")
 
     def plot_iclr_1x3_analysis(self, trajectories, xt_pca, score_pca, step_ratios, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
-        """Plot ICLR 1x3 analysis for DDIM"""
+        """Plot ICLR 1x3 analysis for PCA2"""
         os.makedirs(save_dir, exist_ok=True)
 
         # Create figure with 1x3 subplots
         fig, axes = plt.subplots(1, 3, figsize=(17, 5))
-        fig.suptitle('DDIM Analysis: XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2',
+        fig.suptitle('PCA2 Analysis: XT Space PCA2, PC2/PC1 Ratio',
                      fontsize=16, fontweight='bold', y=0.95)
 
         # Define colors
@@ -746,7 +745,7 @@ class PCA2Analysis:
         # 设置x轴刻度 - 显示整十或整百的刻度
         if len(steps) > 100:
             # 对于大范围，使用整百刻度
-            max_step = steps[-1]
+            max_step = steps[-1] + 2
             if max_step >= 1000:
                 tick_interval = 200
             elif max_step >= 500:
@@ -961,56 +960,55 @@ class PCA2Analysis:
             print(f"  Point {i+1}: t={t}, slope={slope:.6f}")
 
 def main():
-    """Main function to run DDIM ICLR 1x3 analysis"""
-
-    print("🚀 DDIM ICLR 1x3 Analysis")
-    print("="*50)
-    print("XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2")
-    print("="*50)
+    """Main function to run PCA2 analysis"""
 
     method_name = 'ddim'
     model_type = 'ddpm_ema_cifar10'
+    num_inference_steps = 1000
+    num_trajectories = 20
+    n_samples = 10
+
     # Initialize analyzer
-    analyzer = PCA2Analysis(n_samples=10, num_inference_steps=1000, num_trajectories=20)
+    analyzer = PCA2Analysis(n_samples=n_samples, num_inference_steps=num_inference_steps, num_trajectories=num_trajectories)
 
     try:
         # Load pipeline
         print(f"\n{'='*60}")
-        print("Loading DDIM Pipeline")
+        print(f"Loading {method_name.upper()} {model_type.upper()} Pipeline")
         print(f"{'='*60}")
         pipe = analyzer.load_pipeline(method_name=method_name, model_type=model_type)
 
         # Generate trajectories
         print(f"\n{'='*60}")
-        print("Generating Trajectories")
+        print(f"Generating {num_trajectories} Trajectories")
         print(f"{'='*60}")
         trajectories = analyzer.generate_trajectories(pipe, seed=42)
 
         # Create PCA models
         print(f"\n{'='*60}")
-        print("Creating PCA Models")
+        print(f"Creating PCA Models for {method_name.upper()} {model_type.upper()}")
         print(f"{'='*60}")
         xt_pca, score_pca, xt_data, score_data = analyzer.create_pca_models(trajectories)
 
         # Calculate PC2/PC1 ratio per step
         print(f"\n{'='*60}")
-        print("Calculating PC2/PC1 Ratio per Step")
+        print(f"Calculating PC2/PC1 Ratio per Step for {method_name.upper()} {model_type.upper()}")
         print(f"{'='*60}")
         step_ratios = analyzer.calculate_pc2_pc1_ratio_per_step(trajectories, xt_pca)
 
         # Create ICLR 1x3 analysis plots
         print(f"\n{'='*60}")
-        print("Creating ICLR 1x3 Analysis Plots")
+        print(f"Creating PCA2 Analysis Plots for {method_name.upper()} {model_type.upper()}")
         print(f"{'='*60}")
         analyzer.plot_iclr_1x3_analysis(trajectories, xt_pca, score_pca, step_ratios)
 
         # Generate analysis report
         print(f"\n{'='*60}")
-        print("Generating Analysis Report")
+        print(f"Generating Analysis Report for {method_name.upper()} {model_type.upper()}")
         print(f"{'='*60}")
         analyzer.generate_analysis_report(xt_pca, score_pca, step_ratios)
 
-        print(f"\n✅ DDIM ICLR 1x3 analysis completed successfully!")
+        print(f"\n✅ PCA2 analysis completed successfully!")
 
     except Exception as e:
         print(f"\n❌ Error during analysis: {e}")
