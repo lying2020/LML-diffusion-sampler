@@ -20,9 +20,28 @@ import matplotlib
 matplotlib.use('Agg')
 
 # Import schedulers
-from diffusers import DDPMPipeline, DDIMScheduler
+sys.path.append(os.getcwd())
+from diffusers import DDPMPipeline, LDMPipeline, StableDiffusionPipeline, StableDiffusionXLPipeline
+from diffusers import DDIMScheduler, PNDMScheduler, UniPCMultistepScheduler, DPMSolverMultistepScheduler
+from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
+from scheduler.scheduling_ddim_lm import DDIMLMScheduler
+from scheduler.scheduling_pndm_hcg import PNDMSHCGcheduler
+from scheduler.scheduling_unipc_multistep_hcg import UniPCMultistepHCGScheduler
 
 import project as project
+
+cifar10_model_path = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
+celeba_model_path = "/home/liying/Documents/ldm-celebahq-256/"
+coco_sd2_model_path = "/home/liying/Documents/stable-diffusion-2-base"
+coco_sd15_model_path = "/home/liying/Documents/stable-diffusion-v1-5"
+coco_sdxl_model_path = "/home/liying/Documents/stable-diffusion-xl-base-1.0"
+
+coco_prompts_path = os.path.join(project.project_dir, "evaluations", "coco_prompts", "coco_top_40_prompts.json")
+
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+results_dir = os.path.join(current_dir, 'results')
+os.makedirs(results_dir, exist_ok=True)
 
 # Set matplotlib parameters for ICLR paper format
 plt.rcParams.update({
@@ -41,28 +60,58 @@ plt.rcParams.update({
     'grid.alpha': 0.3
 })
 
-class DDIMICLRAnalysis:
+class PCA2Analysis:
     """DDIM ICLR 1x3 Analysis"""
 
-    def __init__(self, n_samples=5000, num_inference_steps=25, num_trajectories=50):
+    def __init__(self, n_samples=10, num_inference_steps=1000, num_trajectories=20):
         self.n_samples = n_samples
         self.num_inference_steps = num_inference_steps
         self.num_trajectories = num_trajectories
         self.method = 'ddim'
+        self.model = 'ddpm_ema_cifar10'
 
         print(f"🔧 DDIM ICLR 1x3 Analysis Configuration:")
         print(f"   - CIFAR-10 samples for PCA: {self.n_samples}")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
         print(f"   - Number of trajectories: {self.num_trajectories}")
-        print(f"   - Method: {self.method.upper()}")
 
-    def load_pipeline(self):
-        """Load DDIM pipeline"""
-        model_path = os.path.join(project.model_dir, 'ddpm_ema_cifar10')
+    def load_pipeline(self, method_name='ddim', model_type='ddpm_ema_cifar10'):
 
-        print(f"\n🔧 Loading {self.method.upper()} pipeline...")
-        pipe = DDPMPipeline.from_pretrained(model_path, torch_dtype=torch.float32, use_safetensors=False)
-        pipe.unet.to('cuda' if torch.cuda.is_available() else 'cpu')
+        self.model = model_type
+        self.method = method_name
+        print(f"\n🔧 Loading {method_name.upper()} {self.model.upper()} pipeline...")
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        if model_type == 'ddpm_ema_cifar10':
+            pipe = DDPMPipeline.from_pretrained(cifar10_model_path, torch_dtype=torch.float32, use_safetensors=False)
+            pipe.unet.to(device)
+            self.setup_cifar10_scheduler(pipe, method_name)
+
+        elif model_type == 'ldm_celebahq_256':
+            pipe = LDMPipeline.from_pretrained(celeba_model_path, torch_dtype=torch.float32, use_safetensors=False)
+            pipe.unet.to(device)
+            pipe.vqvae.to(device)
+            pipe.vqvae.config.scaling_factor = 1.0 # args.scaling_factor
+            self.setup_celeba_scheduler(pipe, method_name)
+
+        elif model_type == 'stable-diffusion-2-base':
+            pipe = StableDiffusionPipeline.from_pretrained(coco_sd2_model_path, torch_dtype=torch.float32, use_safetensors=False)
+            pipe.unet.to(device)
+            self.setup_sd_scheduler(pipe, method_name)
+
+        elif model_type == 'stable-diffusion-xl-base-1.0':
+            pipe = StableDiffusionXLPipeline.from_pretrained(coco_sdxl_model_path, torch_dtype=torch.float32, use_safetensors=False, safety_checker=None, added_cond_kwargs={})
+            pipe.unet.to(device)
+            self.setup_sd_scheduler(pipe, method_name)
+
+        elif model_type == 'stable-diffusion-v1-5':
+            pipe = StableDiffusionPipeline.from_pretrained(coco_sd15_model_path, torch_dtype=torch.float32, use_safetensors=False)
+            pipe.unet.to(device)
+            self.setup_sd_scheduler(pipe, method_name)
+
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
+
+        pipe = pipe.to(device)
 
         # Setup DDIM scheduler
         pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
@@ -70,6 +119,191 @@ class DDIMICLRAnalysis:
 
         print(f"✓ {self.method.upper()} pipeline loaded successfully")
         return pipe
+
+    def setup_cifar10_scheduler(self, pipe, sampler_type, lamb=0.0008, kappa=1e-8):
+        """Setup the appropriate scheduler based on sampler type"""
+
+        if sampler_type == 'pndm':
+            pipe.scheduler = PNDMSHCGcheduler.from_config(pipe.scheduler.config)
+            print(f"  Using PNDM scheduler")
+
+        elif sampler_type == 'ddim':
+            pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+            print(f"  Using DDIM scheduler")
+
+        elif sampler_type == 'dpm++':
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver++"
+            print(f"  Using DPM-Solver++ scheduler")
+
+        elif sampler_type == 'dpm_lm':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver"
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = True
+            pipe.scheduler.kappa = kappa
+            print(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
+
+        elif sampler_type == 'dpm':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver"
+            pipe.scheduler.lm = False
+            print(f"  Using DPM-Solver scheduler")
+
+        elif sampler_type == 'unipc':
+            pipe.scheduler = UniPCMultistepHCGScheduler.from_config(pipe.scheduler.config)
+            print(f"  Using UniPC scheduler")
+
+        elif sampler_type == 'dpm_hcg':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver++"
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = True
+            pipe.scheduler.kappa = kappa
+            print(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
+
+        else:
+            raise ValueError(f"Unknown sampler type: {sampler_type}")
+
+    def setup_celeba_scheduler(self, pipe, sampler_type, lamb=0.0008, kappa=1e-8):
+        """Setup the appropriate scheduler based on sampler type"""
+        # 获取原始配置并过滤掉运行时状态属性（避免警告）
+        original_config = pipe.scheduler.config
+        config_dict = {
+            k: v for k, v in original_config.items()
+            if k not in ['timestep_values', 'timesteps']  # 移除这些运行时状态属性
+        }
+
+        if sampler_type == 'pndm':
+            pipe.scheduler = PNDMScheduler.from_config(config_dict)
+            project.info(f"  Using PNDM scheduler")
+
+        elif sampler_type == 'ddim':
+            pipe.scheduler = DDIMScheduler.from_config(config_dict)
+            pipe.scheduler.config.eta = 0.0  # 设置eta=0.0，与celeba_test.py保持一致
+            project.info(f"  Using DDIM scheduler (eta=0.0)")
+
+        elif sampler_type == 'ddim_lm':
+            pipe.scheduler = DDIMLMScheduler.from_config(config_dict)
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = True
+            pipe.scheduler.kappa = kappa
+            project.info(f"  Using DDIM with LML correction (λ={lamb}, κ={kappa})")
+
+        elif sampler_type == 'dpm++':
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(config_dict)
+            pipe.scheduler.config.algorithm_type = "dpmsolver++"
+            pipe.scheduler.config.solver_order = 3
+            project.info(f"  Using DPM-Solver++ scheduler")
+
+        elif sampler_type == 'dpm_lm':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(config_dict)
+            pipe.scheduler.config.algorithm_type = "dpmsolver"
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = True
+            pipe.scheduler.kappa = kappa
+            project.info(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
+
+        elif sampler_type == 'dpm':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(config_dict)
+            pipe.scheduler.config.algorithm_type = "dpmsolver"
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.lm = False
+            project.info(f"  Using DPM-Solver scheduler")
+
+        elif sampler_type == 'unipc':
+            pipe.scheduler = UniPCMultistepScheduler.from_config(config_dict)
+            project.info(f"  Using UniPC scheduler")
+
+        else:
+            raise ValueError(f"Unknown sampler type: {sampler_type}")
+
+    def setup_sd_scheduler(self, pipe, sampler_type, lamb=5.0, kappa=0.0):
+        """Setup the appropriate scheduler based on sampler type"""
+
+        if sampler_type == 'pndm':
+            pipe.scheduler = PNDMScheduler.from_config(pipe.scheduler.config)
+            print(f"  Using PNDM scheduler")
+
+        elif sampler_type == 'ddim':
+            pipe.scheduler = DDIMLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = False
+            pipe.scheduler.kappa = kappa
+            print(f"  Using DDIM scheduler")
+
+        elif sampler_type == 'ddim_lm':
+            pipe.scheduler = DDIMLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = True
+            pipe.scheduler.kappa = kappa
+            print(f"  Using DDIM with LML correction (λ={lamb}, κ={kappa})")
+
+        elif sampler_type == 'dpm++':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver++"
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = False
+            print(f"  Using DPM-Solver++ scheduler")
+
+        elif sampler_type == 'dpm_lm':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver"
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = True
+            pipe.scheduler.kappa = kappa
+            print(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
+
+        elif sampler_type == 'dpm':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver"
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = False
+            print(f"  Using DPM-Solver scheduler")
+
+        elif sampler_type == 'unipc':
+            pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
+            print(f"  Using UniPC scheduler")
+
+        elif sampler_type == 'dpm_hcg':
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler.config.solver_order = 3
+            pipe.scheduler.config.algorithm_type = "dpmsolver++"
+            pipe.scheduler.lamb = lamb
+            pipe.scheduler.lm = True
+            pipe.scheduler.kappa = kappa
+            print(f"  Using DPM-Solver with LML correction (λ={lamb}, κ={kappa})")
+
+        else:
+            raise ValueError(f"Unknown sampler type: {sampler_type}")
+
+    def load_coco_prompts(self, coco_prompts_path=coco_prompts_path):
+        """Load COCO prompts from JSON file"""
+
+        try:
+            import json
+            with open(coco_prompts_path) as fr:
+                COCO_prompts_dict = json.load(fr)
+            return COCO_prompts_dict
+        except FileNotFoundError:
+            print("⚠️  COCO prompts file not found. Using default prompts.")
+            # Fallback prompts for testing
+            return {
+                "00001": "a beautiful landscape with mountains and trees",
+                "00002": "a cat sitting on a windowsill",
+                "00003": "a modern city skyline at sunset",
+                "00004": "a vintage car parked on the street",
+                "00005": "a delicious plate of pasta"
+            }
+
 
     def generate_trajectories(self, pipe, seed=42):
         """Generate multiple trajectories for statistical analysis"""
@@ -288,7 +522,7 @@ class DDIMICLRAnalysis:
 
         ax1.set_xlabel('PC1', fontsize=12, fontweight='bold')
         ax1.set_ylabel('PC2', fontsize=12, fontweight='bold')
-        ax1.set_title('XT Space PCA2 Analysis\n(Image State Evolution)', fontsize=14, fontweight='bold')
+        ax1.set_title('XT Space PCA2 Analysis', fontsize=14, fontweight='bold')
         ax1.legend(fontsize=10, loc='upper right')
         ax1.grid(True, alpha=0.3)
         ax1.axis('equal')
@@ -323,9 +557,9 @@ class DDIMICLRAnalysis:
 
             # 生成整百/整十刻度
             tick_steps = np.arange(0, max_step + 1, tick_interval)
-            # 确保包含最后一个点
-            if tick_steps[-1] < max_step:
-                tick_steps = np.append(tick_steps, max_step)
+            # # 确保包含最后一个点
+            # if tick_steps[-1] < max_step:
+            #     tick_steps = np.append(tick_steps, max_step)
 
             ax2.set_xticks(tick_steps)
             ax2.set_xticklabels([str(int(x)) for x in tick_steps])
@@ -345,7 +579,7 @@ class DDIMICLRAnalysis:
             ax2.set_xticklabels([str(int(x)) for x in steps])
 
         ax2.set_ylabel('PC2/PC1 Ratio', fontsize=12, fontweight='bold')
-        ax2.set_title('PC2/PC1 Ratio per Step\n(Deviation from Theoretical)', fontsize=14, fontweight='bold')
+        ax2.set_title('PC2/PC1 Ratio per Step', fontsize=14, fontweight='bold')
         ax2.legend(fontsize=10)
         ax2.grid(True, alpha=0.3)
 
@@ -398,7 +632,7 @@ class DDIMICLRAnalysis:
 
         ax3.set_xlabel('PC1', fontsize=12, fontweight='bold')
         ax3.set_ylabel('PC2', fontsize=12, fontweight='bold')
-        ax3.set_title('Score Space PCA2 Analysis\n(Gradient Evolution)', fontsize=14, fontweight='bold')
+        ax3.set_title('Score Space PCA2 Analysis', fontsize=14, fontweight='bold')
         ax3.legend(fontsize=10, loc='upper right')
         ax3.grid(True, alpha=0.3)
 
@@ -406,10 +640,9 @@ class DDIMICLRAnalysis:
         plt.tight_layout(rect=[0, 0, 1, 0.92])
 
         # Save the plot
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'ddim_iclr_1x3_analysis_{timestamp}.png')
+        save_path = os.path.join(results_dir, f'{self.method}_{self.model}_pca2_analysis.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
-        print(f"\n✓ DDIM ICLR 1x3 analysis plot saved to: {save_path}")
+        print(f"\n✓ {self.method} {self.model} PCA2 analysis plot saved to: {save_path}")
 
         plt.close()
 
@@ -440,10 +673,9 @@ class DDIMICLRAnalysis:
         plt.tight_layout()
 
         # 保存局部窗口图
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        local_windows_path = os.path.join(save_dir, f'ddim_local_windows_{timestamp}.png')
+        local_windows_path = os.path.join(results_dir, f'{self.method}_{self.model}_local_windows.png')
         plt.savefig(local_windows_path, dpi=200, bbox_inches='tight', facecolor='white', edgecolor='none')
-        print(f"✓ DDIM local trajectory windows plot saved to: {local_windows_path}")
+        print(f"✓ {self.method} {self.model} local trajectory windows plot saved to: {local_windows_path}")
 
         plt.close()
 
@@ -451,11 +683,10 @@ class DDIMICLRAnalysis:
         """Generate analysis report"""
         os.makedirs(save_dir, exist_ok=True)
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        report_path = os.path.join(save_dir, f'ddim_iclr_1x3_analysis_report_{timestamp}.txt')
+        report_path = os.path.join(results_dir, f'ddim_iclr_1x3_analysis_report.txt')
 
         with open(report_path, 'w') as f:
-            f.write("DDIM ICLR 1x3 Analysis Report\n")
+            f.write(f"{self.method} {self.model} PCA2 Analysis Report\n")
             f.write("="*50 + "\n\n")
 
             f.write("EXPERIMENTAL CONFIGURATION:\n")
@@ -538,15 +769,17 @@ def main():
     print("XT Space PCA2, PC2/PC1 Ratio, Score Space PCA2")
     print("="*50)
 
+    method_name = 'ddim'
+    model_type = 'ddpm_ema_cifar10'
     # Initialize analyzer
-    analyzer = DDIMICLRAnalysis(n_samples=10000, num_inference_steps=500, num_trajectories=100)
+    analyzer = PCA2Analysis(n_samples=10, num_inference_steps=1000, num_trajectories=20)
 
     try:
         # Load pipeline
         print(f"\n{'='*60}")
         print("Loading DDIM Pipeline")
         print(f"{'='*60}")
-        pipe = analyzer.load_pipeline()
+        pipe = analyzer.load_pipeline(method_name=method_name, model_type=model_type)
 
         # Generate trajectories
         print(f"\n{'='*60}")

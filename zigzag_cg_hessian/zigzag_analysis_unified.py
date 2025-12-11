@@ -39,6 +39,10 @@ from scheduler.scheduling_pndm_hcg import PNDMSHCGcheduler
 
 import project as project
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+results_dir = os.path.join(current_dir, 'results')
+os.makedirs(results_dir, exist_ok=True)
+
 # Set matplotlib parameters for ICLR paper format
 plt.rcParams.update({
     'font.size': 12,
@@ -344,8 +348,8 @@ class ZigzagAnalyzer:
         plt.tight_layout()
 
         # 保存图片
-        filename = f'zigzag_trajectories_{sampler_type}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
-        filepath = os.path.join(self.output_dir, filename)
+        filename = f'zigzag_trajectories_{sampler_type}.png'
+        filepath = os.path.join(results_dir, filename)
         plt.savefig(filepath, dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -411,8 +415,8 @@ class ZigzagAnalyzer:
         plt.tight_layout()
 
         # 保存图片
-        filename = f'convergence_analysis_{sampler_type}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
-        filepath = os.path.join(self.output_dir, filename)
+        filename = f'convergence_analysis_{sampler_type}.png'
+        filepath = os.path.join(results_dir, filename)
         plt.savefig(filepath, dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -464,8 +468,8 @@ class ZigzagAnalyzer:
         plt.tight_layout()
 
         # 保存图片
-        filename = f'trajectory_evolution_comparison_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
-        filepath = os.path.join(self.output_dir, filename)
+        filename = f'trajectory_evolution_comparison.png'
+        filepath = os.path.join(results_dir, filename)
         plt.savefig(filepath, dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -573,8 +577,8 @@ class ZigzagAnalyzer:
         plt.tight_layout()
 
         # 保存图片
-        filename = f'zigzag_comparison_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
-        filepath = os.path.join(self.output_dir, filename)
+        filename = f'zigzag_comparison.png'
+        filepath = os.path.join(results_dir, filename)
         plt.savefig(filepath, dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -586,7 +590,7 @@ class ZigzagAnalyzer:
         project.info("Saving analysis results...")
 
         # 保存JSON结果
-        results_file = os.path.join(self.output_dir, f'zigzag_analysis_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+        results_file = os.path.join(self.output_dir, f'zigzag_analysis_results.json')
 
         # 转换numpy类型为Python类型以便JSON序列化
         json_results = {}
@@ -613,7 +617,7 @@ class ZigzagAnalyzer:
             json.dump(json_results, f, indent=2)
 
         # 保存文本报告
-        report_file = os.path.join(self.output_dir, f'zigzag_analysis_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt')
+        report_file = os.path.join(results_dir, f'zigzag_analysis_report.txt')
 
         with open(report_file, 'w', encoding='utf-8') as f:
             f.write("Zigzag Analysis Report\n")

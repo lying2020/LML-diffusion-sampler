@@ -12,6 +12,11 @@ import torch
 import sys
 import os
 
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+results_dir = os.path.join(current_dir, 'results')
+os.makedirs(results_dir, exist_ok=True)
+
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -24,7 +29,7 @@ def load_cifar10_samples(n_samples=2000):
     transform = transforms.Compose([
         transforms.ToTensor(),
     ])
-    dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+    dataset = datasets.CIFAR10(root='./data/cifar10/cifar-10-batches-py', train=True, download=True, transform=transform)
 
     imgs = []
     for i in range(min(n_samples, len(dataset))):
@@ -143,10 +148,8 @@ def method_b_pca_analysis(trajectory_data):
         'explained_variance_ratio': pca_scores.explained_variance_ratio_
     }
 
-def plot_final_method_b_results(pca_results, trajectory_data, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
+def plot_final_method_b_results(pca_results, trajectory_data):
     """Plot final Method B results showing clear zigzag patterns"""
-
-    os.makedirs(save_dir, exist_ok=True)
 
     score_pca = pca_results['score_pca']
     xt_pca = pca_results['xt_pca']
@@ -253,7 +256,7 @@ def plot_final_method_b_results(pca_results, trajectory_data, save_dir=os.path.j
     plt.tight_layout()
 
     # Save the plot
-    save_path = os.path.join(save_dir, 'image_zigzag_ddim_method_b_final.png')
+    save_path = os.path.join(results_dir, 'image_zigzag_ddim_method_b_final.png')
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"\n✓ Final plot saved to: {save_path}")
 

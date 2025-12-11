@@ -4,6 +4,12 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from torchvision import datasets, transforms
 import torch
+import os
+
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+results_dir = os.path.join(current_dir, 'results')
+os.makedirs(results_dir, exist_ok=True)
 
 # -----------------------
 # 1. 载入 CIFAR-10 (只取 train 的一部分以加速)
@@ -12,7 +18,7 @@ def load_cifar10_samples(n_samples=5000):
     transform = transforms.Compose([
         transforms.ToTensor(),
     ])
-    dataset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+    dataset = datasets.CIFAR10(root='./data/cifar10/cifar-10-batches-py', train=True, download=True, transform=transform)
     # 取前 n_samples 个样本
     imgs = []
     for i in range(min(n_samples, len(dataset))):
@@ -104,7 +110,8 @@ def plot_results(X2, mu, cov, traj_std, traj_precond):
     plt.axis('equal')
 
     plt.tight_layout()
-    plt.show()
+    # plt.show()
+    plt.savefig(os.path.join(results_dir, 'zigzag_cifar10.png'))
 
 # -----------------------
 # main

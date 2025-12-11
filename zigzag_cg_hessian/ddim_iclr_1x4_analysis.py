@@ -24,6 +24,10 @@ from diffusers import DDPMPipeline, DDIMScheduler
 
 import project as project
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+results_dir = os.path.join(current_dir, 'results')
+os.makedirs(results_dir, exist_ok=True)
+
 # Set matplotlib parameters for ICLR paper format
 plt.rcParams.update({
     'font.size': 12,
@@ -480,8 +484,7 @@ class DDIMICLRAnalysis:
         plt.tight_layout(rect=[0, 0, 1, 0.92])
 
         # Save the plot
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'ddim_iclr_1x4_analysis_{timestamp}.png')
+        save_path = os.path.join(results_dir, f'ddim_iclr_1x4_analysis.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"\n✓ DDIM ICLR 1x4 analysis plot saved to: {save_path}")
 
@@ -514,8 +517,7 @@ class DDIMICLRAnalysis:
         plt.tight_layout()
 
         # 保存局部窗口图
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        local_windows_path = os.path.join(save_dir, f'ddim_local_windows_{timestamp}.png')
+        local_windows_path = os.path.join(results_dir, f'ddim_local_windows_1x4.png')
         plt.savefig(local_windows_path, dpi=200, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"✓ DDIM local trajectory windows plot saved to: {local_windows_path}")
 
@@ -525,8 +527,7 @@ class DDIMICLRAnalysis:
         """Generate analysis report"""
         os.makedirs(save_dir, exist_ok=True)
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        report_path = os.path.join(save_dir, f'ddim_iclr_1x4_analysis_report_{timestamp}.txt')
+        report_path = os.path.join(results_dir, f'ddim_iclr_1x4_analysis_report.txt')
 
         with open(report_path, 'w') as f:
             f.write("DDIM ICLR 1x4 Analysis Report\n")
@@ -626,7 +627,7 @@ def main():
     print("="*50)
 
     # Initialize analyzer
-    analyzer = DDIMICLRAnalysis(n_samples=10000, num_inference_steps=500, num_trajectories=20)
+    analyzer = DDIMICLRAnalysis(n_samples=10, num_inference_steps=1000, num_trajectories=20)
 
     try:
         # Load pipeline

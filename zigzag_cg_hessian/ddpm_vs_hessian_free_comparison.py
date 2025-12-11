@@ -26,6 +26,11 @@ from diffusers import DDPMPipeline, DDPMScheduler
 from scheduler.scheduling_dpmsolver_multistep_hcg import DPMSolverMultistepHCGScheduler
 import project as project
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+results_dir = os.path.join(current_dir, 'results')
+os.makedirs(results_dir, exist_ok=True)
+
+
 class DDPMvsHessianFreeAnalyzer:
     """Simplified analyzer for DDPM vs Hessian-Free comparison"""
 
@@ -314,8 +319,7 @@ class DDPMvsHessianFreeAnalyzer:
         plt.tight_layout()
 
         # Save the plot
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'ddpm_vs__comparison_{timestamp}.png')
+        save_path = os.path.join(results_dir, f'ddpm_vs_hessian_free_comparison.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"\n✓ DDPM vs Hessian-Free comparison plot saved to: {save_path}")
 

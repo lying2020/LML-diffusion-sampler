@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 plot_iclr/results/
+results
 
 # C extensions
 *.so

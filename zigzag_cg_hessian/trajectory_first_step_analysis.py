@@ -27,6 +27,10 @@ from scheduler.scheduling_pndm_hcg import PNDMSHCGcheduler
 
 import project as project
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+results_dir = os.path.join(current_dir, 'results')
+os.makedirs(results_dir, exist_ok=True)
+
 # Set matplotlib parameters
 plt.rcParams.update({
     'font.size': 12,
@@ -415,8 +419,7 @@ class TrajectoryFirstStepAnalysis:
         plt.tight_layout()
 
         # 保存图片
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'first_step_analysis_{timestamp}.png')
+        save_path = os.path.join(results_dir, f'first_step_analysis.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"\n✓ First step analysis plot saved to: {save_path}")
 

@@ -1,0 +1,38 @@
+Zigzag Analysis Report
+==================================================
+
+Analysis Date: 2025-12-12 01:49:03
+Number of Samples: 100
+Number of Inference Steps: 20
+Methods Analyzed: pndm, ddim, dpm, unipc
+
+Results Summary:
+------------------------------
+
+PNDM:
+  Mean Angle: 0.5607 ± 0.7619
+  Mean Curvature: 0.4823 ± 0.5615
+  Zigzag Score: 0.2704
+  Anisotropy Ratio: 0.9725
+  Mean Final Distance: 13.3093 ± 45.3626
+
+DDIM:
+  Mean Angle: 0.5937 ± 0.7801
+  Mean Curvature: 0.5100 ± 0.5782
+  Zigzag Score: 0.3028
+  Anisotropy Ratio: 0.9591
+  Mean Final Distance: 7.2476 ± 16.7004
+
+DPM:
+  Mean Angle: 0.6121 ± 0.7891
+  Mean Curvature: 0.5250 ± 0.5824
+  Zigzag Score: 0.3213
+  Anisotropy Ratio: 0.9896
+  Mean Final Distance: 19.6531 ± 73.9531
+
+UNIPC:
+  Mean Angle: 0.6277 ± 0.8154
+  Mean Curvature: 0.5339 ± 0.5999
+  Zigzag Score: 0.3351
+  Anisotropy Ratio: 0.9760
+  Mean Final Distance: 10.2186 ± 32.1794
