@@ -963,25 +963,26 @@ class PCA2Analysis:
         colors = plt.cm.viridis(np.linspace(0, 1, n_points))
 
         # Plot error bands if available (for multiple seeds)
-        if has_error_bands:
-            # Plot error bands as shaded regions
-            ax.fill_between(pc1_values,
-                           pc2_values - pc2_values_std,
-                           pc2_values + pc2_values_std,
-                           color=model_style['color'],
-                           alpha=0.2,
-                           zorder=0,
-                           label=None)
-            # Also show error in PC1 direction (approximate as ellipse)
-            for j in range(0, n_points, max(1, n_points//10)):
-                from matplotlib.patches import Ellipse
-                ellipse = Ellipse((pc1_values[j], pc2_values[j]),
-                                 width=2*pc1_values_std[j],
-                                 height=2*pc2_values_std[j],
-                                 color=model_style['color'],
-                                 alpha=0.15,
-                                 zorder=1)
-                ax.add_patch(ellipse)
+        # Removed: user requested to show only trajectory without error bands and ellipses
+        # if has_error_bands:
+        #     # Plot error bands as shaded regions
+        #     ax.fill_between(pc1_values,
+        #                    pc2_values - pc2_values_std,
+        #                    pc2_values + pc2_values_std,
+        #                    color=model_style['color'],
+        #                    alpha=0.2,
+        #                    zorder=0,
+        #                    label=None)
+        #     # Also show error in PC1 direction (approximate as ellipse)
+        #     for j in range(0, n_points, max(1, n_points//10)):
+        #         from matplotlib.patches import Ellipse
+        #         ellipse = Ellipse((pc1_values[j], pc2_values[j]),
+        #                          width=2*pc1_values_std[j],
+        #                          height=2*pc2_values_std[j],
+        #                          color=model_style['color'],
+        #                          alpha=0.15,
+        #                          zorder=1)
+        #         ax.add_patch(ellipse)
 
         # Plot trajectory with model-specific color (no label)
         trajectory_line = ax.plot(pc1_values, pc2_values,
@@ -1423,7 +1424,7 @@ if __name__ == "__main__":
                         help="Number of inference steps in the diffusion process")
     parser.add_argument("--num_global_seeds", type=int, default=200,
                         help="Number of seeds to use for computing global PCA basis")
-    parser.add_argument("--seed", type=str, default="67-101",
+    parser.add_argument("--seed", type=str, default="67",
                         help="Random seed(s) for trajectory analysis. "
                              "Can be: single number (e.g., 42), "
                              "comma-separated list (e.g., 42,43,44), "
@@ -1436,4 +1437,22 @@ if __name__ == "__main__":
                         help="Force recompute global PCA basis even if saved version exists")
     args = parser.parse_args()
 
-    main(args)
+
+    # for steps in [10, 20, 50]:
+    #     args.num_inference_steps = steps
+    #     args.num_global_seeds = int(1000 / steps)
+    #     for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
+    #         args.method = method
+    #         for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
+    #             args.model = model
+    #             main(args)
+
+
+    for steps in [10, 20, 50, 100, 200]:
+        args.num_inference_steps = steps
+        args.num_global_seeds = int(10000 / steps)
+        for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
+            args.method = method
+            for model in ["ddpm_ema_cifar10", "ldm_celebahq_256"]:
+                args.model = model
+                main(args)
