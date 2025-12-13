@@ -12,6 +12,7 @@ import sys
 import os
 import argparse
 import pickle
+import glob
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -60,6 +61,56 @@ plt.rcParams.update({
     'grid.alpha': 0.3
 })
 
+# Model color and marker mapping for visualization
+MODEL_STYLES = {
+    'ddpm_ema_cifar10': {
+        'color': '#3498DB',  # Blue
+        'marker': 'o',
+        'linestyle': '-',
+        'label': 'DDPM CIFAR-10',
+        'linewidth': 3
+    },
+    'ldm_celebahq_256': {
+        'color': '#E74C3C',  # Red
+        'marker': 's',
+        'linestyle': '-',
+        'label': 'LDM CelebA-HQ',
+        'linewidth': 3
+    },
+    'stable-diffusion-2-base': {
+        'color': '#27AE60',  # Green
+        'marker': '^',
+        'linestyle': '-',
+        'label': 'Stable Diffusion 2',
+        'linewidth': 3
+    },
+    'stable-diffusion-xl-base-1.0': {
+        'color': '#9B59B6',  # Purple
+        'marker': 'D',
+        'linestyle': '-',
+        'label': 'Stable Diffusion XL',
+        'linewidth': 3
+    },
+    'stable-diffusion-v1-5': {
+        'color': '#F39C12',  # Orange
+        'marker': 'v',
+        'linestyle': '-',
+        'label': 'Stable Diffusion v1.5',
+        'linewidth': 3
+    }
+}
+
+# Method color mapping
+METHOD_COLORS = {
+    'ddim': '#3498DB',      # Blue
+    'dpm': '#E74C3C',       # Red
+    'dpm_lm': '#27AE60',    # Green
+    'dpm++': '#9B59B6',     # Purple
+    'unipc': '#F39C12',     # Orange
+    'pndm': '#1ABC9C',      # Turquoise
+    'ddim_lm': '#E67E22'    # Dark Orange
+}
+
 class PCA2Analysis:
     """
     PCA2 Analysis class for analyzing diffusion sampling trajectories.
@@ -75,7 +126,7 @@ class PCA2Analysis:
     """
 
     def __init__(self, method='ddim', model='ddpm_ema_cifar10', num_inference_steps=1000,
-                 num_global_seeds=1000, seed=42):
+                 num_global_seeds=1000, seed=42, max_pca_components=None):
         """
         Initialize PCA2 Analysis.
 
@@ -85,12 +136,17 @@ class PCA2Analysis:
             num_inference_steps: Number of inference steps in the diffusion process
             num_global_seeds: Number of seeds to use for computing global PCA basis
             seed: Random seed for single trajectory analysis
+            max_pca_components: Maximum number of PCA components to compute.
+                               If None, automatically determined based on feature dimension.
+                               If feature_dim <= 500, uses all components.
+                               If feature_dim > 500, uses min(feature_dim, 500).
         """
         self.method = method
         self.model = model
         self.num_inference_steps = num_inference_steps
         self.num_global_seeds = num_global_seeds
         self.seed = seed
+        self.max_pca_components = max_pca_components
 
         # Generate postfix for output file names
         self.pic_postfix_name = f'{self.model}_{self.method}_steps-{self.num_inference_steps}_seed-{self.seed}'
@@ -485,15 +541,46 @@ class PCA2Analysis:
         """
         # Check if saved PCA basis exists
         pca_save_path = os.path.join(results_dir, f'global_pca_basis_{self.global_pca_postfix}.pkl')
+        basis_vectors_save_path = os.path.join(results_dir, f'global_pca_basis_vectors_{self.global_pca_postfix}.npy')
 
         if os.path.exists(pca_save_path) and not force_recompute:
-            print(f"\n📊 Loading saved global PCA basis from {pca_save_path}...")
-            with open(pca_save_path, 'rb') as f:
-                saved_data = pickle.load(f)
-                global_pca = saved_data['pca']
-                pca_basis_vectors = saved_data['basis_vectors']
-                print(f"✓ Loaded global PCA basis (computed from {saved_data['num_seeds']} seeds)")
-                return global_pca, pca_basis_vectors
+            print(f"\n📊 Checking for saved global PCA basis...")
+            print(f"   File path: {pca_save_path}")
+
+            try:
+                with open(pca_save_path, 'rb') as f:
+                    saved_data = pickle.load(f)
+
+                # Verify that saved data matches current configuration
+                saved_num_seeds = saved_data.get('num_seeds', None)
+                saved_num_steps = saved_data.get('num_inference_steps', None)
+
+                if saved_num_seeds == self.num_global_seeds and saved_num_steps == self.num_inference_steps:
+                    global_pca = saved_data['pca']
+                    pca_basis_vectors = saved_data['basis_vectors']
+
+                    print(f"✓ Found matching saved global PCA basis!")
+                    print(f"   - Computed from {saved_num_seeds} seeds")
+                    print(f"   - Inference steps: {saved_num_steps}")
+                    print(f"   - Basis vectors shape: {pca_basis_vectors.shape}")
+                    print(f"   - PC1 explained variance: {global_pca.explained_variance_ratio_[0]:.4f}")
+                    print(f"   - PC2 explained variance: {global_pca.explained_variance_ratio_[1]:.4f}")
+                    print(f"   - Total components: {len(global_pca.explained_variance_ratio_)}")
+
+                    # Also save basis vectors as separate numpy file for easy access
+                    if not os.path.exists(basis_vectors_save_path):
+                        np.save(basis_vectors_save_path, pca_basis_vectors)
+                        print(f"✓ Saved basis vectors to: {basis_vectors_save_path}")
+
+                    return global_pca, pca_basis_vectors
+                else:
+                    print(f"⚠️  Saved PCA basis configuration mismatch!")
+                    print(f"   Saved: {saved_num_seeds} seeds, {saved_num_steps} steps")
+                    print(f"   Current: {self.num_global_seeds} seeds, {self.num_inference_steps} steps")
+                    print(f"   Will recompute with current configuration...")
+            except Exception as e:
+                print(f"⚠️  Error loading saved PCA basis: {e}")
+                print(f"   Will recompute...")
 
         print(f"\n🚀 Computing global PCA basis from {self.num_global_seeds} seed trajectories...")
         print(f"   This may take a while...")
@@ -513,9 +600,39 @@ class PCA2Analysis:
         all_xt_data = np.vstack(all_xt_data)
         print(f"  Collected XT data shape: {all_xt_data.shape}")
 
+        feature_dim = all_xt_data.shape[1]
+
+        # Determine number of components to compute
+        # For PCA basis representation, we want to capture the full dimensionality
+        # However, for very high-dimensional data, we may need to limit for computational efficiency
+        if self.max_pca_components is not None:
+            # User specified maximum components
+            n_components = min(feature_dim, self.max_pca_components)
+            print(f"  Using user-specified max_pca_components: {self.max_pca_components}")
+            print(f"  Feature dimension: {feature_dim}, will compute {n_components} components")
+        else:
+            # Automatic strategy:
+            # 1. If feature_dim <= 500: use all components (complete basis)
+            # 2. If feature_dim > 500: use min(feature_dim, 500) to balance completeness and efficiency
+            #    (500 is chosen as a reasonable upper limit for most cases)
+            # Note: We need enough components to properly represent the trajectory in PCA space
+            if feature_dim <= 500:
+                n_components = feature_dim  # Use all components for complete basis
+                print(f"  Feature dimension ({feature_dim}) <= 500, using all components for complete basis")
+            else:
+                # For very high-dimensional data, limit to 500 components
+                # This is a trade-off: we lose some information but gain computational efficiency
+                # In practice, the first 500 components usually capture most of the variance
+                n_components = 500
+                print(f"  Feature dimension ({feature_dim}) > 500, using {n_components} components")
+                print(f"  Note: This may lose some information, but first {n_components} components typically")
+                print(f"        capture most of the variance in high-dimensional data")
+                print(f"  Tip: Set max_pca_components={feature_dim} to use all components (slower but complete)")
+
         # Compute global PCA
         print(f"  Computing global PCA on all trajectory data...")
-        global_pca = PCA(n_components=min(all_xt_data.shape[1], 100))  # Use up to 100 components
+        print(f"  Number of components: {n_components}")
+        global_pca = PCA(n_components=n_components)
         global_pca.fit(all_xt_data)
 
         # Extract basis vectors (principal components)
@@ -525,6 +642,7 @@ class PCA2Analysis:
         print(f"  Global PCA - PC1: {global_pca.explained_variance_ratio_[0]:.4f}, "
               f"PC2: {global_pca.explained_variance_ratio_[1]:.4f}")
         print(f"  Total components: {len(global_pca.explained_variance_ratio_)}")
+        print(f"  Basis vectors shape: {pca_basis_vectors.shape}")
 
         # Save PCA basis for future use
         save_data = {
@@ -532,11 +650,20 @@ class PCA2Analysis:
             'basis_vectors': pca_basis_vectors,
             'num_seeds': self.num_global_seeds,
             'num_inference_steps': self.num_inference_steps,
-            'explained_variance_ratio': global_pca.explained_variance_ratio_
+            'n_components': n_components,
+            'max_pca_components': self.max_pca_components,
+            'feature_dim': feature_dim,
+            'explained_variance_ratio': global_pca.explained_variance_ratio_,
+            'method': self.method,
+            'model': self.model
         }
         with open(pca_save_path, 'wb') as f:
             pickle.dump(save_data, f)
         print(f"✓ Global PCA basis saved to: {pca_save_path}")
+
+        # Also save basis vectors as separate numpy file for easy access
+        np.save(basis_vectors_save_path, pca_basis_vectors)
+        print(f"✓ Basis vectors saved to: {basis_vectors_save_path}")
 
         return global_pca, pca_basis_vectors
 
@@ -612,6 +739,15 @@ class PCA2Analysis:
         # Create figure
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
+        # Get model style
+        model_style = MODEL_STYLES.get(self.model, {
+            'color': '#3498DB',
+            'marker': 'o',
+            'linestyle': '-',
+            'label': self.model,
+            'linewidth': 3
+        })
+
         # Define colors
         start_color = '#27AE60'  # Green
         end_color = '#E67E22'    # Orange
@@ -619,11 +755,18 @@ class PCA2Analysis:
         n_points = len(pc1_values)
         colors = plt.cm.viridis(np.linspace(0, 1, n_points))
 
-        # Plot trajectory
+        # Plot trajectory with model-specific color (no label)
+        trajectory_line = ax.plot(pc1_values, pc2_values,
+                                  color=model_style['color'],
+                                  linewidth=model_style['linewidth'],
+                                  linestyle=model_style['linestyle'],
+                                  alpha=0.7, zorder=2)
+
+        # Plot trajectory segments with gradient colors
         for j in range(n_points - 1):
             ax.plot([pc1_values[j], pc1_values[j+1]],
                    [pc2_values[j], pc2_values[j+1]],
-                   color=colors[j], linewidth=3, alpha=0.9)
+                   color=colors[j], linewidth=2, alpha=0.5, zorder=1)
 
         # Mark start and end points
         ax.scatter(pc1_values[0], pc2_values[0],
@@ -640,8 +783,37 @@ class PCA2Analysis:
 
         ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
         ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
-        ax.set_title('XT Space PCA2 Analysis', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=10, loc='upper right')
+        title = f'XT Space PCA2 Analysis - {model_style["label"]}'
+        ax.set_title(title, fontsize=14, fontweight='bold')
+
+        # Auto-detect legend position to avoid overlap with data
+        # Calculate data range and center
+        x_range = pc1_values.max() - pc1_values.min()
+        y_range = pc2_values.max() - pc2_values.min()
+        x_center = (pc1_values.max() + pc1_values.min()) / 2
+        y_center = (pc2_values.max() + pc2_values.min()) / 2
+
+        # Define corner regions (30% of range from center toward each corner)
+        # Upper-right: x > x_center + x_range*0.3, y > y_center + y_range*0.3
+        # Upper-left: x < x_center - x_range*0.3, y > y_center + y_range*0.3
+        ur_threshold_x = x_center + x_range * 0.3
+        ur_threshold_y = y_center + y_range * 0.3
+        ul_threshold_x = x_center - x_range * 0.3
+        ul_threshold_y = y_center + y_range * 0.3
+
+        # Count points in upper-right and upper-left corner regions
+        ur_count = np.sum((pc1_values > ur_threshold_x) & (pc2_values > ur_threshold_y))
+        ul_count = np.sum((pc1_values < ul_threshold_x) & (pc2_values > ul_threshold_y))
+
+        # Choose legend position based on data density
+        # If upper-right has more points, use upper-left, and vice versa
+        if ur_count > ul_count:
+            legend_loc = 'upper left'
+        else:
+            legend_loc = 'upper right'
+
+        # Legend with only Start and End, in one row
+        ax.legend(fontsize=10, loc=legend_loc, ncol=2)
         ax.grid(True, alpha=0.3)
         ax.axis('equal')
 
@@ -659,7 +831,15 @@ class PCA2Analysis:
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-        method_color = '#3498DB'  # Blue
+        # Get model and method styles
+        model_style = MODEL_STYLES.get(self.model, {
+            'color': '#3498DB',
+            'marker': 'o',
+            'linestyle': '-',
+            'label': self.model,
+            'linewidth': 3
+        })
+        method_color = METHOD_COLORS.get(self.method, '#3498DB')
 
         steps = np.arange(self.num_inference_steps)
 
@@ -672,7 +852,13 @@ class PCA2Analysis:
             sampled_steps = steps
             sampled_ratios = pc2_pc1_ratios
 
-        ax.plot(sampled_steps, sampled_ratios, 'o-', color=method_color, linewidth=3, markersize=6)
+        # Use model color for the main line (no label)
+        ax.plot(sampled_steps, sampled_ratios,
+               marker=model_style['marker'],
+               linestyle=model_style['linestyle'],
+               color=model_style['color'],
+               linewidth=model_style['linewidth'],
+               markersize=6)
         ax.axhline(y=1.0, color='red', linestyle='--', linewidth=2, alpha=0.7, label='Theoretical (1.0)')
         ax.set_xlabel('Step', fontsize=12, fontweight='bold')
 
@@ -701,7 +887,8 @@ class PCA2Analysis:
             ax.set_xticklabels([str(int(x)) for x in steps])
 
         ax.set_ylabel('PC2/PC1 Ratio', fontsize=12, fontweight='bold')
-        ax.set_title('PC2/PC1 Ratio per Step', fontsize=14, fontweight='bold')
+        title = f'PC2/PC1 Ratio per Step - {model_style["label"]}'
+        ax.set_title(title, fontsize=14, fontweight='bold')
         ax.legend(fontsize=10)
         ax.grid(True, alpha=0.3)
 
@@ -712,6 +899,117 @@ class PCA2Analysis:
         print(f"✓ PC2/PC1 Ratio plot saved to: {save_path}")
 
         plt.close()
+
+    def generate_legend(self, results_dir=results_dir):
+        """
+        Generate and save a legend figure for the current model.
+
+        Args:
+            results_dir: Directory to save the legend figure
+        """
+        print(f"\n📊 Generating legend for {self.model}...")
+
+        # Get model style
+        model_style = MODEL_STYLES.get(self.model, {
+            'color': '#3498DB',
+            'marker': 'o',
+            'linestyle': '-',
+            'label': self.model,
+            'linewidth': 3
+        })
+
+        # Create figure for legend only
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.axis('off')
+
+        # Create legend entries
+        legend_elements = [
+            plt.Line2D([0], [0],
+                      color=model_style['color'],
+                      marker=model_style['marker'],
+                      linestyle=model_style['linestyle'],
+                      linewidth=model_style['linewidth'],
+                      markersize=10,
+                      label=model_style['label']),
+            plt.Line2D([0], [0],
+                      color='#27AE60',
+                      marker='o',
+                      linestyle='None',
+                      markersize=12,
+                      label='Start Point'),
+            plt.Line2D([0], [0],
+                      color='#E67E22',
+                      marker='s',
+                      linestyle='None',
+                      markersize=12,
+                      label='End Point'),
+            plt.Line2D([0], [0],
+                      color='red',
+                      linestyle='--',
+                      linewidth=2,
+                      label='Theoretical (1.0)')
+        ]
+
+        # Add method information if available
+        if self.method in METHOD_COLORS:
+            method_color = METHOD_COLORS[self.method]
+            legend_elements.append(
+                plt.Line2D([0], [0],
+                          color=method_color,
+                          linestyle='-',
+                          linewidth=2,
+                          label=f'Method: {self.method.upper()}')
+            )
+
+        # Create legend
+        legend = ax.legend(handles=legend_elements,
+                         loc='center',
+                         fontsize=12,
+                         frameon=True,
+                         fancybox=True,
+                         shadow=True)
+
+        # Set title
+        title = f'Legend - {model_style["label"]}'
+        fig.suptitle(title, fontsize=14, fontweight='bold', y=0.95)
+
+        plt.tight_layout()
+
+        # Save legend
+        legend_path = os.path.join(results_dir, f'legend_{self.pic_postfix_name}.png')
+        plt.savefig(legend_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+        print(f"✓ Legend saved to: {legend_path}")
+
+        plt.close()
+
+    def save_analysis_data(self, trajectory_data, pc_weights, pc2_pc1_ratios, global_pca, results_dir=results_dir):
+        """
+        Save analysis data for later use in generating combined plots.
+
+        Args:
+            trajectory_data: Dictionary containing 'xt', 'timesteps'
+            pc_weights: Array of PCA weights
+            pc2_pc1_ratios: Array of PC2/PC1 ratios
+            global_pca: Global PCA model
+            results_dir: Directory to save the data
+        """
+        data_save_path = os.path.join(results_dir, f'analysis_data_{self.pic_postfix_name}.pkl')
+
+        save_data = {
+            'model': self.model,
+            'method': self.method,
+            'num_inference_steps': self.num_inference_steps,
+            'seed': self.seed,
+            'trajectory_data': trajectory_data,
+            'pc_weights': pc_weights,
+            'pc2_pc1_ratios': pc2_pc1_ratios,
+            'global_pca': global_pca,
+            'xt_pca_proj': global_pca.transform(trajectory_data['xt'])
+        }
+
+        with open(data_save_path, 'wb') as f:
+            pickle.dump(save_data, f)
+        print(f"✓ Analysis data saved to: {data_save_path}")
 
 def main(args):
     """
@@ -738,7 +1036,8 @@ def main(args):
         model=args.model,
         num_inference_steps=args.num_inference_steps,
         num_global_seeds=args.num_global_seeds,
-        seed=args.seed
+        seed=args.seed,
+        max_pca_components=args.max_pca_components
     )
 
     try:
@@ -767,6 +1066,18 @@ def main(args):
         analyzer.plot_xt_space_pca2(trajectory_data, global_pca)
         analyzer.plot_pc2_pc1_ratio(pc2_pc1_ratios)
 
+        # Step 5: Save analysis data for later use
+        print(f"\n{'='*60}")
+        print(f"Saving Analysis Data")
+        print(f"{'='*60}")
+        analyzer.save_analysis_data(trajectory_data, pc_weights, pc2_pc1_ratios, global_pca)
+
+        # Step 6: Generate legend for current model
+        print(f"\n{'='*60}")
+        print(f"Generating Legend")
+        print(f"{'='*60}")
+        analyzer.generate_legend()
+
         print(f"\n✅ PCA2 analysis completed successfully!")
 
     except Exception as e:
@@ -784,12 +1095,16 @@ if __name__ == "__main__":
                         choices=["ddpm_ema_cifar10", "ldm_celebahq_256", "stable-diffusion-2-base",
                                 "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"],
                         help="Model type to analyze")
-    parser.add_argument("--num_inference_steps", type=int, default=100,
+    parser.add_argument("--num_inference_steps", type=int, default=20,
                         help="Number of inference steps in the diffusion process")
-    parser.add_argument("--num_global_seeds", type=int, default=1000,
+    parser.add_argument("--num_global_seeds", type=int, default=100,
                         help="Number of seeds to use for computing global PCA basis")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for single trajectory analysis")
+    parser.add_argument("--max_pca_components", type=int, default=None,
+                        help="Maximum number of PCA components to compute. "
+                             "If None, automatically determined: uses all components if feature_dim <= 500, "
+                             "otherwise uses 500. For complete basis representation, set to feature_dim.")
     parser.add_argument("--force_recompute", action='store_true',
                         help="Force recompute global PCA basis even if saved version exists")
     args = parser.parse_args()
