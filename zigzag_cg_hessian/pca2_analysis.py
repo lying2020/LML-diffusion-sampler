@@ -126,7 +126,7 @@ class PCA2Analysis:
     """
 
     def __init__(self, method='ddim', model='ddpm_ema_cifar10', num_inference_steps=1000,
-                 num_global_seeds=1000, seed=42, max_pca_components=None):
+                 num_global_seeds=1000, seeds=42, max_pca_components=None):
         """
         Initialize PCA2 Analysis.
 
@@ -135,7 +135,7 @@ class PCA2Analysis:
             model: Model type (ddpm_ema_cifar10, ldm_celebahq_256, stable-diffusion-2-base, etc.)
             num_inference_steps: Number of inference steps in the diffusion process
             num_global_seeds: Number of seeds to use for computing global PCA basis
-            seed: Random seed for single trajectory analysis
+            seeds: List of random seeds for trajectory analysis (can be single seed or multiple seeds)
             max_pca_components: Maximum number of PCA components to compute.
                                If None, automatically determined based on feature dimension.
                                If feature_dim <= 500, uses all components.
@@ -145,11 +145,23 @@ class PCA2Analysis:
         self.model = model
         self.num_inference_steps = num_inference_steps
         self.num_global_seeds = num_global_seeds
-        self.seed = seed
+        # Ensure seeds is a list
+        if isinstance(seeds, (list, tuple, np.ndarray)):
+            self.seeds = list(seeds)
+        else:
+            self.seeds = [seeds]  # Single seed as list
         self.max_pca_components = max_pca_components
 
         # Generate postfix for output file names
-        self.pic_postfix_name = f'{self.model}_{self.method}_steps-{self.num_inference_steps}_seed-{self.seed}'
+        if len(self.seeds) == 1:
+            self.pic_postfix_name = f'{self.model}_{self.method}_steps-{self.num_inference_steps}_seed-{self.seeds[0]}'
+        else:
+            # For multiple seeds, use range notation if consecutive, otherwise list first and last
+            if len(self.seeds) <= 5:
+                seeds_str = '_'.join(map(str, self.seeds))
+            else:
+                seeds_str = f'{self.seeds[0]}-{self.seeds[-1]}-{len(self.seeds)}seeds'
+            self.pic_postfix_name = f'{self.model}_{self.method}_steps-{self.num_inference_steps}_seeds-{seeds_str}'
         self.global_pca_postfix = f'{self.model}_{self.method}_steps-{self.num_inference_steps}_global-{self.num_global_seeds}'
 
         print(f"🔧 PCA2 Analysis Configuration:")
@@ -157,7 +169,7 @@ class PCA2Analysis:
         print(f"   - Model: {self.model}")
         print(f"   - Inference steps per trajectory: {self.num_inference_steps}")
         print(f"   - Number of global seeds for PCA basis: {self.num_global_seeds}")
-        print(f"   - Single trajectory seed: {self.seed}")
+        print(f"   - Trajectory seeds: {self.seeds} ({len(self.seeds)} seed(s))")
 
     def load_pipeline(self):
         print(f"\n🔧 Loading {self.method.upper()} {self.model.upper()} pipeline...")
@@ -672,7 +684,9 @@ class PCA2Analysis:
         Project a single seed trajectory onto the global PCA basis.
 
         For each inference step, project the XT vector onto the global PCA basis
-        and extract the weights (coefficients) for the top 2 principal components.
+        and find the two components with largest absolute weights.
+        PC1 = component with largest absolute weight
+        PC2 = component with second largest absolute weight
 
         Args:
             pipe: Loaded diffusion pipeline
@@ -682,17 +696,28 @@ class PCA2Analysis:
             trajectory_data: Dictionary containing 'xt', 'timesteps'
             pc_weights: Array of shape (num_inference_steps, n_components) with PCA weights
             pc2_pc1_ratios: Array of PC2/PC1 weight ratios for each step
+            pc1_values_array: Array of PC1 values (largest weight for each step)
+            pc2_values_array: Array of PC2 values (second largest weight for each step)
         """
-        print(f"\n🚀 Generating single seed trajectory (seed={self.seed})...")
+        # Use first seed (should only be called when len(self.seeds) == 1)
+        seed = self.seeds[0] if len(self.seeds) > 0 else 42
+        print(f"\n🚀 Generating single seed trajectory (seed={seed})...")
 
         # Generate single trajectory
-        trajectory_data = self._generate_single_trajectory(pipe, self.seed, self.model)
+        trajectory_data = self._generate_single_trajectory(pipe, seed, self.model)
 
         print(f"  Projecting trajectory onto global PCA basis...")
 
         # Project each step onto global PCA basis
         pc_weights = []  # Will store weights for each step
         pc2_pc1_ratios = []  # Will store PC2/PC1 ratio for each step
+        # Fixed: Use the first two principal components from global PCA (indices 0 and 1)
+        # PC1 = first principal component (index 0)
+        # PC2 = second principal component (index 1)
+        pc1_indices = []  # Store which component is PC1 for each step (always 0)
+        pc2_indices = []  # Store which component is PC2 for each step (always 1)
+        pc1_values_list = []  # Store PC1 values (first PC weight)
+        pc2_values_list = []  # Store PC2 values (second PC weight)
 
         for step in range(self.num_inference_steps):
             xt_step = trajectory_data['xt'][step]  # Shape: (feature_dim,)
@@ -706,35 +731,217 @@ class PCA2Analysis:
             weights = projected[0]  # Shape: (n_components,)
             pc_weights.append(weights)
 
-            # Calculate PC2/PC1 ratio using absolute values of weights
-            # We use the top 2 components (PC1 and PC2)
+            # Dynamic selection: Find the two components with largest absolute weights
+            # PC1 = component with largest absolute weight
+            # PC2 = component with second largest absolute weight
+            # Ensure |PC1| >= |PC2|
             if len(weights) >= 2:
-                pc1_weight = abs(weights[0])
-                pc2_weight = abs(weights[1])
-                ratio = pc2_weight / pc1_weight if pc1_weight > 0 else 0
+                # Calculate absolute weights
+                abs_weights = np.abs(weights)
+
+                # Get indices of top 2 components by absolute weight (descending order)
+                top2_indices = np.argsort(abs_weights)[-2:][::-1]
+                pc1_idx = top2_indices[0]  # Largest absolute weight
+                pc2_idx = top2_indices[1]  # Second largest absolute weight
+
+                pc1_indices.append(pc1_idx)
+                pc2_indices.append(pc2_idx)
+
+                # Get the actual weight values
+                pc1_weight_value = weights[pc1_idx]
+                pc2_weight_value = weights[pc2_idx]
+
+                # Use absolute values for PC1 and PC2
+                pc1_abs = abs(pc1_weight_value)
+                pc2_abs = abs(pc2_weight_value)
+
+                # Ensure |PC1| >= |PC2| (should always be true, but double-check)
+                if pc1_abs < pc2_abs:
+                    # Swap if needed (shouldn't happen, but safety check)
+                    print(f"⚠️  Warning at step {step}: |PC1|={pc1_abs:.6f} < |PC2|={pc2_abs:.6f}, swapping...")
+                    pc1_idx, pc2_idx = pc2_idx, pc1_idx
+                    pc1_abs, pc2_abs = pc2_abs, pc1_abs
+
+                pc1_values_list.append(pc1_abs)  # Use absolute value
+                pc2_values_list.append(pc2_abs)   # Use absolute value
+
+                # Calculate PC2/PC1 ratio using absolute values
+                ratio = pc2_abs / pc1_abs if pc1_abs > 0 else 0
                 pc2_pc1_ratios.append(ratio)
             else:
-                pc2_pc1_ratios.append(0)
+                # Fallback if less than 2 components available
+                if len(weights) >= 1:
+                    pc1_abs = abs(weights[0])
+                    pc2_abs = abs(weights[1]) if len(weights) > 1 else 0
+                else:
+                    pc1_abs = 0
+                    pc2_abs = 0
+                pc1_indices.append(0)
+                pc2_indices.append(0 if len(weights) == 0 else 1)
+                pc1_values_list.append(pc1_abs)
+                pc2_values_list.append(pc2_abs)
+                ratio = pc2_abs / pc1_abs if pc1_abs > 0 else 0
+                pc2_pc1_ratios.append(ratio)
 
         pc_weights = np.array(pc_weights)  # Shape: (num_inference_steps, n_components)
         pc2_pc1_ratios = np.array(pc2_pc1_ratios)  # Shape: (num_inference_steps,)
+        pc1_indices = np.array(pc1_indices)  # Shape: (num_inference_steps,)
+        pc2_indices = np.array(pc2_indices)  # Shape: (num_inference_steps,)
+        pc1_values_array = np.array(pc1_values_list)  # Shape: (num_inference_steps,)
+        pc2_values_array = np.array(pc2_values_list)  # Shape: (num_inference_steps,)
 
         print(f"✓ Projected trajectory onto global PCA basis")
         print(f"  PC weights shape: {pc_weights.shape}")
+        print(f"  Using dynamic PC1 and PC2 (largest and second largest absolute weights per step)")
+        print(f"  PC1 indices range: [{pc1_indices.min()}, {pc1_indices.max()}]")
+        print(f"  PC2 indices range: [{pc2_indices.min()}, {pc2_indices.max()}]")
         print(f"  Mean PC2/PC1 ratio: {np.mean(pc2_pc1_ratios):.6f}")
 
-        return trajectory_data, pc_weights, pc2_pc1_ratios
+        return trajectory_data, pc_weights, pc2_pc1_ratios, pc1_values_array, pc2_values_array
 
-    def plot_xt_space_pca2(self, trajectory_data, global_pca, results_dir=results_dir):
-        """Plot XT Space PCA2 Analysis using global PCA basis"""
+    def project_multiple_seeds_trajectory(self, pipe, global_pca):
+        """
+        Project multiple seed trajectories onto the global PCA basis and compute statistics.
+
+        For each seed, project the trajectory onto the global PCA basis using fixed
+        PC1 (index 0) and PC2 (index 1). Then compute mean and std across all seeds.
+
+        Args:
+            pipe: Loaded diffusion pipeline
+            global_pca: Global PCA model fitted on multiple seed trajectories
+
+        Returns:
+            all_trajectory_data: List of trajectory data dictionaries for each seed
+            all_pc_weights: List of PC weights arrays for each seed
+            pc2_pc1_ratios_mean: Mean PC2/PC1 ratios across seeds (shape: num_inference_steps,)
+            pc2_pc1_ratios_std: Std PC2/PC1 ratios across seeds (shape: num_inference_steps,)
+            pc1_values_mean: Mean PC1 values across seeds (shape: num_inference_steps,)
+            pc1_values_std: Std PC1 values across seeds (shape: num_inference_steps,)
+            pc2_values_mean: Mean PC2 values across seeds (shape: num_inference_steps,)
+            pc2_values_std: Std PC2 values across seeds (shape: num_inference_steps,)
+        """
+        print(f"\n🚀 Generating multiple seed trajectories ({len(self.seeds)} seeds)...")
+
+        all_trajectory_data = []
+        all_pc_weights = []
+        all_pc2_pc1_ratios = []
+        all_pc1_values = []
+        all_pc2_values = []
+
+        for i, seed in enumerate(self.seeds):
+            print(f"  Processing seed {seed} ({i+1}/{len(self.seeds)})...")
+
+            # Generate trajectory for this seed
+            trajectory_data = self._generate_single_trajectory(pipe, seed, self.model)
+            all_trajectory_data.append(trajectory_data)
+
+            # Project each step onto global PCA basis
+            pc_weights = []
+            pc2_pc1_ratios = []
+            pc1_values_list = []
+            pc2_values_list = []
+
+            for step in range(self.num_inference_steps):
+                xt_step = trajectory_data['xt'][step]  # Shape: (feature_dim,)
+
+                # Project onto global PCA basis
+                xt_step_reshaped = xt_step.reshape(1, -1)
+                projected = global_pca.transform(xt_step_reshaped)  # Shape: (1, n_components)
+
+                # Get the weights (coefficients) for this step
+                weights = projected[0]  # Shape: (n_components,)
+                pc_weights.append(weights)
+
+                # Dynamic selection: Find the two components with largest absolute weights
+                # PC1 = component with largest absolute weight
+                # PC2 = component with second largest absolute weight
+                # Ensure |PC1| >= |PC2|
+                if len(weights) >= 2:
+                    # Calculate absolute weights
+                    abs_weights = np.abs(weights)
+
+                    # Get indices of top 2 components by absolute weight (descending order)
+                    top2_indices = np.argsort(abs_weights)[-2:][::-1]
+                    pc1_idx = top2_indices[0]  # Largest absolute weight
+                    pc2_idx = top2_indices[1]  # Second largest absolute weight
+
+                    # Get the actual weight values
+                    pc1_weight_value = weights[pc1_idx]
+                    pc2_weight_value = weights[pc2_idx]
+
+                    # Use absolute values for PC1 and PC2
+                    pc1_abs = abs(pc1_weight_value)
+                    pc2_abs = abs(pc2_weight_value)
+
+                    # Ensure |PC1| >= |PC2| (should always be true, but double-check)
+                    if pc1_abs < pc2_abs:
+                        # Swap if needed (shouldn't happen, but safety check)
+                        pc1_idx, pc2_idx = pc2_idx, pc1_idx
+                        pc1_abs, pc2_abs = pc2_abs, pc1_abs
+
+                    pc1_values_list.append(pc1_abs)
+                    pc2_values_list.append(pc2_abs)
+
+                    # Calculate PC2/PC1 ratio using absolute values
+                    ratio = pc2_abs / pc1_abs if pc1_abs > 0 else 0
+                    pc2_pc1_ratios.append(ratio)
+                else:
+                    # Fallback if less than 2 components available
+                    if len(weights) >= 1:
+                        pc1_abs = abs(weights[0])
+                        pc2_abs = abs(weights[1]) if len(weights) > 1 else 0
+                    else:
+                        pc1_abs = 0
+                        pc2_abs = 0
+                    pc1_values_list.append(pc1_abs)
+                    pc2_values_list.append(pc2_abs)
+                    ratio = pc2_abs / pc1_abs if pc1_abs > 0 else 0
+                    pc2_pc1_ratios.append(ratio)
+
+            all_pc_weights.append(np.array(pc_weights))
+            all_pc2_pc1_ratios.append(np.array(pc2_pc1_ratios))
+            all_pc1_values.append(np.array(pc1_values_list))
+            all_pc2_values.append(np.array(pc2_values_list))
+
+        # Compute statistics across all seeds
+        all_pc2_pc1_ratios = np.array(all_pc2_pc1_ratios)  # Shape: (num_seeds, num_inference_steps)
+        all_pc1_values = np.array(all_pc1_values)  # Shape: (num_seeds, num_inference_steps)
+        all_pc2_values = np.array(all_pc2_values)  # Shape: (num_seeds, num_inference_steps)
+
+        pc2_pc1_ratios_mean = np.mean(all_pc2_pc1_ratios, axis=0)
+        pc2_pc1_ratios_std = np.std(all_pc2_pc1_ratios, axis=0)
+        pc1_values_mean = np.mean(all_pc1_values, axis=0)
+        pc1_values_std = np.std(all_pc1_values, axis=0)
+        pc2_values_mean = np.mean(all_pc2_values, axis=0)
+        pc2_values_std = np.std(all_pc2_values, axis=0)
+
+        print(f"✓ Projected {len(self.seeds)} trajectories onto global PCA basis")
+        print(f"  Using dynamic PC1 and PC2 (largest and second largest absolute weights per step)")
+        print(f"  Mean PC2/PC1 ratio across seeds: {np.mean(pc2_pc1_ratios_mean):.6f} ± {np.mean(pc2_pc1_ratios_std):.6f}")
+
+        return (all_trajectory_data, all_pc_weights, pc2_pc1_ratios_mean, pc2_pc1_ratios_std,
+                pc1_values_mean, pc1_values_std, pc2_values_mean, pc2_values_std)
+
+    def plot_xt_space_pca2(self, trajectory_data, pc1_values_array, pc2_values_array,
+                           pc1_values_std=None, pc2_values_std=None, results_dir=results_dir):
+        """
+        Plot XT Space PCA2 Analysis using dynamic PC1 and PC2 (largest and second largest absolute weights per step).
+
+        Args:
+            trajectory_data: Can be single dict or list of dicts (for multiple seeds)
+            pc1_values_array: PC1 values (largest absolute weight per step, mean if multiple seeds)
+            pc2_values_array: PC2 values (second largest absolute weight per step, mean if multiple seeds)
+            pc1_values_std: Optional std for PC1 (for error bands)
+            pc2_values_std: Optional std for PC2 (for error bands)
+        """
         print(f"\n📊 Plotting XT Space PCA2...")
 
-        # Project trajectory onto global PCA basis (using top 2 components)
-        xt_pca_proj = global_pca.transform(trajectory_data['xt'])  # Shape: (num_steps, n_components)
+        # Use dynamic PC1 and PC2 values (largest and second largest absolute weights per step)
+        pc1_values = pc1_values_array  # Largest absolute weight for each step (mean if multiple seeds)
+        pc2_values = pc2_values_array   # Second largest absolute weight for each step (mean if multiple seeds)
 
-        # Extract PC1 and PC2 (first two components)
-        pc1_values = xt_pca_proj[:, 0]
-        pc2_values = xt_pca_proj[:, 1]
+        # Check if we have std for error bands
+        has_error_bands = (pc1_values_std is not None) and (pc2_values_std is not None)
 
         # Create figure
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
@@ -754,6 +961,27 @@ class PCA2Analysis:
 
         n_points = len(pc1_values)
         colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+
+        # Plot error bands if available (for multiple seeds)
+        if has_error_bands:
+            # Plot error bands as shaded regions
+            ax.fill_between(pc1_values,
+                           pc2_values - pc2_values_std,
+                           pc2_values + pc2_values_std,
+                           color=model_style['color'],
+                           alpha=0.2,
+                           zorder=0,
+                           label=None)
+            # Also show error in PC1 direction (approximate as ellipse)
+            for j in range(0, n_points, max(1, n_points//10)):
+                from matplotlib.patches import Ellipse
+                ellipse = Ellipse((pc1_values[j], pc2_values[j]),
+                                 width=2*pc1_values_std[j],
+                                 height=2*pc2_values_std[j],
+                                 color=model_style['color'],
+                                 alpha=0.15,
+                                 zorder=1)
+                ax.add_patch(ellipse)
 
         # Plot trajectory with model-specific color (no label)
         trajectory_line = ax.plot(pc1_values, pc2_values,
@@ -825,8 +1053,14 @@ class PCA2Analysis:
 
         plt.close()
 
-    def plot_pc2_pc1_ratio(self, pc2_pc1_ratios, results_dir=results_dir):
-        """Plot PC2/PC1 Ratio per Step"""
+    def plot_pc2_pc1_ratio(self, pc2_pc1_ratios, pc2_pc1_ratios_std=None, results_dir=results_dir):
+        """
+        Plot PC2/PC1 Ratio per Step
+
+        Args:
+            pc2_pc1_ratios: Mean PC2/PC1 ratios (if multiple seeds) or single ratios
+            pc2_pc1_ratios_std: Optional std for error bands
+        """
         print(f"\n📊 Plotting PC2/PC1 Ratio...")
 
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
@@ -848,9 +1082,23 @@ class PCA2Analysis:
             sample_indices = np.linspace(0, len(steps)-1, 40, dtype=int)
             sampled_steps = steps[sample_indices]
             sampled_ratios = pc2_pc1_ratios[sample_indices]
+            if pc2_pc1_ratios_std is not None:
+                sampled_ratios_std = pc2_pc1_ratios_std[sample_indices]
+            else:
+                sampled_ratios_std = None
         else:
             sampled_steps = steps
             sampled_ratios = pc2_pc1_ratios
+            sampled_ratios_std = pc2_pc1_ratios_std
+
+        # Plot error bands if available (for multiple seeds)
+        if sampled_ratios_std is not None:
+            ax.fill_between(sampled_steps,
+                           sampled_ratios - sampled_ratios_std,
+                           sampled_ratios + sampled_ratios_std,
+                           color=model_style['color'],
+                           alpha=0.2,
+                           zorder=0)
 
         # Use model color for the main line (no label)
         ax.plot(sampled_steps, sampled_ratios,
@@ -961,13 +1209,15 @@ class PCA2Analysis:
                           label=f'Method: {self.method.upper()}')
             )
 
-        # Create legend
+        # Create legend - all items in one row
+        num_items = len(legend_elements)
         legend = ax.legend(handles=legend_elements,
                          loc='center',
                          fontsize=12,
                          frameon=True,
                          fancybox=True,
-                         shadow=True)
+                         shadow=True,
+                         ncol=num_items)  # All items in one row
 
         # Set title
         title = f'Legend - {model_style["label"]}'
@@ -982,15 +1232,21 @@ class PCA2Analysis:
 
         plt.close()
 
-    def save_analysis_data(self, trajectory_data, pc_weights, pc2_pc1_ratios, global_pca, results_dir=results_dir):
+    def save_analysis_data(self, trajectory_data, pc_weights, pc2_pc1_ratios, pc1_values_array, pc2_values_array, global_pca,
+                           pc2_pc1_ratios_std=None, pc1_values_std=None, pc2_values_std=None, results_dir=results_dir):
         """
         Save analysis data for later use in generating combined plots.
 
         Args:
-            trajectory_data: Dictionary containing 'xt', 'timesteps'
-            pc_weights: Array of PCA weights
-            pc2_pc1_ratios: Array of PC2/PC1 ratios
+            trajectory_data: Dictionary containing 'xt', 'timesteps' (or list of dicts for multiple seeds)
+            pc_weights: Array of PCA weights (or list of arrays for multiple seeds)
+            pc2_pc1_ratios: Array of PC2/PC1 ratios (mean if multiple seeds)
+            pc1_values_array: Array of PC1 values (mean if multiple seeds)
+            pc2_values_array: Array of PC2 values (mean if multiple seeds)
             global_pca: Global PCA model
+            pc2_pc1_ratios_std: Optional std for PC2/PC1 ratios (for multiple seeds)
+            pc1_values_std: Optional std for PC1 values (for multiple seeds)
+            pc2_values_std: Optional std for PC2 values (for multiple seeds)
             results_dir: Directory to save the data
         """
         data_save_path = os.path.join(results_dir, f'analysis_data_{self.pic_postfix_name}.pkl')
@@ -999,17 +1255,54 @@ class PCA2Analysis:
             'model': self.model,
             'method': self.method,
             'num_inference_steps': self.num_inference_steps,
-            'seed': self.seed,
+            'seeds': self.seeds,
+            'num_seeds': len(self.seeds),
             'trajectory_data': trajectory_data,
             'pc_weights': pc_weights,
             'pc2_pc1_ratios': pc2_pc1_ratios,
-            'global_pca': global_pca,
-            'xt_pca_proj': global_pca.transform(trajectory_data['xt'])
+            'pc1_values_array': pc1_values_array,
+            'pc2_values_array': pc2_values_array,
+            'global_pca': global_pca
         }
+
+        # Add std if available (multiple seeds)
+        if pc2_pc1_ratios_std is not None:
+            save_data['pc2_pc1_ratios_std'] = pc2_pc1_ratios_std
+        if pc1_values_std is not None:
+            save_data['pc1_values_std'] = pc1_values_std
+        if pc2_values_std is not None:
+            save_data['pc2_values_std'] = pc2_values_std
 
         with open(data_save_path, 'wb') as f:
             pickle.dump(save_data, f)
         print(f"✓ Analysis data saved to: {data_save_path}")
+
+def parse_seeds(seed_str):
+    """
+    Parse seed string into a list of integers.
+
+    Supports:
+    - Single number: "42"
+    - Comma-separated: "42,43,44"
+    - Range: "42-50" (inclusive)
+    - Mixed: "42,45-50,60"
+    """
+    seeds = []
+    parts = seed_str.split(',')
+
+    for part in parts:
+        part = part.strip()
+        if '-' in part:
+            # Range format: start-end
+            start, end = part.split('-')
+            start = int(start.strip())
+            end = int(end.strip())
+            seeds.extend(range(start, end + 1))
+        else:
+            # Single number
+            seeds.append(int(part))
+
+    return sorted(list(set(seeds)))  # Remove duplicates and sort
 
 def main(args):
     """
@@ -1019,7 +1312,7 @@ def main(args):
     1. Initialize analyzer with specified parameters
     2. Load the diffusion pipeline
     3. Compute global PCA basis from 1000 seed trajectories (or load if exists)
-    4. Generate single seed trajectory and project onto global PCA basis
+    4. Generate trajectory(ies) and project onto global PCA basis
     5. Generate visualization plots (XT Space PCA2, PC2/PC1 Ratio)
 
     Args:
@@ -1028,15 +1321,18 @@ def main(args):
             - model: Model type
             - num_inference_steps: Number of inference steps
             - num_global_seeds: Number of seeds for global PCA (default 1000)
-            - seed: Random seed for single trajectory
+            - seed: Random seed(s) for trajectory analysis (can be single or multiple)
             - force_recompute: Force recompute global PCA basis
     """
+    # Parse seeds
+    seeds = parse_seeds(args.seed)
+
     analyzer = PCA2Analysis(
         method=args.method,
         model=args.model,
         num_inference_steps=args.num_inference_steps,
         num_global_seeds=args.num_global_seeds,
-        seed=args.seed,
+        seeds=seeds,
         max_pca_components=args.max_pca_components
     )
 
@@ -1053,24 +1349,52 @@ def main(args):
         print(f"{'='*60}")
         global_pca, pca_basis_vectors = analyzer.compute_global_pca_basis(pipe, force_recompute=args.force_recompute)
 
-        # Step 3: Generate single seed trajectory and project onto global PCA basis
-        print(f"\n{'='*60}")
-        print(f"Projecting Single Seed Trajectory (seed={args.seed})")
-        print(f"{'='*60}")
-        trajectory_data, pc_weights, pc2_pc1_ratios = analyzer.project_single_seed_trajectory(pipe, global_pca)
+        # Step 3: Generate trajectory(ies) and project onto global PCA basis
+        if len(seeds) == 1:
+            # Single seed: use original function
+            print(f"\n{'='*60}")
+            print(f"Projecting Single Seed Trajectory (seed={seeds[0]})")
+            print(f"{'='*60}")
+            trajectory_data, pc_weights, pc2_pc1_ratios, pc1_values_array, pc2_values_array = analyzer.project_single_seed_trajectory(pipe, global_pca)
 
-        # Step 4: Generate visualization plots
-        print(f"\n{'='*60}")
-        print(f"Creating PCA2 Analysis Plots")
-        print(f"{'='*60}")
-        analyzer.plot_xt_space_pca2(trajectory_data, global_pca)
-        analyzer.plot_pc2_pc1_ratio(pc2_pc1_ratios)
+            # Step 4: Generate visualization plots
+            print(f"\n{'='*60}")
+            print(f"Creating PCA2 Analysis Plots")
+            print(f"{'='*60}")
+            analyzer.plot_xt_space_pca2(trajectory_data, pc1_values_array, pc2_values_array)
+            analyzer.plot_pc2_pc1_ratio(pc2_pc1_ratios)
 
-        # Step 5: Save analysis data for later use
-        print(f"\n{'='*60}")
-        print(f"Saving Analysis Data")
-        print(f"{'='*60}")
-        analyzer.save_analysis_data(trajectory_data, pc_weights, pc2_pc1_ratios, global_pca)
+            # Step 5: Save analysis data
+            print(f"\n{'='*60}")
+            print(f"Saving Analysis Data")
+            print(f"{'='*60}")
+            analyzer.save_analysis_data(trajectory_data, pc_weights, pc2_pc1_ratios, pc1_values_array, pc2_values_array, global_pca)
+        else:
+            # Multiple seeds: use new function with statistics
+            print(f"\n{'='*60}")
+            print(f"Projecting Multiple Seed Trajectories (seeds={seeds})")
+            print(f"{'='*60}")
+            (all_trajectory_data, all_pc_weights, pc2_pc1_ratios_mean, pc2_pc1_ratios_std,
+             pc1_values_mean, pc1_values_std, pc2_values_mean, pc2_values_std) = analyzer.project_multiple_seeds_trajectory(pipe, global_pca)
+
+            # Step 4: Generate visualization plots with error bands
+            print(f"\n{'='*60}")
+            print(f"Creating PCA2 Analysis Plots (with error bands)")
+            print(f"{'='*60}")
+            # Use first trajectory for reference (or mean trajectory)
+            analyzer.plot_xt_space_pca2(all_trajectory_data[0], pc1_values_mean, pc2_values_mean,
+                                       pc1_values_std=pc1_values_std, pc2_values_std=pc2_values_std)
+            analyzer.plot_pc2_pc1_ratio(pc2_pc1_ratios_mean, pc2_pc1_ratios_std=pc2_pc1_ratios_std)
+
+            # Step 5: Save analysis data
+            print(f"\n{'='*60}")
+            print(f"Saving Analysis Data")
+            print(f"{'='*60}")
+            # For multiple seeds, save mean and std
+            analyzer.save_analysis_data(all_trajectory_data, all_pc_weights,
+                                       pc2_pc1_ratios_mean, pc1_values_mean, pc2_values_mean,
+                                       global_pca, pc2_pc1_ratios_std=pc2_pc1_ratios_std,
+                                       pc1_values_std=pc1_values_std, pc2_values_std=pc2_values_std)
 
         # Step 6: Generate legend for current model
         print(f"\n{'='*60}")
@@ -1091,16 +1415,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PCA2 Analysis: Analyze diffusion trajectories using global PCA basis")
     parser.add_argument("--method", type=str, default="ddim",
                         help="Sampling method: ddim, dpm, dpm_lm, unipc, etc.")
-    parser.add_argument("--model", type=str, default="ddpm_ema_cifar10",
+    parser.add_argument("--model", type=str, default="ldm_celebahq_256",
                         choices=["ddpm_ema_cifar10", "ldm_celebahq_256", "stable-diffusion-2-base",
                                 "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"],
                         help="Model type to analyze")
-    parser.add_argument("--num_inference_steps", type=int, default=20,
+    parser.add_argument("--num_inference_steps", type=int, default=200,
                         help="Number of inference steps in the diffusion process")
-    parser.add_argument("--num_global_seeds", type=int, default=100,
+    parser.add_argument("--num_global_seeds", type=int, default=200,
                         help="Number of seeds to use for computing global PCA basis")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed for single trajectory analysis")
+    parser.add_argument("--seed", type=str, default="67-101",
+                        help="Random seed(s) for trajectory analysis. "
+                             "Can be: single number (e.g., 42), "
+                             "comma-separated list (e.g., 42,43,44), "
+                             "or range (e.g., 42-50)")
     parser.add_argument("--max_pca_components", type=int, default=None,
                         help="Maximum number of PCA components to compute. "
                              "If None, automatically determined: uses all components if feature_dim <= 500, "
