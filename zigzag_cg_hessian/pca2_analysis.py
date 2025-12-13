@@ -1293,7 +1293,7 @@ if __name__ == "__main__":
     # Batch run 1: CIFAR-10 and CelebA-HQ models
     print("Batch run 1: CIFAR-10 and CelebA-HQ models")
     # These models support more inference steps (100-1000)
-    for num_inference_steps in [1000, 200, 500, 100]:
+    for num_inference_steps in [200, 50, 100]:
        for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
             for num_trajectories in [60, 10, 6, 20, 40]:
                 for model in ["ddpm_ema_cifar10", "ldm_celebahq_256"]:
@@ -1303,11 +1303,10 @@ if __name__ == "__main__":
                     args.num_inference_steps = num_inference_steps
                     args.num_trajectories = num_trajectories
                     main(args)
-
     # Batch run 2: Stable Diffusion models
     print("Batch run 2: Stable Diffusion models")
     # These models typically use fewer inference steps (10-200)
-    for num_inference_steps in [500, 100, 20, 50, 10, 200]:
+    for num_inference_steps in [20, 50, 10, 100]:
         for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
             for num_trajectories in [60, 10, 6, 20, 40]:
                 for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
