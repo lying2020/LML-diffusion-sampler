@@ -1296,14 +1296,30 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
         data_path = os.path.join(results_dir, data_filename)
 
         if os.path.exists(data_path):
-            with open(data_path, 'rb') as f:
-                method_data[method] = pickle.load(f)
-            print(f"  ✓ Loaded data for {method}")
+            try:
+                with open(data_path, 'rb') as f:
+                    method_data[method] = pickle.load(f)
+                print(f"  ✓ Loaded data for {method}")
+            except Exception as e:
+                print(f"  ⚠️  Error loading data for {method}: {e}")
         else:
             print(f"  ⚠️  Data file not found: {data_path}")
 
     if len(method_data) < 2:
         print(f"  ❌ Need at least 2 methods with data. Found: {list(method_data.keys())}")
+        print(f"  💡 Hint: Make sure to run the main analysis first to generate data files.")
+        print(f"  💡 Expected files should be in: {results_dir}")
+        # Check if results directory exists and list some files
+        if os.path.exists(results_dir):
+            existing_files = [f for f in os.listdir(results_dir) if f.startswith('analysis_data_') and f.endswith('.pkl')]
+            if existing_files:
+                print(f"  💡 Found {len(existing_files)} analysis data files in results directory (showing first 5):")
+                for f in existing_files[:5]:
+                    print(f"     - {f}")
+            else:
+                print(f"  💡 Results directory exists but contains no analysis data files.")
+        else:
+            print(f"  💡 Results directory does not exist: {results_dir}")
         return
 
     # Get model style
@@ -1358,68 +1374,57 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
                     pc1_2 = data2['pc1_values_array']
                     pc2_2 = data2['pc2_values_array']
 
-                # Create figure with two subplots side by side
-                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+                # Create figure with single plot for both methods
+                fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
                 # Plot method 1
                 pc1_1 = np.array(pc1_1)
                 pc2_1 = np.array(pc2_1)
-                n_points = len(pc1_1)
-                colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+                n_points_1 = len(pc1_1)
+                colors1 = plt.cm.viridis(np.linspace(0, 1, n_points_1))
 
                 method1_color = METHOD_COLORS.get(method1, '#3498DB')
-                ax1.plot(pc1_1, pc2_1, color=method1_color, linewidth=3, linestyle='-', alpha=0.7, zorder=2)
+                ax.plot(pc1_1, pc2_1, color=method1_color, linewidth=3, linestyle='-',
+                       alpha=0.7, zorder=2)
 
-                for j in range(n_points - 1):
-                    ax1.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
-                           color=colors[j], linewidth=2, alpha=0.5, zorder=1)
+                for j in range(n_points_1 - 1):
+                    ax.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
+                           color=colors1[j], linewidth=2, alpha=0.5, zorder=1)
 
-                ax1.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o', label='Start', zorder=5,
-                          edgecolors='black', linewidth=2)
-                ax1.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s', label='End', zorder=5,
-                          edgecolors='black', linewidth=2)
+                # Mark start and end points (only once, shared by both methods)
+                ax.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o',
+                          label='Start', zorder=5, edgecolors='black', linewidth=2)
+                ax.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s',
+                          label='End', zorder=5, edgecolors='black', linewidth=2)
 
-                for j in range(0, n_points, max(1, n_points//8)):
-                    ax1.scatter(pc1_1[j], pc2_1[j], c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
-
-                ax1.set_xlabel('PC1', fontsize=12, fontweight='bold')
-                ax1.set_ylabel('PC2', fontsize=12, fontweight='bold')
-                ax1.set_title(f'{method1.upper()}', fontsize=14, fontweight='bold')
-                ax1.set_xticks([])
-                ax1.set_yticks([])
-                ax1.legend(fontsize=10, loc='upper right', ncol=2)
-                ax1.grid(True, alpha=0.3)
-                ax1.axis('equal')
+                for j in range(0, n_points_1, max(1, n_points_1//8)):
+                    ax.scatter(pc1_1[j], pc2_1[j], c=colors1[j], s=80, marker='o', alpha=0.8, zorder=3)
 
                 # Plot method 2
                 pc1_2 = np.array(pc1_2)
                 pc2_2 = np.array(pc2_2)
-                n_points = len(pc1_2)
-                colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+                n_points_2 = len(pc1_2)
+                colors2 = plt.cm.plasma(np.linspace(0, 1, n_points_2))
 
                 method2_color = METHOD_COLORS.get(method2, '#E74C3C')
-                ax2.plot(pc1_2, pc2_2, color=method2_color, linewidth=3, linestyle='-', alpha=0.7, zorder=2)
+                ax.plot(pc1_2, pc2_2, color=method2_color, linewidth=3, linestyle='--',
+                       alpha=0.7, zorder=2)
 
-                for j in range(n_points - 1):
-                    ax2.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
-                           color=colors[j], linewidth=2, alpha=0.5, zorder=1)
+                for j in range(n_points_2 - 1):
+                    ax.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
+                           color=colors2[j], linewidth=2, alpha=0.5, zorder=1)
 
-                ax2.scatter(pc1_2[0], pc2_2[0], c=start_color, s=200, marker='o', label='Start', zorder=5,
-                          edgecolors='black', linewidth=2)
-                ax2.scatter(pc1_2[-1], pc2_2[-1], c=end_color, s=200, marker='s', label='End', zorder=5,
-                          edgecolors='black', linewidth=2)
+                for j in range(0, n_points_2, max(1, n_points_2//8)):
+                    ax.scatter(pc1_2[j], pc2_2[j], c=colors2[j], s=60, marker='s', alpha=0.8, zorder=3)
 
-                for j in range(0, n_points, max(1, n_points//8)):
-                    ax2.scatter(pc1_2[j], pc2_2[j], c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
-
-                ax2.set_xlabel('PC1', fontsize=12, fontweight='bold')
-                ax2.set_ylabel('PC2', fontsize=12, fontweight='bold')
-                ax2.set_title(f'{method2.upper()}', fontsize=14, fontweight='bold')
-                ax2.set_xticks([])
-                ax2.set_yticks([])
-                ax2.legend(fontsize=10, loc='upper right', ncol=2)
-                ax2.grid(True, alpha=0.3)
-                ax2.axis('equal')
+                ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+                ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+                ax.set_title('XT Space PCA2 Analysis', fontsize=14, fontweight='bold')
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.legend(fontsize=10, loc='upper right', ncol=2)
+                ax.grid(True, alpha=0.3)
+                ax.axis('equal')
 
                 plt.tight_layout()
 
@@ -1441,64 +1446,53 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
             pc1_2 = np.array(data2['pc1_values_array'])
             pc2_2 = np.array(data2['pc2_values_array'])
 
-            # Create figure with two subplots side by side
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+            # Create figure with single plot for both methods
+            fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
             # Plot method 1
-            n_points = len(pc1_1)
-            colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+            n_points_1 = len(pc1_1)
+            colors1 = plt.cm.viridis(np.linspace(0, 1, n_points_1))
 
             method1_color = METHOD_COLORS.get(method1, '#3498DB')
-            ax1.plot(pc1_1, pc2_1, color=method1_color, linewidth=3, linestyle='-', alpha=0.7, zorder=2)
+            ax.plot(pc1_1, pc2_1, color=method1_color, linewidth=3, linestyle='-',
+                   alpha=0.7, zorder=2)
 
-            for j in range(n_points - 1):
-                ax1.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
-                       color=colors[j], linewidth=2, alpha=0.5, zorder=1)
+            for j in range(n_points_1 - 1):
+                ax.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
+                       color=colors1[j], linewidth=2, alpha=0.5, zorder=1)
 
-            ax1.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o', label='Start', zorder=5,
-                      edgecolors='black', linewidth=2)
-            ax1.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s', label='End', zorder=5,
-                      edgecolors='black', linewidth=2)
+            # Mark start and end points (only once, shared by both methods)
+            ax.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o',
+                      label='Start', zorder=5, edgecolors='black', linewidth=2)
+            ax.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s',
+                      label='End', zorder=5, edgecolors='black', linewidth=2)
 
-            for j in range(0, n_points, max(1, n_points//8)):
-                ax1.scatter(pc1_1[j], pc2_1[j], c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
-
-            ax1.set_xlabel('PC1', fontsize=12, fontweight='bold')
-            ax1.set_ylabel('PC2', fontsize=12, fontweight='bold')
-            ax1.set_title(f'{method1.upper()}', fontsize=14, fontweight='bold')
-            ax1.set_xticks([])
-            ax1.set_yticks([])
-            ax1.legend(fontsize=10, loc='upper right', ncol=2)
-            ax1.grid(True, alpha=0.3)
-            ax1.axis('equal')
+            for j in range(0, n_points_1, max(1, n_points_1//8)):
+                ax.scatter(pc1_1[j], pc2_1[j], c=colors1[j], s=80, marker='o', alpha=0.8, zorder=3)
 
             # Plot method 2
-            n_points = len(pc1_2)
-            colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+            n_points_2 = len(pc1_2)
+            colors2 = plt.cm.plasma(np.linspace(0, 1, n_points_2))
 
             method2_color = METHOD_COLORS.get(method2, '#E74C3C')
-            ax2.plot(pc1_2, pc2_2, color=method2_color, linewidth=3, linestyle='-', alpha=0.7, zorder=2)
+            ax.plot(pc1_2, pc2_2, color=method2_color, linewidth=3, linestyle='--',
+                   alpha=0.7, zorder=2)
 
-            for j in range(n_points - 1):
-                ax2.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
-                       color=colors[j], linewidth=2, alpha=0.5, zorder=1)
+            for j in range(n_points_2 - 1):
+                ax.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
+                       color=colors2[j], linewidth=2, alpha=0.5, zorder=1)
 
-            ax2.scatter(pc1_2[0], pc2_2[0], c=start_color, s=200, marker='o', label='Start', zorder=5,
-                      edgecolors='black', linewidth=2)
-            ax2.scatter(pc1_2[-1], pc2_2[-1], c=end_color, s=200, marker='s', label='End', zorder=5,
-                      edgecolors='black', linewidth=2)
+            for j in range(0, n_points_2, max(1, n_points_2//8)):
+                ax.scatter(pc1_2[j], pc2_2[j], c=colors2[j], s=60, marker='s', alpha=0.8, zorder=3)
 
-            for j in range(0, n_points, max(1, n_points//8)):
-                ax2.scatter(pc1_2[j], pc2_2[j], c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
-
-            ax2.set_xlabel('PC1', fontsize=12, fontweight='bold')
-            ax2.set_ylabel('PC2', fontsize=12, fontweight='bold')
-            ax2.set_title(f'{method2.upper()}', fontsize=14, fontweight='bold')
-            ax2.set_xticks([])
-            ax2.set_yticks([])
-            ax2.legend(fontsize=10, loc='upper right', ncol=2)
-            ax2.grid(True, alpha=0.3)
-            ax2.axis('equal')
+            ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+            ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+            ax.set_title('XT Space PCA2 Analysis', fontsize=14, fontweight='bold')
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.legend(fontsize=10, loc='upper right', ncol=2)
+            ax.grid(True, alpha=0.3)
+            ax.axis('equal')
 
             plt.tight_layout()
 
