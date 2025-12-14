@@ -684,9 +684,10 @@ class PCA2Analysis:
         Project a single seed trajectory onto the global PCA basis.
 
         For each inference step, project the XT vector onto the global PCA basis
-        and find the two components with largest absolute weights.
-        PC1 = component with largest absolute weight
-        PC2 = component with second largest absolute weight
+        using fixed first two principal components (indices 0 and 1).
+        PC1 = first principal component (index 0)
+        PC2 = second principal component (index 1)
+        Note: PC1 and PC2 can have any values (including negative, and PC1 < PC2)
 
         Args:
             pipe: Loaded diffusion pipeline
@@ -731,55 +732,41 @@ class PCA2Analysis:
             weights = projected[0]  # Shape: (n_components,)
             pc_weights.append(weights)
 
-            # Dynamic selection: Find the two components with largest absolute weights
-            # PC1 = component with largest absolute weight
-            # PC2 = component with second largest absolute weight
-            # Ensure |PC1| >= |PC2|
+            # Fixed: Use the first two principal components (indices 0 and 1) from global PCA
+            # PC1 = first principal component (index 0)
+            # PC2 = second principal component (index 1)
+            # No ordering constraint: PC1 and PC2 can have any values (including negative, and PC1 < PC2)
             if len(weights) >= 2:
-                # Calculate absolute weights
-                abs_weights = np.abs(weights)
-
-                # Get indices of top 2 components by absolute weight (descending order)
-                top2_indices = np.argsort(abs_weights)[-2:][::-1]
-                pc1_idx = top2_indices[0]  # Largest absolute weight
-                pc2_idx = top2_indices[1]  # Second largest absolute weight
+                # Fixed indices: always use first two components
+                pc1_idx = 0
+                pc2_idx = 1
 
                 pc1_indices.append(pc1_idx)
                 pc2_indices.append(pc2_idx)
 
-                # Get the actual weight values
-                pc1_weight_value = weights[pc1_idx]
-                pc2_weight_value = weights[pc2_idx]
+                # Get the actual weight values (not absolute, can be negative)
+                pc1_weight_value = weights[0]  # First PC weight
+                pc2_weight_value = weights[1]  # Second PC weight
 
-                # Use absolute values for PC1 and PC2
+                # Use actual values (not absolute), can be negative
+                pc1_values_list.append(pc1_weight_value)
+                pc2_values_list.append(pc2_weight_value)
+
+                # Calculate PC2/PC1 ratio using absolute values for ratio calculation
                 pc1_abs = abs(pc1_weight_value)
                 pc2_abs = abs(pc2_weight_value)
-
-                # Ensure |PC1| >= |PC2| (should always be true, but double-check)
-                if pc1_abs < pc2_abs:
-                    # Swap if needed (shouldn't happen, but safety check)
-                    print(f"⚠️  Warning at step {step}: |PC1|={pc1_abs:.6f} < |PC2|={pc2_abs:.6f}, swapping...")
-                    pc1_idx, pc2_idx = pc2_idx, pc1_idx
-                    pc1_abs, pc2_abs = pc2_abs, pc1_abs
-
-                pc1_values_list.append(pc1_abs)  # Use absolute value
-                pc2_values_list.append(pc2_abs)   # Use absolute value
-
-                # Calculate PC2/PC1 ratio using absolute values
                 ratio = pc2_abs / pc1_abs if pc1_abs > 0 else 0
                 pc2_pc1_ratios.append(ratio)
             else:
                 # Fallback if less than 2 components available
-                if len(weights) >= 1:
-                    pc1_abs = abs(weights[0])
-                    pc2_abs = abs(weights[1]) if len(weights) > 1 else 0
-                else:
-                    pc1_abs = 0
-                    pc2_abs = 0
+                pc1_weight_value = weights[0] if len(weights) > 0 else 0
+                pc2_weight_value = weights[1] if len(weights) > 1 else 0
                 pc1_indices.append(0)
                 pc2_indices.append(0 if len(weights) == 0 else 1)
-                pc1_values_list.append(pc1_abs)
-                pc2_values_list.append(pc2_abs)
+                pc1_values_list.append(pc1_weight_value)
+                pc2_values_list.append(pc2_weight_value)
+                pc1_abs = abs(pc1_weight_value)
+                pc2_abs = abs(pc2_weight_value)
                 ratio = pc2_abs / pc1_abs if pc1_abs > 0 else 0
                 pc2_pc1_ratios.append(ratio)
 
@@ -792,9 +779,9 @@ class PCA2Analysis:
 
         print(f"✓ Projected trajectory onto global PCA basis")
         print(f"  PC weights shape: {pc_weights.shape}")
-        print(f"  Using dynamic PC1 and PC2 (largest and second largest absolute weights per step)")
-        print(f"  PC1 indices range: [{pc1_indices.min()}, {pc1_indices.max()}]")
-        print(f"  PC2 indices range: [{pc2_indices.min()}, {pc2_indices.max()}]")
+        print(f"  Using fixed PC1 (index 0) and PC2 (index 1) from global PCA")
+        print(f"  PC1 values range: [{pc1_values_array.min():.4f}, {pc1_values_array.max():.4f}]")
+        print(f"  PC2 values range: [{pc2_values_array.min():.4f}, {pc2_values_array.max():.4f}]")
         print(f"  Mean PC2/PC1 ratio: {np.mean(pc2_pc1_ratios):.6f}")
 
         return trajectory_data, pc_weights, pc2_pc1_ratios, pc1_values_array, pc2_values_array
@@ -804,7 +791,11 @@ class PCA2Analysis:
         Project multiple seed trajectories onto the global PCA basis and compute statistics.
 
         For each seed, project the trajectory onto the global PCA basis using fixed
-        PC1 (index 0) and PC2 (index 1). Then compute mean and std across all seeds.
+        first two principal components (indices 0 and 1).
+        PC1 = first principal component (index 0)
+        PC2 = second principal component (index 1)
+        Note: PC1 and PC2 can have any values (including negative, and PC1 < PC2)
+        Then compute mean and std across all seeds.
 
         Args:
             pipe: Loaded diffusion pipeline
@@ -813,20 +804,22 @@ class PCA2Analysis:
         Returns:
             all_trajectory_data: List of trajectory data dictionaries for each seed
             all_pc_weights: List of PC weights arrays for each seed
+            # For xt_space_pca2 plot (fixed basis, no ordering constraint):
+            all_pc1_values_fixed: List of PC1 arrays for each seed (fixed index 0, can be negative)
+            all_pc2_values_fixed: List of PC2 arrays for each seed (fixed index 1, can be negative)
+            # For pc2_pc1_ratio plot (dynamic selection, with ordering constraint):
             pc2_pc1_ratios_mean: Mean PC2/PC1 ratios across seeds (shape: num_inference_steps,)
             pc2_pc1_ratios_std: Std PC2/PC1 ratios across seeds (shape: num_inference_steps,)
-            pc1_values_mean: Mean PC1 values across seeds (shape: num_inference_steps,)
-            pc1_values_std: Std PC1 values across seeds (shape: num_inference_steps,)
-            pc2_values_mean: Mean PC2 values across seeds (shape: num_inference_steps,)
-            pc2_values_std: Std PC2 values across seeds (shape: num_inference_steps,)
         """
         print(f"\n🚀 Generating multiple seed trajectories ({len(self.seeds)} seeds)...")
 
         all_trajectory_data = []
         all_pc_weights = []
+        # For pc2_pc1_ratio plot: dynamic selection with ordering constraint
         all_pc2_pc1_ratios = []
-        all_pc1_values = []
-        all_pc2_values = []
+        # For xt_space_pca2 plot: fixed basis, no ordering constraint
+        all_pc1_values_fixed = []
+        all_pc2_values_fixed = []
 
         for i, seed in enumerate(self.seeds):
             print(f"  Processing seed {seed} ({i+1}/{len(self.seeds)})...")
@@ -837,9 +830,11 @@ class PCA2Analysis:
 
             # Project each step onto global PCA basis
             pc_weights = []
+            # For pc2_pc1_ratio plot: dynamic selection with ordering constraint
             pc2_pc1_ratios = []
-            pc1_values_list = []
-            pc2_values_list = []
+            # For xt_space_pca2 plot: fixed basis, no ordering constraint
+            pc1_values_fixed_list = []
+            pc2_values_fixed_list = []
 
             for step in range(self.num_inference_steps):
                 xt_step = trajectory_data['xt'][step]  # Shape: (feature_dim,)
@@ -852,99 +847,88 @@ class PCA2Analysis:
                 weights = projected[0]  # Shape: (n_components,)
                 pc_weights.append(weights)
 
-                # Dynamic selection: Find the two components with largest absolute weights
-                # PC1 = component with largest absolute weight
-                # PC2 = component with second largest absolute weight
-                # Ensure |PC1| >= |PC2|
                 if len(weights) >= 2:
-                    # Calculate absolute weights
-                    abs_weights = np.abs(weights)
+                    # For xt_space_pca2 plot: Fixed basis (indices 0 and 1), no ordering constraint
+                    pc1_fixed = weights[0]  # First PC weight (can be negative)
+                    pc2_fixed = weights[1]  # Second PC weight (can be negative)
+                    pc1_values_fixed_list.append(pc1_fixed)
+                    pc2_values_fixed_list.append(pc2_fixed)
 
-                    # Get indices of top 2 components by absolute weight (descending order)
+                    # For pc2_pc1_ratio plot: Dynamic selection with ordering constraint
+                    # Find the two components with largest absolute weights
+                    abs_weights = np.abs(weights)
                     top2_indices = np.argsort(abs_weights)[-2:][::-1]
                     pc1_idx = top2_indices[0]  # Largest absolute weight
                     pc2_idx = top2_indices[1]  # Second largest absolute weight
 
-                    # Get the actual weight values
-                    pc1_weight_value = weights[pc1_idx]
-                    pc2_weight_value = weights[pc2_idx]
+                    # Get absolute values and ensure |PC1| >= |PC2|
+                    pc1_abs = abs(weights[pc1_idx])
+                    pc2_abs = abs(weights[pc2_idx])
 
-                    # Use absolute values for PC1 and PC2
-                    pc1_abs = abs(pc1_weight_value)
-                    pc2_abs = abs(pc2_weight_value)
-
-                    # Ensure |PC1| >= |PC2| (should always be true, but double-check)
+                    # Ensure |PC1| >= |PC2| (swap if needed)
                     if pc1_abs < pc2_abs:
-                        # Swap if needed (shouldn't happen, but safety check)
-                        pc1_idx, pc2_idx = pc2_idx, pc1_idx
                         pc1_abs, pc2_abs = pc2_abs, pc1_abs
 
-                    pc1_values_list.append(pc1_abs)
-                    pc2_values_list.append(pc2_abs)
-
-                    # Calculate PC2/PC1 ratio using absolute values
+                    # Calculate PC2/PC1 ratio
                     ratio = pc2_abs / pc1_abs if pc1_abs > 0 else 0
                     pc2_pc1_ratios.append(ratio)
                 else:
                     # Fallback if less than 2 components available
-                    if len(weights) >= 1:
-                        pc1_abs = abs(weights[0])
-                        pc2_abs = abs(weights[1]) if len(weights) > 1 else 0
-                    else:
-                        pc1_abs = 0
-                        pc2_abs = 0
-                    pc1_values_list.append(pc1_abs)
-                    pc2_values_list.append(pc2_abs)
+                    pc1_fixed = weights[0] if len(weights) > 0 else 0
+                    pc2_fixed = weights[1] if len(weights) > 1 else 0
+                    pc1_values_fixed_list.append(pc1_fixed)
+                    pc2_values_fixed_list.append(pc2_fixed)
+                    pc1_abs = abs(pc1_fixed)
+                    pc2_abs = abs(pc2_fixed)
+                    if pc1_abs < pc2_abs:
+                        pc1_abs, pc2_abs = pc2_abs, pc1_abs
                     ratio = pc2_abs / pc1_abs if pc1_abs > 0 else 0
                     pc2_pc1_ratios.append(ratio)
 
             all_pc_weights.append(np.array(pc_weights))
             all_pc2_pc1_ratios.append(np.array(pc2_pc1_ratios))
-            all_pc1_values.append(np.array(pc1_values_list))
-            all_pc2_values.append(np.array(pc2_values_list))
+            all_pc1_values_fixed.append(np.array(pc1_values_fixed_list))
+            all_pc2_values_fixed.append(np.array(pc2_values_fixed_list))
 
-        # Compute statistics across all seeds
+        # Compute statistics for pc2_pc1_ratio plot (dynamic selection with ordering constraint)
         all_pc2_pc1_ratios = np.array(all_pc2_pc1_ratios)  # Shape: (num_seeds, num_inference_steps)
-        all_pc1_values = np.array(all_pc1_values)  # Shape: (num_seeds, num_inference_steps)
-        all_pc2_values = np.array(all_pc2_values)  # Shape: (num_seeds, num_inference_steps)
-
         pc2_pc1_ratios_mean = np.mean(all_pc2_pc1_ratios, axis=0)
         pc2_pc1_ratios_std = np.std(all_pc2_pc1_ratios, axis=0)
-        pc1_values_mean = np.mean(all_pc1_values, axis=0)
-        pc1_values_std = np.std(all_pc1_values, axis=0)
-        pc2_values_mean = np.mean(all_pc2_values, axis=0)
-        pc2_values_std = np.std(all_pc2_values, axis=0)
 
         print(f"✓ Projected {len(self.seeds)} trajectories onto global PCA basis")
-        print(f"  Using dynamic PC1 and PC2 (largest and second largest absolute weights per step)")
+        print(f"  For xt_space_pca2: Using fixed PC1 (index 0) and PC2 (index 1), no ordering constraint")
+        print(f"  For pc2_pc1_ratio: Using dynamic selection with ordering constraint (|PC1| >= |PC2|)")
         print(f"  Mean PC2/PC1 ratio across seeds: {np.mean(pc2_pc1_ratios_mean):.6f} ± {np.mean(pc2_pc1_ratios_std):.6f}")
 
-        return (all_trajectory_data, all_pc_weights, pc2_pc1_ratios_mean, pc2_pc1_ratios_std,
-                pc1_values_mean, pc1_values_std, pc2_values_mean, pc2_values_std)
+        return (all_trajectory_data, all_pc_weights,
+                all_pc1_values_fixed, all_pc2_values_fixed,  # For xt_space_pca2 plot
+                pc2_pc1_ratios_mean, pc2_pc1_ratios_std)  # For pc2_pc1_ratio plot
 
-    def plot_xt_space_pca2(self, trajectory_data, pc1_values_array, pc2_values_array,
-                           pc1_values_std=None, pc2_values_std=None, results_dir=results_dir):
+    def plot_xt_space_pca2(self, trajectory_data, pc1_values_list, pc2_values_list, results_dir=results_dir, hide_ticks=False):
         """
-        Plot XT Space PCA2 Analysis using dynamic PC1 and PC2 (largest and second largest absolute weights per step).
+        Plot XT Space PCA2 Analysis using fixed PC1 and PC2 (first and second principal components from global PCA).
+        Each seed is plotted in a separate figure.
 
         Args:
             trajectory_data: Can be single dict or list of dicts (for multiple seeds)
-            pc1_values_array: PC1 values (largest absolute weight per step, mean if multiple seeds)
-            pc2_values_array: PC2 values (second largest absolute weight per step, mean if multiple seeds)
-            pc1_values_std: Optional std for PC1 (for error bands)
-            pc2_values_std: Optional std for PC2 (for error bands)
+            pc1_values_list: PC1 values - can be single array or list of arrays (one per seed, can be negative)
+            pc2_values_list: PC2 values - can be single array or list of arrays (one per seed, can be negative)
+            hide_ticks: If True, hide x and y axis ticks
         """
         print(f"\n📊 Plotting XT Space PCA2...")
 
-        # Use dynamic PC1 and PC2 values (largest and second largest absolute weights per step)
-        pc1_values = pc1_values_array  # Largest absolute weight for each step (mean if multiple seeds)
-        pc2_values = pc2_values_array   # Second largest absolute weight for each step (mean if multiple seeds)
+        # Check if we have multiple seeds
+        is_multiple_seeds = isinstance(pc1_values_list, list) and len(pc1_values_list) > 0
 
-        # Check if we have std for error bands
-        has_error_bands = (pc1_values_std is not None) and (pc2_values_std is not None)
-
-        # Create figure
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        if is_multiple_seeds:
+            # Multiple seeds: each seed will be plotted in a separate figure
+            num_seeds = len(pc1_values_list)
+            print(f"  Plotting {num_seeds} seed trajectories in separate figures...")
+        else:
+            # Single seed: convert to list for uniform handling
+            pc1_values_list = [pc1_values_list] if not isinstance(pc1_values_list, list) else pc1_values_list
+            pc2_values_list = [pc2_values_list] if not isinstance(pc2_values_list, list) else pc2_values_list
+            num_seeds = 1
 
         # Get model style
         model_style = MODEL_STYLES.get(self.model, {
@@ -959,100 +943,91 @@ class PCA2Analysis:
         start_color = '#27AE60'  # Green
         end_color = '#E67E22'    # Orange
 
-        n_points = len(pc1_values)
-        colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+        # Plot each seed in a separate figure
+        for seed_idx, (pc1_values, pc2_values) in enumerate(zip(pc1_values_list, pc2_values_list)):
+            pc1_values = np.array(pc1_values)
+            pc2_values = np.array(pc2_values)
 
-        # Plot error bands if available (for multiple seeds)
-        # Removed: user requested to show only trajectory without error bands and ellipses
-        # if has_error_bands:
-        #     # Plot error bands as shaded regions
-        #     ax.fill_between(pc1_values,
-        #                    pc2_values - pc2_values_std,
-        #                    pc2_values + pc2_values_std,
-        #                    color=model_style['color'],
-        #                    alpha=0.2,
-        #                    zorder=0,
-        #                    label=None)
-        #     # Also show error in PC1 direction (approximate as ellipse)
-        #     for j in range(0, n_points, max(1, n_points//10)):
-        #         from matplotlib.patches import Ellipse
-        #         ellipse = Ellipse((pc1_values[j], pc2_values[j]),
-        #                          width=2*pc1_values_std[j],
-        #                          height=2*pc2_values_std[j],
-        #                          color=model_style['color'],
-        #                          alpha=0.15,
-        #                          zorder=1)
-        #         ax.add_patch(ellipse)
+            # Create a new figure for this seed
+            fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 
-        # Plot trajectory with model-specific color (no label)
-        trajectory_line = ax.plot(pc1_values, pc2_values,
-                                  color=model_style['color'],
-                                  linewidth=model_style['linewidth'],
-                                  linestyle=model_style['linestyle'],
-                                  alpha=0.7, zorder=2)
+            n_points = len(pc1_values)
+            colors = plt.cm.viridis(np.linspace(0, 1, n_points))
 
-        # Plot trajectory segments with gradient colors
-        for j in range(n_points - 1):
-            ax.plot([pc1_values[j], pc1_values[j+1]],
-                   [pc2_values[j], pc2_values[j+1]],
-                   color=colors[j], linewidth=2, alpha=0.5, zorder=1)
+            # Plot trajectory with model-specific color
+            ax.plot(pc1_values, pc2_values,
+                   color=model_style['color'],
+                   linewidth=model_style['linewidth'],
+                   linestyle=model_style['linestyle'],
+                   alpha=0.7, zorder=2)
 
-        # Mark start and end points
-        ax.scatter(pc1_values[0], pc2_values[0],
-                  c=start_color, s=200, marker='o', label='Start', zorder=5,
-                  edgecolors='black', linewidth=2)
-        ax.scatter(pc1_values[-1], pc2_values[-1],
-                  c=end_color, s=200, marker='s', label='End', zorder=5,
-                  edgecolors='black', linewidth=2)
+            # Plot trajectory segments with gradient colors
+            for j in range(n_points - 1):
+                ax.plot([pc1_values[j], pc1_values[j+1]],
+                       [pc2_values[j], pc2_values[j+1]],
+                       color=colors[j], linewidth=2, alpha=0.5, zorder=1)
 
-        # Add step markers
-        for j in range(0, n_points, max(1, n_points//8)):
-            ax.scatter(pc1_values[j], pc2_values[j],
-                      c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
+            # Mark start and end points
+            ax.scatter(pc1_values[0], pc2_values[0],
+                      c=start_color, s=200, marker='o', label='Start', zorder=5,
+                      edgecolors='black', linewidth=2)
+            ax.scatter(pc1_values[-1], pc2_values[-1],
+                      c=end_color, s=200, marker='s', label='End', zorder=5,
+                      edgecolors='black', linewidth=2)
 
-        ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
-        ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
-        title = f'XT Space PCA2 Analysis - {model_style["label"]}'
-        ax.set_title(title, fontsize=14, fontweight='bold')
+            # Add step markers
+            for j in range(0, n_points, max(1, n_points//8)):
+                ax.scatter(pc1_values[j], pc2_values[j],
+                          c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
 
-        # Auto-detect legend position to avoid overlap with data
-        # Calculate data range and center
-        x_range = pc1_values.max() - pc1_values.min()
-        y_range = pc2_values.max() - pc2_values.min()
-        x_center = (pc1_values.max() + pc1_values.min()) / 2
-        y_center = (pc2_values.max() + pc2_values.min()) / 2
+            ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+            ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+            title = f'XT Space PCA2 Analysis - {model_style["label"]}'
+            ax.set_title(title, fontsize=14, fontweight='bold')
 
-        # Define corner regions (30% of range from center toward each corner)
-        # Upper-right: x > x_center + x_range*0.3, y > y_center + y_range*0.3
-        # Upper-left: x < x_center - x_range*0.3, y > y_center + y_range*0.3
-        ur_threshold_x = x_center + x_range * 0.3
-        ur_threshold_y = y_center + y_range * 0.3
-        ul_threshold_x = x_center - x_range * 0.3
-        ul_threshold_y = y_center + y_range * 0.3
+            # Hide ticks if requested
+            if hide_ticks:
+                ax.set_xticks([])
+                ax.set_yticks([])
 
-        # Count points in upper-right and upper-left corner regions
-        ur_count = np.sum((pc1_values > ur_threshold_x) & (pc2_values > ur_threshold_y))
-        ul_count = np.sum((pc1_values < ul_threshold_x) & (pc2_values > ul_threshold_y))
+            # Auto-detect legend position to avoid overlap with data
+            x_range = pc1_values.max() - pc1_values.min()
+            y_range = pc2_values.max() - pc2_values.min()
+            x_center = (pc1_values.max() + pc1_values.min()) / 2
+            y_center = (pc2_values.max() + pc2_values.min()) / 2
 
-        # Choose legend position based on data density
-        # If upper-right has more points, use upper-left, and vice versa
-        if ur_count > ul_count:
-            legend_loc = 'upper left'
-        else:
-            legend_loc = 'upper right'
+            ur_threshold_x = x_center + x_range * 0.3
+            ur_threshold_y = y_center + y_range * 0.3
+            ul_threshold_x = x_center - x_range * 0.3
+            ul_threshold_y = y_center + y_range * 0.3
 
-        # Legend with only Start and End, in one row
-        ax.legend(fontsize=10, loc=legend_loc, ncol=2)
-        ax.grid(True, alpha=0.3)
-        ax.axis('equal')
+            # Count points in corner regions
+            ur_count = np.sum((pc1_values > ur_threshold_x) & (pc2_values > ur_threshold_y))
+            ul_count = np.sum((pc1_values < ul_threshold_x) & (pc2_values > ul_threshold_y))
 
-        plt.tight_layout()
+            if ur_count > ul_count:
+                legend_loc = 'upper left'
+            else:
+                legend_loc = 'upper right'
 
-        save_path = os.path.join(results_dir, f'xt_space_pca2_{self.pic_postfix_name}.png')
-        plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
-        print(f"✓ XT Space PCA2 plot saved to: {save_path}")
+            # Legend with only Start and End, in one row
+            ax.legend(fontsize=10, loc=legend_loc, ncol=2)
+            ax.grid(True, alpha=0.3)
+            ax.axis('equal')
 
-        plt.close()
+            plt.tight_layout()
+
+            # Generate filename with seed information
+            if is_multiple_seeds:
+                seed = self.seeds[seed_idx]
+                save_path = os.path.join(results_dir, f'xt_space_pca2_{self.model}_{self.method}_steps-{self.num_inference_steps}_seed-{seed}.png')
+            else:
+                save_path = os.path.join(results_dir, f'xt_space_pca2_{self.pic_postfix_name}.png')
+
+            plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+            print(f"✓ XT Space PCA2 plot saved to: {save_path}")
+
+            plt.close()
 
     def plot_pc2_pc1_ratio(self, pc2_pc1_ratios, pc2_pc1_ratios_std=None, results_dir=results_dir):
         """
@@ -1278,6 +1253,269 @@ class PCA2Analysis:
             pickle.dump(save_data, f)
         print(f"✓ Analysis data saved to: {data_save_path}")
 
+def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, methods, results_dir=results_dir):
+    """
+    Load saved analysis data and plot pairwise comparisons of different methods.
+    Each figure shows two methods side by side, with x and y ticks hidden.
+
+    Args:
+        model: Model name (e.g., "stable-diffusion-2-base")
+        num_inference_steps: Number of inference steps
+        seeds: List of seeds or seed string (e.g., "67-72")
+        methods: List of methods to compare (e.g., ["ddim", "dpm", "dpm_lm", "unipc"])
+        results_dir: Directory where results are saved
+    """
+    print(f"\n📊 Plotting pairwise XT Space PCA2 comparisons...")
+
+    # Parse seeds if string
+    if isinstance(seeds, str):
+        seeds_parsed = parse_seeds(seeds)
+    else:
+        seeds_parsed = seeds
+
+    # Generate postfix for file names
+    if len(seeds_parsed) == 1:
+        pic_postfix = f'{model}_*_steps-{num_inference_steps}_seed-{seeds_parsed[0]}'
+        seeds_str = str(seeds_parsed[0])
+    else:
+        if len(seeds_parsed) <= 5:
+            seeds_str = '_'.join(map(str, seeds_parsed))
+        else:
+            seeds_str = f'{seeds_parsed[0]}-{seeds_parsed[-1]}-{len(seeds_parsed)}seeds'
+        pic_postfix = f'{model}_*_steps-{num_inference_steps}_seeds-{seeds_str}'
+
+    # Load data for all methods
+    method_data = {}
+    for method in methods:
+        # Construct filename pattern
+        if len(seeds_parsed) == 1:
+            data_filename = f'analysis_data_{model}_{method}_steps-{num_inference_steps}_seed-{seeds_parsed[0]}.pkl'
+        else:
+            data_filename = f'analysis_data_{model}_{method}_steps-{num_inference_steps}_seeds-{seeds_str}.pkl'
+
+        data_path = os.path.join(results_dir, data_filename)
+
+        if os.path.exists(data_path):
+            with open(data_path, 'rb') as f:
+                method_data[method] = pickle.load(f)
+            print(f"  ✓ Loaded data for {method}")
+        else:
+            print(f"  ⚠️  Data file not found: {data_path}")
+
+    if len(method_data) < 2:
+        print(f"  ❌ Need at least 2 methods with data. Found: {list(method_data.keys())}")
+        return
+
+    # Get model style
+    model_style = MODEL_STYLES.get(model, {
+        'color': '#3498DB',
+        'marker': 'o',
+        'linestyle': '-',
+        'label': model,
+        'linewidth': 3
+    })
+
+    # Define colors for start and end points
+    start_color = '#27AE60'  # Green
+    end_color = '#E67E22'    # Orange
+
+    # Generate all pairwise combinations
+    from itertools import combinations
+    method_pairs = list(combinations(method_data.keys(), 2))
+
+    print(f"  Generating {len(method_pairs)} pairwise comparison plots...")
+
+    # For multiple seeds, we need to plot each seed separately
+    # Check if we have multiple seeds
+    first_method = list(method_data.keys())[0]
+    first_data = method_data[first_method]
+    is_multiple_seeds = isinstance(first_data['pc1_values_array'], list) or \
+                       (isinstance(first_data['trajectory_data'], list) and len(first_data['trajectory_data']) > 1)
+
+    if is_multiple_seeds:
+        # Multiple seeds: plot each seed separately
+        num_seeds = len(seeds_parsed)
+
+        for seed_idx in range(num_seeds):
+            seed = seeds_parsed[seed_idx]
+
+            for method1, method2 in method_pairs:
+                data1 = method_data[method1]
+                data2 = method_data[method2]
+
+                # Extract data for this seed
+                if isinstance(data1['pc1_values_array'], list):
+                    pc1_1 = data1['pc1_values_array'][seed_idx]
+                    pc2_1 = data1['pc2_values_array'][seed_idx]
+                else:
+                    pc1_1 = data1['pc1_values_array']
+                    pc2_1 = data1['pc2_values_array']
+
+                if isinstance(data2['pc1_values_array'], list):
+                    pc1_2 = data2['pc1_values_array'][seed_idx]
+                    pc2_2 = data2['pc2_values_array'][seed_idx]
+                else:
+                    pc1_2 = data2['pc1_values_array']
+                    pc2_2 = data2['pc2_values_array']
+
+                # Create figure with two subplots side by side
+                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+                # Plot method 1
+                pc1_1 = np.array(pc1_1)
+                pc2_1 = np.array(pc2_1)
+                n_points = len(pc1_1)
+                colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+
+                method1_color = METHOD_COLORS.get(method1, '#3498DB')
+                ax1.plot(pc1_1, pc2_1, color=method1_color, linewidth=3, linestyle='-', alpha=0.7, zorder=2)
+
+                for j in range(n_points - 1):
+                    ax1.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
+                           color=colors[j], linewidth=2, alpha=0.5, zorder=1)
+
+                ax1.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o', label='Start', zorder=5,
+                          edgecolors='black', linewidth=2)
+                ax1.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s', label='End', zorder=5,
+                          edgecolors='black', linewidth=2)
+
+                for j in range(0, n_points, max(1, n_points//8)):
+                    ax1.scatter(pc1_1[j], pc2_1[j], c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
+
+                ax1.set_xlabel('PC1', fontsize=12, fontweight='bold')
+                ax1.set_ylabel('PC2', fontsize=12, fontweight='bold')
+                ax1.set_title(f'{method1.upper()}', fontsize=14, fontweight='bold')
+                ax1.set_xticks([])
+                ax1.set_yticks([])
+                ax1.legend(fontsize=10, loc='upper right', ncol=2)
+                ax1.grid(True, alpha=0.3)
+                ax1.axis('equal')
+
+                # Plot method 2
+                pc1_2 = np.array(pc1_2)
+                pc2_2 = np.array(pc2_2)
+                n_points = len(pc1_2)
+                colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+
+                method2_color = METHOD_COLORS.get(method2, '#E74C3C')
+                ax2.plot(pc1_2, pc2_2, color=method2_color, linewidth=3, linestyle='-', alpha=0.7, zorder=2)
+
+                for j in range(n_points - 1):
+                    ax2.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
+                           color=colors[j], linewidth=2, alpha=0.5, zorder=1)
+
+                ax2.scatter(pc1_2[0], pc2_2[0], c=start_color, s=200, marker='o', label='Start', zorder=5,
+                          edgecolors='black', linewidth=2)
+                ax2.scatter(pc1_2[-1], pc2_2[-1], c=end_color, s=200, marker='s', label='End', zorder=5,
+                          edgecolors='black', linewidth=2)
+
+                for j in range(0, n_points, max(1, n_points//8)):
+                    ax2.scatter(pc1_2[j], pc2_2[j], c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
+
+                ax2.set_xlabel('PC1', fontsize=12, fontweight='bold')
+                ax2.set_ylabel('PC2', fontsize=12, fontweight='bold')
+                ax2.set_title(f'{method2.upper()}', fontsize=14, fontweight='bold')
+                ax2.set_xticks([])
+                ax2.set_yticks([])
+                ax2.legend(fontsize=10, loc='upper right', ncol=2)
+                ax2.grid(True, alpha=0.3)
+                ax2.axis('equal')
+
+                plt.tight_layout()
+
+                # Save figure
+                save_path = os.path.join(results_dir,
+                    f'xt_space_pca2_{model}_{method1}_vs_{method2}_steps-{num_inference_steps}_seed-{seed}.png')
+                plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+                print(f"  ✓ Saved pairwise plot: {save_path}")
+
+                plt.close()
+    else:
+        # Single seed: plot directly
+        for method1, method2 in method_pairs:
+            data1 = method_data[method1]
+            data2 = method_data[method2]
+
+            pc1_1 = np.array(data1['pc1_values_array'])
+            pc2_1 = np.array(data1['pc2_values_array'])
+            pc1_2 = np.array(data2['pc1_values_array'])
+            pc2_2 = np.array(data2['pc2_values_array'])
+
+            # Create figure with two subplots side by side
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+            # Plot method 1
+            n_points = len(pc1_1)
+            colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+
+            method1_color = METHOD_COLORS.get(method1, '#3498DB')
+            ax1.plot(pc1_1, pc2_1, color=method1_color, linewidth=3, linestyle='-', alpha=0.7, zorder=2)
+
+            for j in range(n_points - 1):
+                ax1.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
+                       color=colors[j], linewidth=2, alpha=0.5, zorder=1)
+
+            ax1.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o', label='Start', zorder=5,
+                      edgecolors='black', linewidth=2)
+            ax1.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s', label='End', zorder=5,
+                      edgecolors='black', linewidth=2)
+
+            for j in range(0, n_points, max(1, n_points//8)):
+                ax1.scatter(pc1_1[j], pc2_1[j], c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
+
+            ax1.set_xlabel('PC1', fontsize=12, fontweight='bold')
+            ax1.set_ylabel('PC2', fontsize=12, fontweight='bold')
+            ax1.set_title(f'{method1.upper()}', fontsize=14, fontweight='bold')
+            ax1.set_xticks([])
+            ax1.set_yticks([])
+            ax1.legend(fontsize=10, loc='upper right', ncol=2)
+            ax1.grid(True, alpha=0.3)
+            ax1.axis('equal')
+
+            # Plot method 2
+            n_points = len(pc1_2)
+            colors = plt.cm.viridis(np.linspace(0, 1, n_points))
+
+            method2_color = METHOD_COLORS.get(method2, '#E74C3C')
+            ax2.plot(pc1_2, pc2_2, color=method2_color, linewidth=3, linestyle='-', alpha=0.7, zorder=2)
+
+            for j in range(n_points - 1):
+                ax2.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
+                       color=colors[j], linewidth=2, alpha=0.5, zorder=1)
+
+            ax2.scatter(pc1_2[0], pc2_2[0], c=start_color, s=200, marker='o', label='Start', zorder=5,
+                      edgecolors='black', linewidth=2)
+            ax2.scatter(pc1_2[-1], pc2_2[-1], c=end_color, s=200, marker='s', label='End', zorder=5,
+                      edgecolors='black', linewidth=2)
+
+            for j in range(0, n_points, max(1, n_points//8)):
+                ax2.scatter(pc1_2[j], pc2_2[j], c=colors[j], s=80, marker='o', alpha=0.8, zorder=3)
+
+            ax2.set_xlabel('PC1', fontsize=12, fontweight='bold')
+            ax2.set_ylabel('PC2', fontsize=12, fontweight='bold')
+            ax2.set_title(f'{method2.upper()}', fontsize=14, fontweight='bold')
+            ax2.set_xticks([])
+            ax2.set_yticks([])
+            ax2.legend(fontsize=10, loc='upper right', ncol=2)
+            ax2.grid(True, alpha=0.3)
+            ax2.axis('equal')
+
+            plt.tight_layout()
+
+            # Save figure
+            if len(seeds_parsed) == 1:
+                save_path = os.path.join(results_dir,
+                    f'xt_space_pca2_{model}_{method1}_vs_{method2}_steps-{num_inference_steps}_seed-{seeds_parsed[0]}.png')
+            else:
+                save_path = os.path.join(results_dir,
+                    f'xt_space_pca2_{model}_{method1}_vs_{method2}_steps-{num_inference_steps}_seeds-{seeds_str}.png')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+            print(f"  ✓ Saved pairwise plot: {save_path}")
+
+            plt.close()
+
+    print(f"✓ Pairwise comparison plots completed!")
+
 def parse_seeds(seed_str):
     """
     Parse seed string into a list of integers.
@@ -1375,27 +1613,31 @@ def main(args):
             print(f"\n{'='*60}")
             print(f"Projecting Multiple Seed Trajectories (seeds={seeds})")
             print(f"{'='*60}")
-            (all_trajectory_data, all_pc_weights, pc2_pc1_ratios_mean, pc2_pc1_ratios_std,
-             pc1_values_mean, pc1_values_std, pc2_values_mean, pc2_values_std) = analyzer.project_multiple_seeds_trajectory(pipe, global_pca)
+            (all_trajectory_data, all_pc_weights,
+             all_pc1_values_fixed, all_pc2_values_fixed,  # For xt_space_pca2 plot (fixed basis)
+             pc2_pc1_ratios_mean, pc2_pc1_ratios_std) = analyzer.project_multiple_seeds_trajectory(pipe, global_pca)
 
-            # Step 4: Generate visualization plots with error bands
+            # Step 4: Generate visualization plots
             print(f"\n{'='*60}")
-            print(f"Creating PCA2 Analysis Plots (with error bands)")
+            print(f"Creating PCA2 Analysis Plots")
             print(f"{'='*60}")
-            # Use first trajectory for reference (or mean trajectory)
-            analyzer.plot_xt_space_pca2(all_trajectory_data[0], pc1_values_mean, pc2_values_mean,
-                                       pc1_values_std=pc1_values_std, pc2_values_std=pc2_values_std)
+            # For xt_space_pca2: plot each seed separately with fixed basis
+            analyzer.plot_xt_space_pca2(all_trajectory_data, all_pc1_values_fixed, all_pc2_values_fixed)
+            # For pc2_pc1_ratio: use mean with error bands (dynamic selection with ordering constraint)
             analyzer.plot_pc2_pc1_ratio(pc2_pc1_ratios_mean, pc2_pc1_ratios_std=pc2_pc1_ratios_std)
 
             # Step 5: Save analysis data
             print(f"\n{'='*60}")
             print(f"Saving Analysis Data")
             print(f"{'='*60}")
-            # For multiple seeds, save mean and std
+            # For multiple seeds, save all data including individual seed data
+            # Calculate means for fixed basis (for compatibility)
+            pc1_values_mean_fixed = np.mean([np.array(v) for v in all_pc1_values_fixed], axis=0)
+            pc2_values_mean_fixed = np.mean([np.array(v) for v in all_pc2_values_fixed], axis=0)
+            # Save individual seed data for pairwise comparison
             analyzer.save_analysis_data(all_trajectory_data, all_pc_weights,
-                                       pc2_pc1_ratios_mean, pc1_values_mean, pc2_values_mean,
-                                       global_pca, pc2_pc1_ratios_std=pc2_pc1_ratios_std,
-                                       pc1_values_std=pc1_values_std, pc2_values_std=pc2_values_std)
+                                       pc2_pc1_ratios_mean, all_pc1_values_fixed, all_pc2_values_fixed,
+                                       global_pca, pc2_pc1_ratios_std=pc2_pc1_ratios_std)
 
         # Step 6: Generate legend for current model
         print(f"\n{'='*60}")
@@ -1424,7 +1666,7 @@ if __name__ == "__main__":
                         help="Number of inference steps in the diffusion process")
     parser.add_argument("--num_global_seeds", type=int, default=200,
                         help="Number of seeds to use for computing global PCA basis")
-    parser.add_argument("--seed", type=str, default="67",
+    parser.add_argument("--seed", type=str, default="67-72",
                         help="Random seed(s) for trajectory analysis. "
                              "Can be: single number (e.g., 42), "
                              "comma-separated list (e.g., 42,43,44), "
@@ -1438,21 +1680,45 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
-    # for steps in [10, 20, 50]:
-    #     args.num_inference_steps = steps
-    #     args.num_global_seeds = int(1000 / steps)
-    #     for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
-    #         args.method = method
-    #         for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
-    #             args.model = model
-    #             main(args)
+    for steps in [20, 50]:
+        args.num_inference_steps = steps
+        args.num_global_seeds = int(1000 / steps)
+        for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
+            args.model = model
+            for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
+                args.method = method
+                main(args)
+
+            # Generate pairwise comparison plots after all methods are done
+            print(f"\n{'='*60}")
+            print(f"Generating Pairwise Comparison Plots for {model} (steps={steps})")
+            print(f"{'='*60}")
+            plot_xt_space_pca2_pairwise_comparison(
+                model=model,
+                num_inference_steps=steps,
+                seeds=args.seed,
+                methods=["ddim", "dpm", "dpm_lm", "unipc"],
+                results_dir=results_dir
+            )
 
 
-    for steps in [10, 20, 50, 100, 200]:
+    for steps in [20, 50]:
         args.num_inference_steps = steps
         args.num_global_seeds = int(10000 / steps)
-        for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
-            args.method = method
-            for model in ["ddpm_ema_cifar10", "ldm_celebahq_256"]:
-                args.model = model
+        for model in ["ddpm_ema_cifar10", "ldm_celebahq_256"]:
+            args.model = model
+            for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
+                args.method = method
                 main(args)
+
+            # Generate pairwise comparison plots after all methods are done
+            print(f"\n{'='*60}")
+            print(f"Generating Pairwise Comparison Plots for {model} (steps={steps})")
+            print(f"{'='*60}")
+            plot_xt_space_pca2_pairwise_comparison(
+                model=model,
+                num_inference_steps=steps,
+                seeds=args.seed,
+                methods=["ddim", "dpm", "dpm_lm", "unipc"],
+                results_dir=results_dir
+            )
