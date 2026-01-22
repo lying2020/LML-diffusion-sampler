@@ -21,9 +21,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import matplotlib
 matplotlib.use('Agg')
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+results_dir = os.path.join(current_dir, 'results')
+pngs_zigzag_dir = os.path.join(results_dir, "zigzag")
+os.makedirs(results_dir, exist_ok=True)
+os.makedirs(pngs_zigzag_dir, exist_ok=True)
+
 # Import schedulers
 from diffusers import DDPMPipeline, DDPMScheduler, DDIMScheduler
-from scheduler.scheduling_dpmsolver_multistep_hcg import DPMSolverMultistepHCGScheduler
+from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 import project as project
 
 # Set matplotlib parameters for ICLR paper format
@@ -71,15 +77,13 @@ class ICLRAnisotropyVisualizer:
             pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
             pipe.scheduler.set_timesteps(self.num_inference_steps)
         elif method_name == 'Hessian_Free':
-            pipe.scheduler = DPMSolverMultistepHCGScheduler.from_config(pipe.scheduler.config)
+            pipe.scheduler = DPMSolverMultistepLMScheduler.from_config(pipe.scheduler.config)
             pipe.scheduler.config.solver_order = 3
             pipe.scheduler.config.algorithm_type = "dpmsolver"
             pipe.scheduler.lamb = 0.0008
             pipe.scheduler.lm = True
             pipe.scheduler.kappa = 1e-8
             pipe.scheduler.hessian_method = ''
-            pipe.scheduler.set_model(pipe.unet)
-            pipe.scheduler.set_timesteps(self.num_inference_steps)
 
         print(f"✓ {method_name} pipeline loaded successfully")
         return pipe
@@ -221,10 +225,8 @@ class ICLRAnisotropyVisualizer:
 
         return pca_model, eigenvalues
 
-    def plot_iclr_anisotropy_comparison(self, trajectories, pca_model, eigenvalues, save_dir=os.path.join(project.output_dir, 'zigzag_cg_hessian')):
+    def plot_iclr_anisotropy_comparison(self, trajectories, pca_model, eigenvalues):
         """Plot ICLR paper format anisotropy comparison - 4 subplots in one row"""
-        os.makedirs(save_dir, exist_ok=True)
-
         # Project trajectories to PCA space
         ddpm_traj = trajectories['DDIM'][0]  # Use first trajectory for visualization
         hessian_traj = trajectories['Hessian_Free'][0]
@@ -275,7 +277,7 @@ class ICLRAnisotropyVisualizer:
 
         # Save the plot with high DPI for ICLR paper
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        save_path = os.path.join(save_dir, f'iclr_anisotropy_analysis_{timestamp}.png')
+        save_path = os.path.join(pngs_zigzag_dir, f'iclr_anisotropy_analysis_{timestamp}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"\n✓ ICLR format anisotropy analysis plot saved to: {save_path}")
 
@@ -367,7 +369,7 @@ def main():
     print("="*80)
 
     # Initialize visualizer
-    visualizer = ICLRAnisotropyVisualizer(n_samples=5000, num_inference_steps=25, num_trajectories=100)
+    visualizer = ICLRAnisotropyVisualizer(n_samples=50, num_inference_steps=25, num_trajectories=10)
 
     try:
         # Generate trajectories for both methods

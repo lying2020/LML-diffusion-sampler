@@ -188,7 +188,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
     print(f"行数（方法数）: {len(sampler_types)}, 列数（图片数）: {grid_test_num}")
     print(f"测试图片索引: {grid_test_index}")
 
-    # 确定 HILDA 行的索引（如果存在）
+    # 确定 GeoDiff 行的索引（如果存在）
     lml_index = None
     if 'dpm_hcg' in sampler_types:
         # 优先使用，如果没有则使用dpm_lm
@@ -196,13 +196,13 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
 
     # 创建图像网格：行 = 方法，列 = 测试图片
     # 所有图片大小一致（所有行的height_ratios都是1.0）
-    # 通过稍微增加HILDA行之前一行的height_ratio来增加间距
+    # 通过稍微增加GeoDiff行之前一行的height_ratio来增加间距
     total_rows = len(sampler_types)
     height_ratios = [1.0] * total_rows
 
-    # 如果存在HILDA行且不是第一行，稍微增加上一行的height_ratio来增加间距
+    # 如果存在GeoDiff行且不是第一行，稍微增加上一行的height_ratio来增加间距
     if lml_index is not None and lml_index > 0:
-        # 增加上一行的height_ratio，这样可以增加HILDA行与上一行之间的间距
+        # 增加上一行的height_ratio，这样可以增加GeoDiff行与上一行之间的间距
         # 使用1.15来稍微增加间距，不会太明显影响图片大小
         height_ratios[lml_index - 1] = 1.0
 
@@ -221,7 +221,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
         'dpm++': 'DPM++',
         'unipc': 'UniPC',
         'dpm_lm': 'LML',
-        'dpm_hcg': 'HILDA\n(Ours)'
+        'dpm_hcg': 'GeoDiff\n(Ours)'
     }
 
     # 为每个采样器生成图像
@@ -277,7 +277,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
     # 如果是SD模型，调整top位置为第一行的文本留出空间
     top_margin = 0.95
     if is_sd_model:
-        top_margin = 0.92  # 为文本留出更多空间
+        top_margin = 1.00  # 为文本留出更多空间
 
     fig = plt.figure(figsize=(grid_test_num * 2.5, total_rows * 2.5))
     gs = GridSpec(total_rows, grid_test_num, figure=fig,
@@ -314,14 +314,14 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
                                 text_x = bbox.x0 + bbox.width / 2  # 图片中心
                                 text_y = bbox.y0 + bbox.height + 0.01  # 图片上方
                                 # 限制文本长度，如果太长则截断并换行
-                                max_length = 30
+                                max_length = 22
                                 if len(prompt_text) > max_length:
                                     # 使用textwrap来换行
                                     wrapped_text = '\n'.join(textwrap.wrap(prompt_text, width=max_length))
                                     prompt_text = wrapped_text
                                 fig.text(text_x, text_y, prompt_text,
                                         ha='center', va='bottom',
-                                        fontsize=11, color='black',
+                                        fontsize=14, color='black',
                                         zorder=200)
                 except Exception as e:
                     print(f"  ⚠️  无法加载图像 {img_path}: {e}")
@@ -346,7 +346,7 @@ def generate_comparison_grid(results_save_dir, sampler_types, num_inference_step
                 text_x = bbox.x0 - 0.01  # 在 subplot 左侧稍微偏左
                 text_y = bbox.y0 + bbox.height / 2  # subplot 的垂直中心
 
-                # 如果是 HILDA 行，文字使用深色（因为背景只在图像区域）
+                # 如果是 GeoDiff 行，文字使用深色（因为背景只在图像区域）
                 text_color = 'black'
 
                 # 在 figure 上添加文字

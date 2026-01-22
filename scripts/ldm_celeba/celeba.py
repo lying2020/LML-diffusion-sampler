@@ -46,17 +46,17 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CelebA-HQ sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=1)
+    parser.add_argument('--test_num', type=int, default=3)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=20, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
+    parser.add_argument('--num_inference_steps', type=int, default=5, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
 
     parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
     parser.add_argument('--seed', type=int, default=302)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
+    parser.add_argument('--sampler_type', type=str, default='dpm++',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
@@ -117,7 +117,7 @@ def parse_args():
     parser.add_argument('--grid_test_num', type=int, default=11, help='Number of images to test in grid')
     # parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
     parser.add_argument('--grid_test_index', type=list, default=[3, 13, 17, 23, 28, 50, 70, 73, 77, 83, 85], help='Index of images to test in grid')
-    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_hcg'],
+    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_hcg'],
                         help='List of samplers to test in batch mode')
 
     # Profiling options

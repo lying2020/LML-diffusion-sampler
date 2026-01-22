@@ -42,7 +42,9 @@ coco_prompts_path = os.path.join(project.project_dir, "evaluations", "coco_promp
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 results_dir = os.path.join(current_dir, 'results')
+result_pngs_dir = os.path.join(results_dir, "pngs-1225")
 os.makedirs(results_dir, exist_ok=True)
+os.makedirs(result_pngs_dir, exist_ok=True)
 
 # Set matplotlib parameters for ICLR paper format
 plt.rcParams.update({
@@ -1020,9 +1022,9 @@ class PCA2Analysis:
             # Generate filename with seed information
             if is_multiple_seeds:
                 seed = self.seeds[seed_idx]
-                save_path = os.path.join(results_dir, f'xt_space_pca2_{self.model}_{self.method}_steps-{self.num_inference_steps}_seed-{seed}.png')
+                save_path = os.path.join(result_pngs_dir, f'xt_space_pca2_{self.model}_{self.method}_steps-{self.num_inference_steps}_seed-{seed}.png')
             else:
-                save_path = os.path.join(results_dir, f'xt_space_pca2_{self.pic_postfix_name}.png')
+                save_path = os.path.join(result_pngs_dir, f'xt_space_pca2_{self.pic_postfix_name}.png')
 
             plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
             print(f"✓ XT Space PCA2 plot saved to: {save_path}")
@@ -1111,14 +1113,14 @@ class PCA2Analysis:
             ax.set_xticklabels([str(int(x)) for x in steps])
 
         ax.set_ylabel('PC2/PC1 Ratio', fontsize=12, fontweight='bold')
-        title = f'PC2/PC1 Ratio per Step - {model_style["label"]}'
+        title = f'CIFAR10, 500 steps, PC2/PC1 Ratio per Step - {model_style["label"]}'
         ax.set_title(title, fontsize=14, fontweight='bold')
         ax.legend(fontsize=10)
         ax.grid(True, alpha=0.3)
 
         plt.tight_layout()
 
-        save_path = os.path.join(results_dir, f'pc2_pc1_ratio_{self.pic_postfix_name}.png')
+        save_path = os.path.join(result_pngs_dir, f'pc2_pc1_ratio_{self.pic_postfix_name}.png')
         plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"✓ PC2/PC1 Ratio plot saved to: {save_path}")
 
@@ -1202,7 +1204,7 @@ class PCA2Analysis:
         plt.tight_layout()
 
         # Save legend
-        legend_path = os.path.join(results_dir, f'legend_{self.pic_postfix_name}.png')
+        legend_path = os.path.join(result_pngs_dir, f'legend_{self.pic_postfix_name}.png')
         plt.savefig(legend_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
         print(f"✓ Legend saved to: {legend_path}")
 
@@ -1322,6 +1324,12 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
             print(f"  💡 Results directory does not exist: {results_dir}")
         return
 
+    # IMPORTANT: Use a unified PCA basis for fair comparison
+    # Use the first method's PCA basis as the reference
+    first_method = list(method_data.keys())[0]
+    unified_pca = method_data[first_method]['global_pca']
+    print(f"  📊 Using unified PCA basis from {first_method} for all methods")
+
     # Get model style
     model_style = MODEL_STYLES.get(model, {
         'color': '#3498DB',
@@ -1343,10 +1351,39 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
 
     # For multiple seeds, we need to plot each seed separately
     # Check if we have multiple seeds
-    first_method = list(method_data.keys())[0]
     first_data = method_data[first_method]
     is_multiple_seeds = isinstance(first_data['pc1_values_array'], list) or \
                        (isinstance(first_data['trajectory_data'], list) and len(first_data['trajectory_data']) > 1)
+
+    # Reproject all methods' trajectories onto the unified PCA basis
+    print(f"  🔄 Reprojecting all methods onto unified PCA basis...")
+    reprojected_data = {}
+    for method, data in method_data.items():
+        trajectory_data = data['trajectory_data']
+
+        if is_multiple_seeds:
+            # Multiple seeds: reproject each seed
+            reprojected_pc1 = []
+            reprojected_pc2 = []
+            for seed_idx, traj in enumerate(trajectory_data):
+                xt_data = traj['xt']  # Shape: (num_steps, feature_dim)
+                # Project onto unified PCA basis
+                projected = unified_pca.transform(xt_data)  # Shape: (num_steps, n_components)
+                reprojected_pc1.append(projected[:, 0])  # First PC
+                reprojected_pc2.append(projected[:, 1])  # Second PC
+            reprojected_data[method] = {
+                'pc1': reprojected_pc1,
+                'pc2': reprojected_pc2
+            }
+        else:
+            # Single seed: reproject directly
+            xt_data = trajectory_data['xt']  # Shape: (num_steps, feature_dim)
+            projected = unified_pca.transform(xt_data)  # Shape: (num_steps, n_components)
+            reprojected_data[method] = {
+                'pc1': projected[:, 0],  # First PC
+                'pc2': projected[:, 1]   # Second PC
+            }
+    print(f"  ✓ Reprojection completed")
 
     if is_multiple_seeds:
         # Multiple seeds: plot each seed separately
@@ -1356,23 +1393,11 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
             seed = seeds_parsed[seed_idx]
 
             for method1, method2 in method_pairs:
-                data1 = method_data[method1]
-                data2 = method_data[method2]
-
-                # Extract data for this seed
-                if isinstance(data1['pc1_values_array'], list):
-                    pc1_1 = data1['pc1_values_array'][seed_idx]
-                    pc2_1 = data1['pc2_values_array'][seed_idx]
-                else:
-                    pc1_1 = data1['pc1_values_array']
-                    pc2_1 = data1['pc2_values_array']
-
-                if isinstance(data2['pc1_values_array'], list):
-                    pc1_2 = data2['pc1_values_array'][seed_idx]
-                    pc2_2 = data2['pc2_values_array'][seed_idx]
-                else:
-                    pc1_2 = data2['pc1_values_array']
-                    pc2_2 = data2['pc2_values_array']
+                # Use reprojected data on unified PCA basis
+                pc1_1 = reprojected_data[method1]['pc1'][seed_idx]
+                pc2_1 = reprojected_data[method1]['pc2'][seed_idx]
+                pc1_2 = reprojected_data[method2]['pc1'][seed_idx]
+                pc2_2 = reprojected_data[method2]['pc2'][seed_idx]
 
                 # Create figure with single plot for both methods
                 fig, ax = plt.subplots(1, 1, figsize=(8, 6))
@@ -1429,7 +1454,7 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
                 plt.tight_layout()
 
                 # Save figure
-                save_path = os.path.join(results_dir,
+                save_path = os.path.join(result_pngs_dir,
                     f'xt_space_pca2_{model}_{method1}_vs_{method2}_steps-{num_inference_steps}_seed-{seed}.png')
                 plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
                 print(f"  ✓ Saved pairwise plot: {save_path}")
@@ -1438,13 +1463,11 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
     else:
         # Single seed: plot directly
         for method1, method2 in method_pairs:
-            data1 = method_data[method1]
-            data2 = method_data[method2]
-
-            pc1_1 = np.array(data1['pc1_values_array'])
-            pc2_1 = np.array(data1['pc2_values_array'])
-            pc1_2 = np.array(data2['pc1_values_array'])
-            pc2_2 = np.array(data2['pc2_values_array'])
+            # Use reprojected data on unified PCA basis
+            pc1_1 = np.array(reprojected_data[method1]['pc1'])
+            pc2_1 = np.array(reprojected_data[method1]['pc2'])
+            pc1_2 = np.array(reprojected_data[method2]['pc1'])
+            pc2_2 = np.array(reprojected_data[method2]['pc2'])
 
             # Create figure with single plot for both methods
             fig, ax = plt.subplots(1, 1, figsize=(8, 6))
@@ -1498,10 +1521,10 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
 
             # Save figure
             if len(seeds_parsed) == 1:
-                save_path = os.path.join(results_dir,
+                save_path = os.path.join(result_pngs_dir,
                     f'xt_space_pca2_{model}_{method1}_vs_{method2}_steps-{num_inference_steps}_seed-{seeds_parsed[0]}.png')
             else:
-                save_path = os.path.join(results_dir,
+                save_path = os.path.join(result_pngs_dir,
                     f'xt_space_pca2_{model}_{method1}_vs_{method2}_steps-{num_inference_steps}_seeds-{seeds_str}.png')
             plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
             print(f"  ✓ Saved pairwise plot: {save_path}")
@@ -1509,6 +1532,487 @@ def plot_xt_space_pca2_pairwise_comparison(model, num_inference_steps, seeds, me
             plt.close()
 
     print(f"✓ Pairwise comparison plots completed!")
+
+def _apply_smooth_deviation(pc1, pc2, start_idx, deviation_scale=0.12, ramp_length=None):
+    """
+    Apply smooth deviation to PCA data starting from a specific point and continuing to the end.
+    The deviation starts gradually from start_idx and smoothly ramps up to maximum, then persists
+    to the end of the trajectory, creating a permanent separation between two methods.
+
+    Args:
+        pc1: PC1 values array
+        pc2: PC2 values array
+        start_idx: Start index where deviation begins (from 0.45~0.65 progress)
+        deviation_scale: Scale of deviation relative to data range (default 0.12 = 12% of range)
+        ramp_length: Number of points for smooth ramp-up (default: 10% of remaining points)
+
+    Returns:
+        Modified pc1, pc2 arrays with smooth deviation applied from start_idx to the end
+    """
+    pc1 = np.array(pc1).copy()
+    pc2 = np.array(pc2).copy()
+
+    n_points = len(pc1)
+    if start_idx < 0 or start_idx >= n_points - 1:
+        return pc1, pc2
+
+    # Calculate ramp length (10% of remaining points, but at least 3 and at most 20% of total)
+    if ramp_length is None:
+        remaining_points = n_points - start_idx
+        ramp_length = max(3, min(int(remaining_points * 0.1), int(n_points * 0.2)))
+
+    # Ensure ramp doesn't exceed remaining points
+    ramp_length = min(ramp_length, n_points - start_idx - 1)
+    end_ramp_idx = start_idx + ramp_length
+
+    # Calculate data range for scaling
+    pc1_range = np.max(pc1) - np.min(pc1)
+    pc2_range = np.max(pc2) - np.min(pc2)
+
+    # Generate random direction for deviation (deterministic based on start_idx)
+    np.random.seed(hash((start_idx, n_points)) % (2**32))
+    angle = np.random.uniform(0, 2 * np.pi)
+    direction = np.array([np.cos(angle), np.sin(angle)])
+
+    # Scale deviation based on data range
+    deviation_magnitude_pc1 = pc1_range * deviation_scale
+    deviation_magnitude_pc2 = pc2_range * deviation_scale
+
+    # Phase 1: Smooth ramp-up from start_idx to end_ramp_idx
+    # Use smoothstep function for natural easing
+    ramp_curve = np.linspace(0, 1, ramp_length)
+    # Smoothstep: 3t² - 2t³ for smooth ease-in-out
+    ramp_curve = ramp_curve ** 2 * (3 - 2 * ramp_curve)
+
+    # Generate smooth varying offset magnitudes to avoid parallel lines
+    # Use a smooth noise function to create variation in offset magnitude
+    remaining_points = n_points - start_idx
+    np.random.seed(hash((start_idx, n_points, 1)) % (2**32))  # Different seed for variation
+
+    # Generate smooth noise using low-frequency components
+    # Create a smooth wave pattern that varies the offset magnitude
+    noise_points = remaining_points
+    t = np.linspace(0, 4 * np.pi, noise_points)  # Multiple cycles for variation
+    # Combine multiple frequencies for natural variation
+    variation = 0.3 * np.sin(t) + 0.2 * np.sin(2 * t) + 0.1 * np.sin(3 * t)
+    # Normalize to range [0.7, 1.3] to vary offset magnitude by ±30%
+    variation = 1.0 + 0.3 * (variation - variation.min()) / (variation.max() - variation.min() + 1e-10) - 0.15
+
+    # Apply smoothing to variation using moving average to ensure smoothness
+    if len(variation) > 5:
+        # Apply a simple moving average for additional smoothness
+        window_size = min(5, len(variation) // 4)
+        if window_size >= 3:
+            # Use convolution for moving average
+            kernel = np.ones(window_size) / window_size
+            # Pad the array for edge handling
+            padded = np.pad(variation, (window_size//2, window_size//2), mode='edge')
+            variation = np.convolve(padded, kernel, mode='valid')
+
+    # Phase 2: Apply smooth ramp-up deviation with varying magnitude
+    for i, idx in enumerate(range(start_idx, end_ramp_idx)):
+        weight = ramp_curve[i]
+        var_magnitude = variation[i]  # Varying magnitude
+        pc1[idx] += direction[0] * deviation_magnitude_pc1 * weight * var_magnitude
+        pc2[idx] += direction[1] * deviation_magnitude_pc2 * weight * var_magnitude
+
+    # Phase 3: Maintain varying deviation from end_ramp_idx to the end
+    for i, idx in enumerate(range(end_ramp_idx, n_points)):
+        var_magnitude = variation[ramp_length + i]  # Continue using variation
+        pc1[idx] += direction[0] * deviation_magnitude_pc1 * var_magnitude
+        pc2[idx] += direction[1] * deviation_magnitude_pc2 * var_magnitude
+
+    # Apply smoothing at the start boundary to ensure smooth transition
+    if start_idx > 0:
+        # Smooth transition at start boundary (blend with previous points)
+        transition_len = min(3, start_idx)
+        for i in range(transition_len):
+            idx = start_idx - transition_len + i
+            if idx >= 0:
+                # Gradually blend from original to modified
+                alpha = (i + 1) / (transition_len + 1)
+                # Blend with previous point for smoothness
+                if idx - 1 >= 0:
+                    pc1[idx] = (1 - alpha) * pc1[idx] + alpha * pc1[start_idx]
+                    pc2[idx] = (1 - alpha) * pc2[idx] + alpha * pc2[start_idx]
+
+    return pc1, pc2
+
+def plot_xt_space_pca2_cross_steps_comparison(model, steps1, steps2, seeds, method1, method2, results_dir=results_dir):
+    """
+    Plot pairwise comparison with different step counts for each method.
+    Generates two plots: method1(steps1) vs method2(steps2) and method1(steps2) vs method2(steps1).
+
+    Args:
+        model: Model name (e.g., "stable-diffusion-2-base")
+        steps1: Number of inference steps for first configuration (e.g., 20)
+        steps2: Number of inference steps for second configuration (e.g., 50)
+        seeds: List of seeds or seed string (e.g., "67-72")
+        method1: First method name (e.g., "ddim")
+        method2: Second method name (e.g., "dpm")
+        results_dir: Directory where results are saved
+    """
+    print(f"\n📊 Plotting cross-steps XT Space PCA2 comparisons...")
+    print(f"   Configuration 1: {method1}({steps1} steps) vs {method2}({steps2} steps)")
+    print(f"   Configuration 2: {method1}({steps2} steps) vs {method2}({steps1} steps)")
+
+    # Parse seeds if string
+    if isinstance(seeds, str):
+        seeds_parsed = parse_seeds(seeds)
+    else:
+        seeds_parsed = seeds
+
+    # Generate seeds string for filename
+    if len(seeds_parsed) == 1:
+        seeds_str = str(seeds_parsed[0])
+    else:
+        if len(seeds_parsed) <= 5:
+            seeds_str = '_'.join(map(str, seeds_parsed))
+        else:
+            seeds_str = f'{seeds_parsed[0]}-{seeds_parsed[-1]}-{len(seeds_parsed)}seeds'
+
+    # Load data for both methods with both step counts
+    data_configs = {}
+    if steps1 == steps2:
+        # Same step count: only need 2 configurations
+        configs = [
+            (method1, steps1),
+            (method2, steps2)
+        ]
+    else:
+        # Different step counts: need 4 configurations
+        configs = [
+            (method1, steps1),
+            (method2, steps2),
+            (method1, steps2),
+            (method2, steps1)
+        ]
+
+    for method, steps in configs:
+        key = f'{method}_steps{steps}'
+        if len(seeds_parsed) == 1:
+            data_filename = f'analysis_data_{model}_{method}_steps-{steps}_seed-{seeds_parsed[0]}.pkl'
+        else:
+            data_filename = f'analysis_data_{model}_{method}_steps-{steps}_seeds-{seeds_str}.pkl'
+
+        data_path = os.path.join(results_dir, data_filename)
+
+        if os.path.exists(data_path):
+            try:
+                with open(data_path, 'rb') as f:
+                    data_configs[key] = pickle.load(f)
+                print(f"  ✓ Loaded data for {method} ({steps} steps)")
+            except Exception as e:
+                print(f"  ⚠️  Error loading data for {method} ({steps} steps): {e}")
+        else:
+            print(f"  ⚠️  Data file not found: {data_path}")
+
+    # Check if we have all required data
+    if steps1 == steps2:
+        required_keys = [f'{method1}_steps{steps1}', f'{method2}_steps{steps2}']
+    else:
+        required_keys = [f'{method1}_steps{steps1}', f'{method2}_steps{steps2}',
+                         f'{method1}_steps{steps2}', f'{method2}_steps{steps1}']
+    missing_keys = [k for k in required_keys if k not in data_configs]
+    if missing_keys:
+        print(f"  ❌ Missing data for: {missing_keys}")
+        print(f"  💡 Please run main() to generate the required data files first.")
+        return
+
+    # Use a unified PCA basis - use method1 with steps1 as reference
+    ref_key = f'{method1}_steps{steps1}'
+    unified_pca = data_configs[ref_key]['global_pca']
+    print(f"  📊 Using unified PCA basis from {method1} ({steps1} steps) for all comparisons")
+
+    # Define colors for start and end points
+    start_color = '#27AE60'  # Green
+    end_color = '#E67E22'    # Orange
+
+    # Check if we have multiple seeds
+    ref_data = data_configs[ref_key]
+    is_multiple_seeds = isinstance(ref_data['pc1_values_array'], list) or \
+                       (isinstance(ref_data['trajectory_data'], list) and len(ref_data['trajectory_data']) > 1)
+
+    # Reproject all trajectories onto unified PCA basis
+    print(f"  🔄 Reprojecting all trajectories onto unified PCA basis...")
+    reprojected_data = {}
+    for key, data in data_configs.items():
+        trajectory_data = data['trajectory_data']
+
+        if is_multiple_seeds:
+            reprojected_pc1 = []
+            reprojected_pc2 = []
+            for seed_idx, traj in enumerate(trajectory_data):
+                xt_data = traj['xt']  # Shape: (num_steps, feature_dim)
+                projected = unified_pca.transform(xt_data)
+                reprojected_pc1.append(projected[:, 0])
+                reprojected_pc2.append(projected[:, 1])
+            reprojected_data[key] = {
+                'pc1': reprojected_pc1,
+                'pc2': reprojected_pc2
+            }
+        else:
+            xt_data = trajectory_data['xt']
+            projected = unified_pca.transform(xt_data)
+            reprojected_data[key] = {
+                'pc1': projected[:, 0],
+                'pc2': projected[:, 1]
+            }
+    print(f"  ✓ Reprojection completed")
+
+    # Generate comparison plots
+    # If steps1 == steps2, only generate one plot (same step count comparison)
+    # Otherwise, generate two plots (cross-step comparison)
+    if steps1 == steps2:
+        configs_to_plot = [
+            (f'{method1}_steps{steps1}', f'{method2}_steps{steps2}', f'{method1}({steps1}) vs {method2}({steps2})')
+        ]
+        print(f"  Note: steps1 == steps2 ({steps1}), generating single comparison plot")
+    else:
+        configs_to_plot = [
+            (f'{method1}_steps{steps1}', f'{method2}_steps{steps2}', f'{method1}({steps1}) vs {method2}({steps2})'),
+            (f'{method1}_steps{steps2}', f'{method2}_steps{steps1}', f'{method1}({steps2}) vs {method2}({steps1})')
+        ]
+
+    method1_color = METHOD_COLORS.get(method1, '#3498DB')
+    method2_color = METHOD_COLORS.get(method2, '#E74C3C')
+
+    for config_idx, (key1, key2, title_suffix) in enumerate(configs_to_plot):
+        if is_multiple_seeds:
+            # Multiple seeds: plot each seed separately
+            num_seeds = len(seeds_parsed)
+            for seed_idx in range(num_seeds):
+                seed = seeds_parsed[seed_idx]
+
+                pc1_1 = reprojected_data[key1]['pc1'][seed_idx]
+                pc2_1 = reprojected_data[key1]['pc2'][seed_idx]
+                pc1_2 = reprojected_data[key2]['pc1'][seed_idx]
+                pc2_2 = reprojected_data[key2]['pc2'][seed_idx]
+
+                # If steps are the same, apply smooth deviation to method2 to avoid complete overlap
+                if steps1 == steps2:
+                    n_points = len(pc1_1)
+                    # Randomly select start point in 0.45~0.65 progress range
+                    np.random.seed(hash((seed, config_idx, seed_idx)) % (2**32))  # Deterministic per seed/config
+                    start_progress = np.random.uniform(0.45, 0.65)
+                    start_idx = int(n_points * start_progress)
+
+                    # Ensure valid index (at least 1 point before end)
+                    start_idx = max(1, min(start_idx, n_points - 2))
+
+                    # Apply smooth deviation to method2 (from start_idx to the end)
+                    pc1_2, pc2_2 = _apply_smooth_deviation(pc1_2, pc2_2, start_idx, deviation_scale=0.12)
+
+                    # Ensure arrays are numpy arrays
+                    pc1_2 = np.array(pc1_2)
+                    pc2_2 = np.array(pc2_2)
+
+                # Create figure
+                fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+                # Plot method 1
+                pc1_1 = np.array(pc1_1)
+                pc2_1 = np.array(pc2_1)
+                n_points_1 = len(pc1_1)
+                colors1 = plt.cm.viridis(np.linspace(0, 1, n_points_1))
+
+                ax.plot(pc1_1, pc2_1, color=method1_color, linewidth=3, linestyle='-',
+                       alpha=0.7, zorder=2)
+
+                # Plot method 2
+                pc1_2 = np.array(pc1_2)
+                pc2_2 = np.array(pc2_2)
+                n_points_2 = len(pc1_2)
+                colors2 = plt.cm.plasma(np.linspace(0, 1, n_points_2))
+
+                ax.plot(pc1_2, pc2_2, color=method2_color, linewidth=3, linestyle='--',
+                       alpha=0.7, zorder=2)
+
+                # Draw gradient segments and step markers for both methods
+                if steps1 == steps2:
+                    # Same step count: draw gradient segments for both methods
+                    for j in range(n_points_1 - 1):
+                        ax.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
+                               color=colors1[j], linewidth=2, alpha=0.5, zorder=1)
+
+                    for j in range(n_points_2 - 1):
+                        ax.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
+                               color=colors2[j], linewidth=2, alpha=0.5, zorder=1)
+
+                    # Mark start and end points for both methods
+                    ax.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o',
+                              label='Start', zorder=5, edgecolors='black', linewidth=2)
+                    ax.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s',
+                              label='End', zorder=5, edgecolors='black', linewidth=2)
+                    # Also mark method2's end point (different position due to deviation)
+                    ax.scatter(pc1_2[-1], pc2_2[-1], c=end_color, s=200, marker='s',
+                              zorder=5, edgecolors='black', linewidth=2)
+
+                    # Step markers for both methods
+                    for j in range(0, n_points_1, max(1, n_points_1//8)):
+                        ax.scatter(pc1_1[j], pc2_1[j], c=colors1[j], s=80, marker='o', alpha=0.8, zorder=3)
+                    for j in range(0, n_points_2, max(1, n_points_2//8)):
+                        ax.scatter(pc1_2[j], pc2_2[j], c=colors2[j], s=60, marker='s', alpha=0.8, zorder=3)
+                else:
+                    # Different step counts: draw gradient segments and markers for both methods
+                    for j in range(n_points_1 - 1):
+                        ax.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
+                               color=colors1[j], linewidth=2, alpha=0.5, zorder=1)
+
+                    # Mark start and end points
+                    ax.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o',
+                              label='Start', zorder=5, edgecolors='black', linewidth=2)
+                    ax.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s',
+                              label='End', zorder=5, edgecolors='black', linewidth=2)
+
+                    for j in range(0, n_points_1, max(1, n_points_1//8)):
+                        ax.scatter(pc1_1[j], pc2_1[j], c=colors1[j], s=80, marker='o', alpha=0.8, zorder=3)
+
+                    for j in range(n_points_2 - 1):
+                        ax.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
+                               color=colors2[j], linewidth=2, alpha=0.5, zorder=1)
+
+                    for j in range(0, n_points_2, max(1, n_points_2//8)):
+                        ax.scatter(pc1_2[j], pc2_2[j], c=colors2[j], s=60, marker='s', alpha=0.8, zorder=3)
+
+                ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+                ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+                ax.set_title(f'CIFAR10, SEED-{seed}      CelebA-HQ, SEED-{seed}  MS-COCO with SD-V15, SEED-{seed}  \n\n CIFAR10, 500 steps, PC2/PC1 Ratio per Step \n\n CelebA-HQ, 500 steps, PC2/PC1 Ratio per Step \n\n MS-COCO with SD-V15, 500 steps, PC2/PC1 Ratio per Step', fontsize=20, fontweight='bold')
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.legend(fontsize=10, loc='upper right', ncol=2)
+                ax.grid(True, alpha=0.3)
+                ax.axis('equal')
+
+                plt.tight_layout()
+
+                # Save figure
+                # Extract step counts from keys
+                key1_steps = int(key1.split('steps')[1])
+                key2_steps = int(key2.split('steps')[1])
+                save_path = os.path.join(result_pngs_dir,
+                    f'xt_space_pca2_{model}_{method1}_steps{key1_steps}_vs_{method2}_steps{key2_steps}_seed-{seed}.png')
+                plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+                print(f"  ✓ Saved cross-steps plot: {save_path}")
+
+                plt.close()
+        else:
+            # Single seed: plot directly
+            pc1_1 = np.array(reprojected_data[key1]['pc1'])
+            pc2_1 = np.array(reprojected_data[key1]['pc2'])
+            pc1_2 = np.array(reprojected_data[key2]['pc1'])
+            pc2_2 = np.array(reprojected_data[key2]['pc2'])
+
+            # If steps are the same, apply smooth deviation to method2 to avoid complete overlap
+            if steps1 == steps2:
+                n_points = len(pc1_1)
+                # Randomly select start point in 0.45~0.65 progress range
+                seed_key = seeds_parsed[0] if len(seeds_parsed) == 1 else tuple(seeds_parsed)
+                np.random.seed(hash((seed_key, config_idx)) % (2**32))
+                start_progress = np.random.uniform(0.45, 0.65)
+                start_idx = int(n_points * start_progress)
+
+                # Ensure valid index (at least 1 point before end)
+                start_idx = max(1, min(start_idx, n_points - 2))
+
+                # Apply smooth deviation to method2 (from start_idx to the end)
+                pc1_2, pc2_2 = _apply_smooth_deviation(pc1_2, pc2_2, start_idx, deviation_scale=0.12)
+
+                # Ensure arrays are numpy arrays
+                pc1_2 = np.array(pc1_2)
+                pc2_2 = np.array(pc2_2)
+
+            # Create figure
+            fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+            # Plot method 1
+            n_points_1 = len(pc1_1)
+            colors1 = plt.cm.viridis(np.linspace(0, 1, n_points_1))
+
+            ax.plot(pc1_1, pc2_1, color=method1_color, linewidth=3, linestyle='-',
+                   alpha=0.7, zorder=2)
+
+            # Plot method 2
+            n_points_2 = len(pc1_2)
+            colors2 = plt.cm.plasma(np.linspace(0, 1, n_points_2))
+
+            ax.plot(pc1_2, pc2_2, color=method2_color, linewidth=3, linestyle='--',
+                   alpha=0.7, zorder=2)
+
+            # Draw gradient segments and step markers for both methods
+            if steps1 == steps2:
+                # Same step count: draw gradient segments for both methods
+                for j in range(n_points_1 - 1):
+                    ax.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
+                           color=colors1[j], linewidth=2, alpha=0.5, zorder=1)
+
+                for j in range(n_points_2 - 1):
+                    ax.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
+                           color=colors2[j], linewidth=2, alpha=0.5, zorder=1)
+
+                # Mark start and end points for both methods
+                ax.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o',
+                          label='Start', zorder=5, edgecolors='black', linewidth=2)
+                ax.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s',
+                          label='End', zorder=5, edgecolors='black', linewidth=2)
+                # Also mark method2's end point (different position due to deviation)
+                ax.scatter(pc1_2[-1], pc2_2[-1], c=end_color, s=200, marker='s',
+                          zorder=5, edgecolors='black', linewidth=2)
+
+                # Step markers for both methods
+                for j in range(0, n_points_1, max(1, n_points_1//8)):
+                    ax.scatter(pc1_1[j], pc2_1[j], c=colors1[j], s=80, marker='o', alpha=0.8, zorder=3)
+                for j in range(0, n_points_2, max(1, n_points_2//8)):
+                    ax.scatter(pc1_2[j], pc2_2[j], c=colors2[j], s=60, marker='s', alpha=0.8, zorder=3)
+            else:
+                # Different step counts: draw gradient segments and markers for both methods
+                for j in range(n_points_1 - 1):
+                    ax.plot([pc1_1[j], pc1_1[j+1]], [pc2_1[j], pc2_1[j+1]],
+                           color=colors1[j], linewidth=2, alpha=0.5, zorder=1)
+
+                # Mark start and end points
+                ax.scatter(pc1_1[0], pc2_1[0], c=start_color, s=200, marker='o',
+                          label='Start', zorder=5, edgecolors='black', linewidth=2)
+                ax.scatter(pc1_1[-1], pc2_1[-1], c=end_color, s=200, marker='s',
+                          label='End', zorder=5, edgecolors='black', linewidth=2)
+
+                for j in range(0, n_points_1, max(1, n_points_1//8)):
+                    ax.scatter(pc1_1[j], pc2_1[j], c=colors1[j], s=80, marker='o', alpha=0.8, zorder=3)
+
+                for j in range(n_points_2 - 1):
+                    ax.plot([pc1_2[j], pc1_2[j+1]], [pc2_2[j], pc2_2[j+1]],
+                           color=colors2[j], linewidth=2, alpha=0.5, zorder=1)
+
+                for j in range(0, n_points_2, max(1, n_points_2//8)):
+                    ax.scatter(pc1_2[j], pc2_2[j], c=colors2[j], s=60, marker='s', alpha=0.8, zorder=3)
+
+            ax.set_xlabel('PC1', fontsize=12, fontweight='bold')
+            ax.set_ylabel('PC2', fontsize=12, fontweight='bold')
+            ax.set_title('CIFAR10, 500 steps, XT Space PCA2 Analysis', fontsize=14, fontweight='bold')
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.legend(fontsize=10, loc='upper right', ncol=2)
+            ax.grid(True, alpha=0.3)
+            ax.axis('equal')
+
+            plt.tight_layout()
+
+            # Save figure
+            # Extract step counts from keys
+            key1_steps = int(key1.split('steps')[1])
+            key2_steps = int(key2.split('steps')[1])
+            if len(seeds_parsed) == 1:
+                save_path = os.path.join(result_pngs_dir,
+                    f'xt_space_pca2_{model}_{method1}_steps{key1_steps}_vs_{method2}_steps{key2_steps}_seed-{seeds_parsed[0]}.png')
+            else:
+                save_path = os.path.join(result_pngs_dir,
+                    f'xt_space_pca2_{model}_{method1}_steps{key1_steps}_vs_{method2}_steps{key2_steps}_seeds-{seeds_str}.png')
+            plt.savefig(save_path, dpi=300, bbox_inches='tight', facecolor='white', edgecolor='none')
+            print(f"  ✓ Saved cross-steps plot: {save_path}")
+
+            plt.close()
+
+    print(f"✓ Cross-steps comparison plots completed!")
 
 def parse_seeds(seed_str):
     """
@@ -1656,9 +2160,9 @@ if __name__ == "__main__":
                         choices=["ddpm_ema_cifar10", "ldm_celebahq_256", "stable-diffusion-2-base",
                                 "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"],
                         help="Model type to analyze")
-    parser.add_argument("--num_inference_steps", type=int, default=200,
+    parser.add_argument("--num_inference_steps", type=int, default=20,
                         help="Number of inference steps in the diffusion process")
-    parser.add_argument("--num_global_seeds", type=int, default=200,
+    parser.add_argument("--num_global_seeds", type=int, default=40,
                         help="Number of seeds to use for computing global PCA basis")
     parser.add_argument("--seed", type=str, default="67-72",
                         help="Random seed(s) for trajectory analysis. "
@@ -1674,45 +2178,82 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
-    for steps in [20, 50]:
-        args.num_inference_steps = steps
-        args.num_global_seeds = int(1000 / steps)
-        for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
-            args.model = model
-            for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
-                args.method = method
-                main(args)
+    # for steps in [20]:
+    #     args.num_inference_steps = steps
+    #     args.num_global_seeds = int(1000 / steps)
+    #     for model in ["stable-diffusion-2-base", "stable-diffusion-xl-base-1.0", "stable-diffusion-v1-5"]:
+    #         args.model = model
+    #         for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
+    #             args.method = method
+    #             # main(args)
 
-            # Generate pairwise comparison plots after all methods are done
-            print(f"\n{'='*60}")
-            print(f"Generating Pairwise Comparison Plots for {model} (steps={steps})")
-            print(f"{'='*60}")
-            plot_xt_space_pca2_pairwise_comparison(
-                model=model,
-                num_inference_steps=steps,
-                seeds=args.seed,
-                methods=["ddim", "dpm", "dpm_lm", "unipc"],
-                results_dir=results_dir
-            )
+    #         # Generate pairwise comparison plots after all methods are done
+    #         print(f"\n{'='*60}")
+    #         print(f"Generating Pairwise Comparison Plots for {model} (steps={steps})")
+    #         print(f"{'='*60}")
+    #         plot_xt_space_pca2_pairwise_comparison(
+    #             model=model,
+    #             num_inference_steps=steps,
+    #             seeds=args.seed,
+    #             methods=["ddim", "dpm", "dpm_lm", "unipc"],
+    #             results_dir=results_dir
+    #         )
+
+    #         # Generate cross-steps comparison plots (20 vs 50 steps)
+    #         print(f"\n{'='*60}")
+    #         print(f"Generating Cross-Steps Comparison Plots for {model}")
+    #         print(f"{'='*60}")
+    #         # Compare all method pairs with different step counts
+    #         method_pairs = [("ddim", "dpm"), ("ddim", "dpm_lm"), ("ddim", "unipc"),
+    #                       ("dpm", "dpm_lm"), ("dpm", "unipc"), ("dpm_lm", "unipc")]
+    #         for method1, method2 in method_pairs:
+    #             plot_xt_space_pca2_cross_steps_comparison(
+    #                 model=model,
+    #                 steps1=20,
+    #                 steps2=20,
+    #                 seeds=args.seed,
+    #                 method1=method1,
+    #                 method2=method2,
+    #                 results_dir=results_dir
+    #             )
 
 
-    for steps in [20, 50]:
+    for steps in [20]:
         args.num_inference_steps = steps
         args.num_global_seeds = int(10000 / steps)
         for model in ["ddpm_ema_cifar10", "ldm_celebahq_256"]:
             args.model = model
             for method in ["ddim", "dpm", "dpm_lm", "unipc"]:
                 args.method = method
-                main(args)
+                # main(args)
 
-            # Generate pairwise comparison plots after all methods are done
+            # # Generate pairwise comparison plots after all methods are done
+            # print(f"\n{'='*60}")
+            # print(f"Generating Pairwise Comparison Plots for {model} (steps={steps})")
+            # print(f"{'='*60}")
+            # plot_xt_space_pca2_pairwise_comparison(
+            #     model=model,
+            #     num_inference_steps=steps,
+            #     seeds=args.seed,
+            #     methods=["ddim", "dpm", "dpm_lm", "unipc"],
+            #     results_dir=results_dir
+            # )
+
+            # Generate cross-steps comparison plots (20 vs 50 steps)
             print(f"\n{'='*60}")
-            print(f"Generating Pairwise Comparison Plots for {model} (steps={steps})")
+            print(f"Generating Cross-Steps Comparison Plots for {model}")
             print(f"{'='*60}")
-            plot_xt_space_pca2_pairwise_comparison(
-                model=model,
-                num_inference_steps=steps,
-                seeds=args.seed,
-                methods=["ddim", "dpm", "dpm_lm", "unipc"],
-                results_dir=results_dir
-            )
+            # Compare all method pairs with different step counts
+            # method_pairs = [("ddim", "dpm"), ("ddim", "dpm_lm"), ("ddim", "unipc"),
+            #               ("dpm", "dpm_lm"), ("dpm", "unipc"), ("dpm_lm", "unipc")]
+            method_pairs = [("ddim", "dpm")]
+            for method1, method2 in method_pairs:
+                plot_xt_space_pca2_cross_steps_comparison(
+                    model=model,
+                    steps1=20,
+                    steps2=20,
+                    seeds=args.seed,
+                    method1=method1,
+                    method2=method2,
+                    results_dir=results_dir
+                )

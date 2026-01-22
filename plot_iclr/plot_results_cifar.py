@@ -56,7 +56,7 @@ class ICLRFIDPlotter:
             'DPM++': sorted(([36.18, 28.27, 24.43, 21.70, 20.08, 18.82, 16.76, 14.51, 12.75, 10.87, 9.36]), reverse=True),
             'PNDM': sorted(([27.40, 24.66, 22.74, 19.62, 16.69, 14.23, 11.80, 8.84, 8.26, 6.99, 6.17]), reverse=True),
             'UniPC': sorted(([35.05, 27.49, 23.88, 21.39, 19.85, 18.67, 16.65, 14.98, 13.11, 11.14, 9.51]), reverse=True),
-            'HILDA (Ours)': sorted(([23.81, 19.34, 17.67, 13.98, 12.70, 11.24, 9.87, 7.78, 6.12, 6.10, 5.28]), reverse=True)
+            'GeoDiff (Ours)': sorted(([23.81, 19.34, 17.67, 13.98, 12.70, 11.24, 9.87, 7.78, 6.12, 6.10, 5.28]), reverse=True)
         }
 
         # Method           Step 5    Step 6    Step 7    Step 8    Step 9    Step 10   Step 12   Step 15   Step 20   Step 30   Step 50
@@ -79,7 +79,7 @@ class ICLRFIDPlotter:
             'DPM++': '#3498DB',       # 蓝色
             'PNDM': '#F39C12',        # 橙色
             'UniPC': '#2ECC71',       # 绿色
-            'HILDA (Ours)': '#E67E22'   # 深橙色（突出显示）
+            'GeoDiff (Ours)': '#E67E22'   # 深橙色（突出显示）
         }
 
         # 线型样式
@@ -89,7 +89,7 @@ class ICLRFIDPlotter:
             'DPM++': '--',
             'PNDM': '--',
             'UniPC': '--',
-            'HILDA (Ours)': '-'  # 实线突出显示
+            'GeoDiff (Ours)': '-'  # 实线突出显示
         }
 
         # 标记样式
@@ -99,7 +99,7 @@ class ICLRFIDPlotter:
             'DPM++': '^',
             'PNDM': 'v',
             'UniPC': 'D',
-            'HILDA (Ours)': 'o'  # 圆形标记
+            'GeoDiff (Ours)': 'o'  # 圆形标记
         }
 
     def plot_fid_results(self, save_dir=plot_results_dir):
@@ -116,7 +116,7 @@ class ICLRFIDPlotter:
             marker = self.markers[method]
 
             # 突出显示LML (Ours)
-            if method == 'HILDA (Ours)':
+            if method == 'GeoDiff (Ours)':
                 ax.plot(self.steps, fid_values,
                        color=color, linestyle=linestyle, marker=marker,
                        linewidth=4, markersize=10, label=method,
@@ -202,7 +202,7 @@ class ICLRFIDPlotter:
             marker = self.markers[method]
 
             # 突出显示LML (Ours)
-            if method == 'HILDA (Ours)':
+            if method == 'GeoDiff (Ours)':
                 ax.plot(self.steps, fid_values,
                        color=color, linestyle=linestyle, marker=marker,
                        linewidth=4, markersize=10, label=method,
@@ -319,14 +319,14 @@ class ICLRFIDPlotter:
                 f.write(f"{method}: Best FID = {best_fid:.2f} at Step {best_step}\n")
 
             # 分析LML (Ours)的优势
-            lml_values = self.fid_data['HILDA (Ours)']
+            lml_values = self.fid_data['GeoDiff (Ours)']
             f.write(f"\nLML (Ours) Performance:\n")
             f.write(f"  - Best FID: {min(lml_values):.2f}\n")
             f.write(f"  - Average FID: {np.mean(lml_values):.2f}\n")
             f.write(f"  - Performance improvement over other methods:\n")
 
             for method, fid_values in self.fid_data.items():
-                if method != 'HILDA (Ours)':
+                if method != 'GeoDiff (Ours)':
                     improvement = np.mean(fid_values) - np.mean(lml_values)
                     f.write(f"    vs {method}: {improvement:.2f} FID improvement\n")
 

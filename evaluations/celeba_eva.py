@@ -236,7 +236,7 @@ def generate_comparison_table(results_dict):
     """Generate comparison table in the format shown in the image"""
 
     # Define the methods in order
-    methods = ['DDIM [75]', 'PNDM [50]', 'DPM [51]', 'DPM++ [52]', 'UniPC [91]', 'HILDA(Ours)']
+    methods = ['DDIM [75]', 'PNDM [50]', 'DPM [51]', 'DPM++ [52]', 'UniPC [91]', 'GeoDiff(Ours)']
 
     # Map sampler types to method names
     sampler_to_method = {
@@ -247,7 +247,7 @@ def generate_comparison_table(results_dict):
         'unipc': 'UniPC [91]',
         # 'dpm_lm': 'LML',
         # 'ddim_lm': 'LML',
-        'dpm_hcg': 'HILDA(Ours)'
+        'dpm_hcg': 'GeoDiff(Ours)'
     }
 
     # Create table data

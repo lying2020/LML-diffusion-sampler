@@ -19,7 +19,7 @@ DPM  [51]   & 22.07 & 20.58 & 19.64 & 19.34 & 19.30 & \underline{17.32} & 14.71 
 DPM++ [52]  & 21.75 & \underline{20.14}  & \underline{19.32}
             & \underline{19.13} & \underline{19.11} & 17.03 & 14.65 & 12.67 \\
 UniPC [91]  & \underline{21.72} & 20.30 & 19.67 & 19.40 & 19.41 & 19.29 & 15.48 & 12.01\\
-\textbf{HILDA (Ours)}
+\textbf{GeoDiff (Ours)}
             & \textbf{17.88} & \textbf{17.13} & \textbf{16.50}
              & \textbf{16.30} & \textbf{16.05} & \textbf{15.48} & \textbf{13.04} & \textbf{10.33}\\
 \hline
@@ -31,7 +31,7 @@ DPM  [51]   & 21.25 & 19.94 & 18.78 & 18.36 & 18.13 & \underline{15.84} & 13.45 
 DPM++ [52]  & 20.94 & 19.51  & \underline{18.43}
             & \underline{18.06} & 17.86 & 15.99  & 14.57 & 10.85\\
 UniPC [91]  & 20.81 & 19.40 & 18.56 & 18.27 & 18.08 & 18.03 & 14.48 & 11.19 \\
-\textbf{HILDA (Ours)}
+\textbf{GeoDiff (Ours)}
             & \textbf{16.76} & \textbf{15.99} & \textbf{15.02}
              & \textbf{14.95} & \textbf{14.76} & \textbf{14.14} &\textbf{12.28} &\textbf{9.89}\\
 \hline
@@ -59,7 +59,7 @@ UniPC [91]  & 20.81 & 19.40 & 18.56 & 18.27 & 18.08 & 18.03 & 14.48 & 11.19 \\
     DPM-Solver++ [52] & 30.18 & 20.27 & 16.43 & 13.70 & 11.08 & 10.82 & 10.76 & 10.51 & 9.35 & 6.36 \\
     UniPC [91] & 29.05 & 20.49 & 16.88 & 13.39 & 11.85 & 10.67 & 9.65 & 7.98 & 6.11 & 4.51 \\
     \midrule
-    HILDA (Ours) & \textbf{16.81} & \textbf{13.34} & \textbf{10.67} & \textbf{7.98} & \textbf{7.40} & \textbf{6.24} & \textbf{5.87} & \textbf{4.78} & \textbf{4.02} & \textbf{3.38} \\
+    GeoDiff (Ours) & \textbf{16.81} & \textbf{13.34} & \textbf{10.67} & \textbf{7.98} & \textbf{7.40} & \textbf{6.24} & \textbf{5.87} & \textbf{4.78} & \textbf{4.02} & \textbf{3.38} \\
     \bottomrule
     \end{tabular}
     \caption{Comparison of different samplers on FID score(↓) on CIFAR-10 unconditional generation. Best results are \textbf{bolded} and the second best results are underlined. The FID scores were obtained by generating 100,000 samples, and all samplers were tested using the same seeds on the same checkpoint. It is shown that our Hessian-Free always achieves the best FID across all different NFEs.}

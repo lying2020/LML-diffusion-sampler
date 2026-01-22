@@ -55,7 +55,7 @@ lambda_nfe50 = lambda_array
 
 # Print data summary
 print("\n" + "="*80)
-print("DATA SUMMARY - FID vs. λ in HILDA")
+print("DATA SUMMARY - FID vs. λ in GeoDiff")
 print("="*80)
 print(f"\nLambda values: {lambda_values}")
 print(f"\nNFE=10 FID values: {fid_nfe10_array}")
@@ -70,7 +70,7 @@ image_info = get_image_info({
     # 必须提供：保存文件名
     'save_title': 'conditional_k',
     # 可选：图表标题
-    'image_title': 'Conditional number $K^*$ in HILDA',
+    'image_title': 'Conditional number $K^*$ in GeoDiff',
     'width': 16,
     'height': 9,
     'fontsize': 40,
@@ -187,7 +187,7 @@ x_max = max(lambda_values)
 lambda_symbol = fr'$\mathbf{{K^*}}$'
 ax.set_xlabel(f'{lambda_symbol}', fontsize=28, fontweight='bold')
 ax.set_ylabel('log-FID', fontsize=28, fontweight='bold')
-ax.set_title(f'log-FID vs. {lambda_symbol} in HILDA',
+ax.set_title(f'log-FID vs. {lambda_symbol} in GeoDiff',
             fontsize=32, fontweight='bold', pad=15)
 
 # Use configure_axes to apply ticks from image_info

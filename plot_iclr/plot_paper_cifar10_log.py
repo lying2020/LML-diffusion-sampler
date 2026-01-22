@@ -63,7 +63,7 @@ if __name__=='__main__':
     fid_values_dpm_solver = [32.63, 22.56, 17.21, 14.21, 12.46, 11.14, 9.34, 5.12, 4.12, 3.75]  # DPM-Solver
     fid_values_dpm_solver_plus = [30.18, 20.27, 16.43, 13.70, 11.08, 10.82, 10.76, 10.51, 9.35, 6.36]  # DPM-Solver++
     fid_values_unipc = [29.05, 20.49, 16.88, 13.39, 11.85, 10.67, 9.65, 7.98, 6.11, 4.51]  # UniPC
-    fid_values_hilda = [16.81, 13.34, 10.67, 7.98, 7.40, 6.24, 5.87, 4.78, 4.02, 3.38]  # HILDA
+    fid_values_geo_diff = [16.81, 13.34, 10.67, 7.98, 7.40, 6.24, 5.87, 4.78, 4.02, 3.38]  # GeoDiff
 
     # 对所有 FID 值取 log
     log_fid_ddim = [np.log(x) for x in fid_values_ddim]
@@ -71,7 +71,7 @@ if __name__=='__main__':
     log_fid_dpm_solver = [np.log(x) for x in fid_values_dpm_solver]
     log_fid_dpm_solver_plus = [np.log(x) for x in fid_values_dpm_solver_plus]
     log_fid_unipc = [np.log(x) for x in fid_values_unipc]
-    log_fid_hilda = [np.log(x) for x in fid_values_hilda]
+    log_fid_geo_diff = [np.log(x) for x in fid_values_geo_diff]
 
     # 直接使用原始 FID 值（不取 log）
     # 设置方差范围：数据点越小，方差也越小
@@ -108,11 +108,11 @@ if __name__=='__main__':
     data_acc_unipc_var = generate_variance(fid_values_unipc, var_min=var_min, var_max=var_max, seed=46)
     data_best_unipc = min(log_fid_unipc)
 
-    # HILDA (Ours)
-    data_epoch_hilda = data_epoch_all
-    data_acc_hilda = log_fid_hilda
-    data_acc_hilda_var = generate_variance(fid_values_hilda, var_min=var_min, var_max=var_max, seed=47)
-    data_best_hilda = min(log_fid_hilda)
+    # GeoDiff (Ours)
+    data_epoch_geo_diff = data_epoch_all
+    data_acc_geo_diff = log_fid_geo_diff
+    data_acc_geo_diff_var = generate_variance(fid_values_geo_diff, var_min=var_min, var_max=var_max, seed=47)
+    data_best_geo_diff = min(log_fid_geo_diff)
 
     # Setup figure
     fig, ax = setup_figure(image_info)
@@ -137,12 +137,12 @@ if __name__=='__main__':
     # 注意：data_info 中的键名保持不变（'dvp', 'autovp', 'ilm_vp', 'smm', 'dam_vp', 'clip_lp'）
     # 因为这些是 plot_utils.py 中定义的键名
 
-    # HILDA (Ours) - 使用 'dvp' 键
+    # GeoDiff (Ours) - 使用 'dvp' 键
     # 使用 scale_to_percent=False，直接使用 log-FID 值，不乘以 100
     # 不使用 offset，直接显示原始 log-FID 值
-    hilda_data = prepare_data(data_epoch_hilda, data_acc_hilda, data_acc_hilda_var, data_info, 'dvp',
+    geo_diff_data = prepare_data(data_epoch_geo_diff, data_acc_geo_diff, data_acc_geo_diff_var, data_info, 'dvp',
                             offset=0, loc0_offset=0, scale_to_percent=False)
-    ax, legend_handles = plot_data(ax, legend_handles, hilda_data, data_info, 'dvp', image_info, fig, offset=[-20, 8])
+    ax, legend_handles = plot_data(ax, legend_handles, geo_diff_data, data_info, 'dvp', image_info, fig, offset=[-20, 8])
 
     # PNDM - 使用 'autovp' 键
     pndm_data = prepare_data(data_epoch_pndm, data_acc_pndm, data_acc_pndm_var, data_info, 'autovp',

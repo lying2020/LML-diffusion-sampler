@@ -26,7 +26,7 @@ from project import results_iclr_path, current_path
 # AE-VP 使用橘黄色: '#FFA500'
 # data_colors = ['blue', 'red', 'orange', 'purple', 'green', 'olive', 'brown', 'magenta', 'cyan', 'crimson', 'gray', 'black']
 # ICLR paper color scheme: monochromatic blue tones with teal and dark gray
-# Index mapping: [0: DDIM, 1: PNDM, 2: DPM-Solver, 3: DPM-Solver++, 4: UniPC, 5: HILDA(Ours)]
+# Index mapping: [0: DDIM, 1: PNDM, 2: DPM-Solver, 3: DPM-Solver++, 4: UniPC, 5: GeoDiff(Ours)]
 # Color scheme from provided image:
 # 0: 珊瑚粉 (Coral Pink) #FF6B6B
 # 1: 钴蓝色 (Cobalt Blue) #4A6FA7
@@ -41,20 +41,20 @@ from project import results_iclr_path, current_path
 # 2: DPM-Solver - #303F9F (中深蓝色)
 # 3: DPM-Solver++ - #5C6BC0 (中蓝色)
 # 4: UniPC - #9FA8DA (浅蓝/淡紫色)
-# 5: HILDA(Ours) - #EAEAF4 (极浅，接近白色)
+# 5: GeoDiff(Ours) - #EAEAF4 (极浅，接近白色)
 # data_colors = ['#1A237E', '#303F9F', '#5C6BC0', '#9FA8DA', '#EAEAF4', '#283593']
 
 # Color scheme from provided gradient images:
-# 调整颜色顺序，让 HILDA (Ours) 使用最醒目的颜色
+# 调整颜色顺序，让 GeoDiff (Ours) 使用最醒目的颜色
 # 0: DDIM - 青绿色 (Teal Green) #2ad4af
 # 1: PNDM - 天蓝色 (Sky Blue) #27a6cc
 # 2: DPM-Solver - 青柠绿 (Lime Green) #98be2c
 # 3: DPM-Solver++ - 深绿色 (Deep Green) #00b168
 # 4: UniPC - 粉红色 (Pink) #fcc5c5
-# 5: HILDA (Ours) - 橙色 (Orange) #fcbd60 - 最醒目的颜色
+# 5: GeoDiff (Ours) - 橙色 (Orange) #fcbd60 - 最醒目的颜色
 data_colors = ['#2ad4af', '#27a6cc', '#98be2c', '#00b168', '#fcc5c5', '#fcbd60']
 
-data_labels = ['DDIM', 'PNDM', 'DPM-Solver', 'DPM-Solver++', 'UniPC', 'HILDA(Ours)']
+data_labels = ['DDIM', 'PNDM', 'DPM-Solver', 'DPM-Solver++', 'UniPC', 'GeoDiff(Ours)']
 # data_markers = ['s', 'o', 'D', 'v', '*', 'p']
 # Marker options: 'o' (circle), 's' (square), 'D' (diamond), 'v' (triangle down),
 # '^' (triangle up), 'h' (hexagon), 'H' (hexagon2), '8' (octagon), 'p' (pentagon),
@@ -130,7 +130,7 @@ def get_image_info(custom_config):
 
 data_info = {
     'dvp': {
-        'wandb_project': 'HILDA-FID',
+        'wandb_project': 'GeoDiff-FID',
         'run_id_list': ['r135lkqo'],
         'metric': 'test_acc',
         'total_timesteps': 5000,
@@ -144,10 +144,10 @@ data_info = {
         'alpha_smooth': 1,
         'fill_in_alpha': 0.2,
         'color':  data_colors[5],
-        'label': 'HILDA (Ours)'
+        'label': 'GeoDiff (Ours)'
     },
     'autovp': {
-        'wandb_project': 'HILDA-FID',
+        'wandb_project': 'GeoDiff-FID',
         'run_id_list': ['t6cb54mn'],
         'metric': 'test_acc',
         'total_timesteps': 20000,
@@ -164,7 +164,7 @@ data_info = {
         'label': 'PNDM',
     },
     'ilm_vp': {
-        'wandb_project': 'HILDA-FID',
+        'wandb_project': 'GeoDiff-FID',
         'run_id_list': ['va2zt7b7'],
         'metric': 'test_acc',
         'total_timesteps': 40000,
@@ -181,7 +181,7 @@ data_info = {
         'label': 'DDIM',
     },
     'clip_lp': {
-        'wandb_project': 'HILDA-FID',
+        'wandb_project': 'GeoDiff-FID',
         'run_id_list': ['y2160vor'],
         'metric': 'test_acc',
         'total_timesteps': 20000,
@@ -198,7 +198,7 @@ data_info = {
         'label': 'UniPC',
     },
     'smm': {
-        'wandb_project': 'HILDA-FID',
+        'wandb_project': 'GeoDiff-FID',
         'run_id_list': ['y2160vor'],
         'metric': 'test_acc',
         'total_timesteps': 20000,
@@ -215,7 +215,7 @@ data_info = {
         'label': 'DPM-Solver++',
     },
     'dam_vp': {
-        'wandb_project': 'HILDA-FID',
+        'wandb_project': 'GeoDiff-FID',
         'run_id_list': ['y2160vor'],
         'metric': 'test_acc',
         'total_timesteps': 20000,

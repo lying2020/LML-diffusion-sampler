@@ -27,7 +27,7 @@ import numpy as np
 import tqdm
 
 celeba_model_path = "/home/liying/Documents/ldm-celebahq-256/"
-output_dir = "/home/user/HILDA_CVPR/output/celeba_ldm/scaling_factor_test"
+output_dir = "/home/user/GeoDiff_CVPR/output/celeba_ldm/scaling_factor_test"
 os.makedirs(output_dir, exist_ok=True)
 
 seed = 5

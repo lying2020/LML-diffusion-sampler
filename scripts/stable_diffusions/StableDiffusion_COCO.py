@@ -65,13 +65,13 @@ def parse_args():
     parser.add_argument('--test_num', type=int, default=1)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=10, choices=[5, 10, 20, 30, 40, 50, 80, 100])
+    parser.add_argument('--num_inference_steps', type=int, default=3, choices=[5, 10, 20, 30, 40, 50, 80, 100])
 
     parser.add_argument('--guidance', type=float, default=7.5)
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm_lm',
+    parser.add_argument('--sampler_type', type=str, default='unipc',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
@@ -92,11 +92,11 @@ def parse_args():
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', help='Run evaluation metrics')
-    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="COCO Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=10, help='Number of images to test in grid')
     parser.add_argument('--grid_test_index', type=list, default=[2, 4, 11, 17, 18, 19, 25, 37, 38, 39], help='Index of images to test in grid')
-    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm++', 'dpm', 'unipc', 'dpm_hcg'],
+    parser.add_argument('--grid_samplers', default=['ddim', 'pndm', 'dpm', 'dpm++', 'unipc', 'dpm_hcg'],
                         help='List of samplers to test in batch mode')
 
     # Batch processing options
@@ -400,6 +400,7 @@ if __name__ == '__main__':
     # 单个实验模式（保持原有逻辑）
     SAMPLER_TYPES = [args.sampler_type]
     INFERENCE_STEPS = [args.num_inference_steps]
+    INFERENCE_STEPS = [3, 5, 7, 10, 15, 20, 50, 100]
 
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:
