@@ -62,16 +62,16 @@ def parse_args():
     parser = argparse.ArgumentParser(description="COCO sampling script with enhanced features")
 
     # Basic parameters
-    parser.add_argument('--test_num', type=int, default=1)
+    parser.add_argument('--test_num', type=int, default=20)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--num_inference_steps', type=int, default=3, choices=[5, 10, 20, 30, 40, 50, 80, 100])
 
-    parser.add_argument('--guidance', type=float, default=7.5)
+    parser.add_argument('--guidance', type=float, default=15.0)
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='unipc',
+    parser.add_argument('--sampler_type', type=str, default='dpm++',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
@@ -79,7 +79,7 @@ def parse_args():
     parser.add_argument('--save_dir', type=str, default='coco')
     parser.add_argument('--model_path', type=str, default=coco_model_path)
     parser.add_argument('--model_type', type=str, default='stable-diffusion-2-base', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
-    parser.add_argument('--coco_prompts_file', type=str, default="coco_top_40_prompts.json", choices=['coco_top_40_prompts.json', 'coco_3w_prompts.json', 'fid_1k_json.json', 'fid_3w_json.json'])
+    parser.add_argument('--coco_prompts_file', type=str, default="coco_top_40_prompts_backup.json", choices=['coco_top_40_prompts.json', 'coco_3w_prompts.json', 'fid_1k_json.json', 'fid_3w_json.json'])
     parser.add_argument('--display_prompts_file', type=str, default="coco_top_40_prompts_display.json")
 
     # LML parameters
@@ -400,7 +400,8 @@ if __name__ == '__main__':
     # 单个实验模式（保持原有逻辑）
     SAMPLER_TYPES = [args.sampler_type]
     INFERENCE_STEPS = [args.num_inference_steps]
-    INFERENCE_STEPS = [3, 5, 7, 10, 15, 20, 50, 100]
+    SAMPLER_TYPES = ['dpm++', 'unipc', 'dpm_lm']
+    INFERENCE_STEPS = [3, 5, 7]
 
     # 检查是否运行批量实验
     if hasattr(args, 'run_batch') and args.run_batch:

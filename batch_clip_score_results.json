@@ -1,0 +1,209 @@
+{
+  "root_dir": "output-260120/coco_stable-diffusion-2-base",
+  "prompts_file": "evaluations/coco_prompts/coco_top_40_prompts.json",
+  "clip_model": "/home/liying/Documents/clip-vit-large-patch14",
+  "total_directories": 38,
+  "evaluated_directories": 11,
+  "results": {
+    "output-260120/coco_stable-diffusion-2-base/steps_10/dpm_lm": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_10/dpm_lm",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 1.3592358827590942,
+        "std": 0.0,
+        "min": 1.3592358827590942,
+        "max": 1.3592358827590942
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_100/unipc": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_100/unipc",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 5.638589859008789,
+        "std": 0.0,
+        "min": 5.638589859008789,
+        "max": 5.638589859008789
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_15/dpm_lm": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_15/dpm_lm",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 3.198904275894165,
+        "std": 0.0,
+        "min": 3.198904275894165,
+        "max": 3.198904275894165
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_15/unipc": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_15/unipc",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 3.0162971019744873,
+        "std": 0.0,
+        "min": 3.0162971019744873,
+        "max": 3.0162971019744873
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_20/dpm_lm": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_20/dpm_lm",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 7.474937915802002,
+        "std": 0.0,
+        "min": 7.474937915802002,
+        "max": 7.474937915802002
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_3/dpm_lm": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_3/dpm_lm",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 7.455599308013916,
+        "std": 0.0,
+        "min": 7.455599308013916,
+        "max": 7.455599308013916
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_3/unipc": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_3/unipc",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 5.427560329437256,
+        "std": 0.0,
+        "min": 5.427560329437256,
+        "max": 5.427560329437256
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_5/dpm_lm": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_5/dpm_lm",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 7.2030487060546875,
+        "std": 0.0,
+        "min": 7.2030487060546875,
+        "max": 7.2030487060546875
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_50/dpm_lm": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_50/dpm_lm",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 30.437028884887695,
+        "std": 0.0,
+        "min": 30.437028884887695,
+        "max": 30.437028884887695
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_7/dpm_lm": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_7/dpm_lm",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 10.068452835083008,
+        "std": 0.0,
+        "min": 10.068452835083008,
+        "max": 10.068452835083008
+      }
+    },
+    "output-260120/coco_stable-diffusion-2-base/steps_7/unipc": {
+      "directory": "output-260120/coco_stable-diffusion-2-base/steps_7/unipc",
+      "num_images": 1,
+      "clip_score": {
+        "mean": 6.882936477661133,
+        "std": 0.0,
+        "min": 6.882936477661133,
+        "max": 6.882936477661133
+      }
+    }
+  },
+  "summary": [
+    {
+      "path": "steps_10/dpm_lm",
+      "steps": 10,
+      "sampler": "dpm_lm",
+      "clip_score_mean": 1.3592358827590942,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_100/unipc",
+      "steps": 100,
+      "sampler": "unipc",
+      "clip_score_mean": 5.638589859008789,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_15/dpm_lm",
+      "steps": 15,
+      "sampler": "dpm_lm",
+      "clip_score_mean": 3.198904275894165,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_15/unipc",
+      "steps": 15,
+      "sampler": "unipc",
+      "clip_score_mean": 3.0162971019744873,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_20/dpm_lm",
+      "steps": 20,
+      "sampler": "dpm_lm",
+      "clip_score_mean": 7.474937915802002,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_3/dpm_lm",
+      "steps": 3,
+      "sampler": "dpm_lm",
+      "clip_score_mean": 7.455599308013916,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_3/unipc",
+      "steps": 3,
+      "sampler": "unipc",
+      "clip_score_mean": 5.427560329437256,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_5/dpm_lm",
+      "steps": 5,
+      "sampler": "dpm_lm",
+      "clip_score_mean": 7.2030487060546875,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_50/dpm_lm",
+      "steps": 50,
+      "sampler": "dpm_lm",
+      "clip_score_mean": 30.437028884887695,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_7/dpm_lm",
+      "steps": 7,
+      "sampler": "dpm_lm",
+      "clip_score_mean": 10.068452835083008,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    },
+    {
+      "path": "steps_7/unipc",
+      "steps": 7,
+      "sampler": "unipc",
+      "clip_score_mean": 6.882936477661133,
+      "clip_score_std": 0.0,
+      "num_images": 1
+    }
+  ]
+}

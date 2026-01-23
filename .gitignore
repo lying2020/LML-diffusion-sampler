@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+output-260120/
+
 plot_iclr/results*
 zigzag_cg_hessian/results*
 # C extensions
