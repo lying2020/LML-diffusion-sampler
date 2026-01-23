@@ -27,7 +27,7 @@ from diffusers import LDMPipeline, DDIMScheduler, PNDMScheduler, UniPCMultistepS
 from scheduler.scheduling_dpmsolver_multistep_lm import DPMSolverMultistepLMScheduler
 from scheduler.scheduling_ddim_lm import DDIMLMScheduler
 from scheduler.scheduling_dpmsolver_multistep_hcg import DPMSolverMultistepHCGScheduler
-
+from scheduler.scheduling_dpmsolver_multistep_geo import DPMSolverMultistepSchedulerGeo
 # Import profiling utilities
 try:
     from utils.profiling import get_profiler, profile
@@ -49,15 +49,15 @@ def parse_args():
     parser.add_argument('--test_num', type=int, default=3)
     parser.add_argument('--start_index', type=int, default=0)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num_inference_steps', type=int, default=5, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
+    parser.add_argument('--num_inference_steps', type=int, default=10, choices=[5, 10, 20, 40, 50, 70, 100, 200, 400, 600, 1000])
 
     parser.add_argument('--scaling_factor', type=float, default=0.18215)
     parser.add_argument('--guidance', type=float, default=7.5)
     parser.add_argument('--seed', type=int, default=302)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm++',
-                        choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'])
+    parser.add_argument('--sampler_type', type=str, default='dpm_geo',
+                        choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg', 'dpm_geo'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
@@ -112,7 +112,7 @@ def parse_args():
 
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true', default=False, help='Run evaluation metrics')
-    parser.add_argument('--generate_grid', action='store_true', default=True, help='Generate comparison grid from existing images')
+    parser.add_argument('--generate_grid', action='store_true', default=False, help='Generate comparison grid from existing images')
     parser.add_argument('--grid_title', type=str, default="CelebA-HQ Generation Comparison", help='Title of comparison grid')
     parser.add_argument('--grid_test_num', type=int, default=11, help='Number of images to test in grid')
     # parser.add_argument('--grid_test_index', type=list, default=[0, 1, 2, 3, 4, 5], help='Index of images to test in grid')
@@ -186,6 +186,11 @@ def setup_scheduler(pipe, sampler_type, lamb=0.0008, kappa=1e-8):
         pipe.scheduler.config.solver_order = 3
         pipe.scheduler.lm = False
         project.info(f"  Using DPM-Solver scheduler")
+    elif sampler_type == 'dpm_geo':
+        pipe.scheduler = DPMSolverMultistepSchedulerGeo.from_config(config_dict)
+        pipe.scheduler.config.algorithm_type = "dpmsolver++"
+        pipe.scheduler.config.solver_order = 3
+        project.info(f"  Using DPM-SolverGeo scheduler")
 
     elif sampler_type == 'unipc':
         pipe.scheduler = UniPCMultistepScheduler.from_config(config_dict)

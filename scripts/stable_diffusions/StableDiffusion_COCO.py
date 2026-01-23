@@ -71,14 +71,14 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=6)
 
     # Sampler selection
-    parser.add_argument('--sampler_type', type=str, default='dpm++',
+    parser.add_argument('--sampler_type', type=str, default='dpm_hcg',
                         choices=['pndm', 'ddim_lm', 'ddim', 'dpm++', 'dpm', 'dpm_lm', 'unipc', 'dpm_hcg'])
     parser.add_argument('--use_generator', action='store_true', default=True)
 
     # Output configuration
     parser.add_argument('--save_dir', type=str, default='coco')
     parser.add_argument('--model_path', type=str, default=coco_model_path)
-    parser.add_argument('--model_type', type=str, default='stable-diffusion-2-base', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
+    parser.add_argument('--model_type', type=str, default='stable-diffusion-xl-base-1.0', choices=['stable-diffusion-v1-5', 'stable-diffusion-xl-base-1.0', 'stable-diffusion-2-base'])
     parser.add_argument('--coco_prompts_file', type=str, default="coco_top_40_prompts_backup.json", choices=['coco_top_40_prompts.json', 'coco_3w_prompts.json', 'fid_1k_json.json', 'fid_3w_json.json'])
     parser.add_argument('--display_prompts_file', type=str, default="coco_top_40_prompts_display.json")
 
@@ -400,7 +400,7 @@ if __name__ == '__main__':
     # 单个实验模式（保持原有逻辑）
     SAMPLER_TYPES = [args.sampler_type]
     INFERENCE_STEPS = [args.num_inference_steps]
-    SAMPLER_TYPES = ['dpm++', 'unipc', 'dpm_lm']
+    # SAMPLER_TYPES = ['dpm++', 'unipc', 'dpm_lm']
     INFERENCE_STEPS = [3, 5, 7]
 
     # 检查是否运行批量实验
